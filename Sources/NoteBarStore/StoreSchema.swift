@@ -121,16 +121,10 @@ extension Attachment {
 /// SQL used by the store. Kept in one place so column order stays consistent.
 enum SQL {
     static let insertFolder = "INSERT INTO folder (name, sortIndex, isPinned, color, createdAt) VALUES (?, ?, ?, ?, ?)"
-    static let updateFolder = "UPDATE folder SET name = ?, sortIndex = ?, isPinned = ?, color = ? WHERE id = ?"
     static let insertNote = """
         INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
-    static let updateNote = """
-        UPDATE note SET folderId = ?, body = ?, color = ?, sortIndex = ?, isPinned = ?, isFolded = ?, mode = ?,
-        createdAt = ?, updatedAt = ? WHERE id = ?
-        """
-    static let updateNoteBody = "UPDATE note SET body = ?, updatedAt = ? WHERE id = ?"
     static let insertAttachment = """
         INSERT INTO attachment (noteId, kind, relativePath, bookmarkData, displayName, createdAt)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -139,16 +133,9 @@ enum SQL {
     static func folderInsertArgs(_ f: Folder) -> StatementArguments {
         [f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970]
     }
-    static func folderUpdateArgs(_ f: Folder) -> StatementArguments {
-        [f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.id]
-    }
     static func noteInsertArgs(_ n: Note) -> StatementArguments {
         [n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
          n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970]
-    }
-    static func noteUpdateArgs(_ n: Note) -> StatementArguments {
-        [n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.id]
     }
     static func attachmentInsertArgs(_ a: Attachment) -> StatementArguments {
         [a.noteId, a.kind.rawValue, a.relativePath, a.bookmarkData, a.displayName, a.createdAt.timeIntervalSince1970]

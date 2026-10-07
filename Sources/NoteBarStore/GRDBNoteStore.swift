@@ -10,6 +10,10 @@ import NoteBarCore
 /// body edits from `updateNoteBody` are persisted with a short debounce (`bodySaveDelay`) and at
 /// the latest after `maxBodySaveDelay` of continuous typing. `flush()` writes them immediately.
 ///
+/// Failed writes are never dropped: the changed records stay pending and are retried with backoff
+/// (see `GRDBNoteStore+Persistence.swift`). `.noteStoreWriteFailed` / `.noteStoreWriteRecovered`
+/// tell the app about a failure episode; `lastError` / `hasPendingChanges` describe the current state.
+///
 /// Semantics follow `InMemoryNoteStore` (the reference implementation).
 @MainActor
 public final class GRDBNoteStore: NoteStore {
@@ -27,12 +31,15 @@ public final class GRDBNoteStore: NoteStore {
     /// Attachment rows that no note body links to are removed at launch once they are older than this.
     public var unreferencedAttachmentGracePeriod: TimeInterval = 24 * 3600
 
-    /// The last persistence error (writes never throw through the `NoteStore` API).
-    public private(set) var lastError: Error?
+    /// The error of the current failure episode (nil once all failed changes are saved again).
+    /// Writes never throw through the `NoteStore` API.
+    public internal(set) var lastError: Error?
+    /// True from a failed write until every pending change is saved again.
+    public internal(set) var writeFailing = false
     /// False between `close()` and `reopen()`. Reads keep working from the cache while closed.
     public var isOpen: Bool { pool != nil }
-    /// True when body edits are waiting for the debounce timer.
-    public var hasPendingChanges: Bool { !pendingBodyIDs.isEmpty }
+    /// True when changes are not in the database yet (debounced body edits, or writes waiting for a retry).
+    public var hasPendingChanges: Bool { pendingCount > 0 }
 
     // MARK: State
     var pool: DatabasePool?
@@ -44,11 +51,24 @@ public final class GRDBNoteStore: NoteStore {
     private var sortedFoldersCache: [Folder]?
     private var sortedNotesCache: [FolderID: [Note]] = [:]
 
-    private var pendingBodyIDs: Set<NoteID> = []
-    private var debounceTimer: Timer?
-    private var firstPendingAt: Date?
+    // Pending changes (written from the cache by `flush()`).
+    var pendingNoteIDs: Set<NoteID> = []
+    var pendingFolderIDs: Set<FolderID> = []
+    var pendingAttachmentIDs: Set<AttachmentID> = []
+    var pendingThemeIDs: Set<String> = []
+    var pendingNoteDeletes: Set<NoteID> = []
+    var pendingFolderDeletes: Set<FolderID> = []
+    var pendingAttachmentDeletes: Set<AttachmentID> = []
+    var pendingThemeDeletes: Set<String> = []
+    var pendingFileRemovals: [Attachment] = []
+
+    var debounceTimer: Timer?
+    var retryTimer: Timer?
+    var retryDelay: TimeInterval = GRDBNoteStore.initialRetryDelay
+    var firstPendingAt: Date?
     private var terminationObserver: NSObjectProtocol?
-    /// Fallback ids for objects created while the database is unavailable (never persisted).
+    /// Ids for objects whose INSERT failed. Negative, so they never collide with AUTOINCREMENT ids;
+    /// the record is inserted with this id by a later `flush()`.
     private var transientID: Int64 = -1
 
     public init(directory: URL = AppPaths.supportDirectory) throws {
@@ -76,6 +96,7 @@ public final class GRDBNoteStore: NoteStore {
         }
         self.pool = pool
         lastError = nil
+        transientID = min(-1, (noteMap.keys.min() ?? 0) - 1, (folderMap.keys.min() ?? 0) - 1)
         ensureFolder()
         pruneUnreferencedAttachments(olderThan: unreferencedAttachmentGracePeriod)
         cleanupOrphanedAttachmentFiles()
@@ -102,7 +123,7 @@ public final class GRDBNoteStore: NoteStore {
     /// Reads keep returning the cached data; writes are kept in memory only until `reopen()`.
     public func close() throws {
         flush()
-        debounceTimer?.invalidate(); debounceTimer = nil
+        cancelTimers()
         guard let pool else { return }
         // Fold the WAL into the main file so the database file alone is complete.
         _ = try? pool.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
@@ -113,7 +134,7 @@ public final class GRDBNoteStore: NoteStore {
     /// Closes (if open) and opens the database in `directory` again, reloads the cache and posts `.all`.
     public func reopen() throws {
         if pool != nil { try close() }
-        pendingBodyIDs.removeAll()
+        discardPending()
         try openDatabase()
         postStoreChange(.all, sender: self)
     }
@@ -141,23 +162,6 @@ public final class GRDBNoteStore: NoteStore {
     }
 
     // MARK: - Write helpers
-
-    /// Runs a write transaction. Returns nil (and records `lastError`) on failure.
-    @discardableResult
-    func write<T>(_ what: String, _ updates: (Database) throws -> T) -> T? {
-        guard let pool else {
-            lastError = NoteStoreError.io("The database is closed (\(what)).")
-            NSLog("NoteBarStore: database closed, not persisted: %@", what)
-            return nil
-        }
-        do {
-            return try pool.write(updates)
-        } catch {
-            lastError = error
-            NSLog("NoteBarStore: %@ failed: %@", what, String(describing: error))
-            return nil
-        }
-    }
 
     private func nextTransientID() -> Int64 { defer { transientID -= 1 }; return transientID }
 
@@ -195,7 +199,7 @@ public final class GRDBNoteStore: NoteStore {
             try db.execute(sql: SQL.insertFolder, arguments: SQL.folderInsertArgs(f))
             return db.lastInsertedRowID
         }
-        f.id = id ?? nextTransientID()
+        if let id { f.id = id } else { f.id = nextTransientID(); pendingFolderIDs.insert(f.id) }
         folderMap[f.id] = f
         sortedFoldersCache = nil
         postStoreChange(.folders, sender: self)
@@ -206,8 +210,9 @@ public final class GRDBNoteStore: NoteStore {
         guard let old = folderMap[folder.id] else { return }
         var f = folder
         f.createdAt = old.createdAt
-        write("update folder") { db in try db.execute(sql: SQL.updateFolder, arguments: SQL.folderUpdateArgs(f)) }
         folderMap[f.id] = f
+        pendingFolderIDs.insert(f.id)
+        flush()
         sortedFoldersCache = nil
         postStoreChange(.folders, sender: self)
     }
@@ -215,38 +220,39 @@ public final class GRDBNoteStore: NoteStore {
     public func deleteFolder(id: FolderID) {
         guard folderMap.count > 1, folderMap[id] != nil else { return }
         let noteIDs = Set(noteMap.values.filter { $0.folderId == id }.map(\.id))
-        let removed = attachmentMap.values.filter { noteIDs.contains($0.noteId) }
-        let deleted = write("delete folder") { db in
-            // Notes + attachments cascade.
-            try db.execute(sql: "DELETE FROM folder WHERE id = ?", arguments: [id])
-        } != nil
-        for nid in noteIDs { noteMap[nid] = nil; pendingBodyIDs.remove(nid) }
-        for a in removed { attachmentMap[a.id] = nil }
+        let (removed, newOwners) = detachAttachments(ofDeleted: noteIDs)
+        for nid in noteIDs { noteMap[nid] = nil; pendingNoteIDs.remove(nid) }
         folderMap[id] = nil
+        pendingFolderIDs.remove(id)
+        // The folder DELETE cascades to its notes and their remaining attachments.
+        pendingFolderDeletes.insert(id)
+        pendingFileRemovals += removed
         invalidateAll()
-        if deleted { deleteImageFiles(of: removed) }
+        flush()
         postStoreChange(.notes(folderId: id), sender: self)
         postStoreChange(.folders, sender: self)
+        for owner in newOwners.sorted() { postStoreChange(.attachments(noteId: owner), sender: self) }
     }
 
     public func moveFolder(id: FolderID, toIndex index: Int) {
-        var list = folders()
-        guard let from = list.firstIndex(where: { $0.id == id }) else { return }
-        var f = list.remove(at: from)
-        let i = max(0, min(index, list.count))
+        let all = folders()
+        guard let f0 = all.first(where: { $0.id == id }) else { return }
+        // Pinned folders always sort first: place the folder among its own zone only, so a move to
+        // the pinned/unpinned boundary uses same-zone neighbors.
+        let others = all.filter { $0.id != id }
+        var list = others.filter { $0.isPinned == f0.isPinned }
+        let offset = f0.isPinned ? 0 : others.count - list.count
+        var f = f0
+        let i = max(0, min(index - offset, list.count))
         let p = Self.placement(at: i, in: list.map(\.sortIndex))
         f.sortIndex = p.value
         var changed = [f]
         for (k, v) in p.renumbered where list[k].sortIndex != v {
             list[k].sortIndex = v; changed.append(list[k])
         }
-        write("move folder") { db in
-            for r in changed {
-                try db.execute(sql: "UPDATE folder SET sortIndex = ? WHERE id = ?", arguments: [r.sortIndex, r.id])
-            }
-        }
-        for r in changed { folderMap[r.id]?.sortIndex = r.sortIndex }
+        for r in changed { folderMap[r.id]?.sortIndex = r.sortIndex; pendingFolderIDs.insert(r.id) }
         sortedFoldersCache = nil
+        flush()
         postStoreChange(.folders, sender: self)
     }
 
@@ -293,11 +299,13 @@ public final class GRDBNoteStore: NoteStore {
                                    : SortIndex.between(list.last?.sortIndex, nil)
         let now = Date.storeNow
         var n = Note(id: 0, folderId: fid, body: body, sortIndex: idx, mode: mode, createdAt: now, updatedAt: now)
+        // A folder whose INSERT failed earlier must reach the database first (foreign key).
+        if pendingFolderIDs.contains(fid) { flush() }
         let id = write("create note") { db -> Int64 in
             try db.execute(sql: SQL.insertNote, arguments: SQL.noteInsertArgs(n))
             return db.lastInsertedRowID
         }
-        n.id = id ?? nextTransientID()
+        if let id { n.id = id } else { n.id = nextTransientID(); pendingNoteIDs.insert(n.id) }
         noteMap[n.id] = n
         invalidateNotes(in: fid)
         postStoreChange(.notes(folderId: fid), sender: self)
@@ -311,7 +319,7 @@ public final class GRDBNoteStore: NoteStore {
         n.updatedAt = .storeNow
         noteMap[id] = n
         replaceInSortedCache(n)
-        pendingBodyIDs.insert(id)
+        pendingNoteIDs.insert(id)
         scheduleBodySave()
         postStoreChange(.noteBody(id: id), sender: self)
     }
@@ -322,10 +330,10 @@ public final class GRDBNoteStore: NoteStore {
         if folderMap[n.folderId] == nil { n.folderId = old.folderId }
         n.createdAt = n.createdAt.storeNormalized
         n.updatedAt = .storeNow
-        write("update note") { db in try db.execute(sql: SQL.updateNote, arguments: SQL.noteUpdateArgs(n)) }
-        // The full record (incl. body) is now persisted.
-        pendingBodyIDs.remove(n.id)
         noteMap[n.id] = n
+        // The full record (incl. a pending body edit) is written now; on failure it stays pending.
+        pendingNoteIDs.insert(n.id)
+        flush()
         let orderChanged = old.isPinned != n.isPinned || old.folderId != n.folderId || old.sortIndex != n.sortIndex
         if orderChanged {
             invalidateNotes(in: old.folderId); invalidateNotes(in: n.folderId)
@@ -342,38 +350,36 @@ public final class GRDBNoteStore: NoteStore {
 
     public func deleteNote(id: NoteID) {
         guard let n = noteMap[id] else { return }
-        let removed = attachmentMap.values.filter { $0.noteId == id }
-        let deleted = write("delete note") { db in
-            try db.execute(sql: "DELETE FROM note WHERE id = ?", arguments: [id])
-        } != nil
+        let (removed, newOwners) = detachAttachments(ofDeleted: [id])
         noteMap[id] = nil
-        pendingBodyIDs.remove(id)
-        for a in removed { attachmentMap[a.id] = nil }
+        pendingNoteIDs.remove(id)
+        // The note DELETE cascades to its remaining attachments.
+        pendingNoteDeletes.insert(id)
+        pendingFileRemovals += removed
         invalidateNotes(in: n.folderId)
-        if deleted { deleteImageFiles(of: removed) }
+        flush()
         postStoreChange(.notes(folderId: n.folderId), sender: self)
         postStoreChange(.folders, sender: self)
+        for owner in newOwners.sorted() { postStoreChange(.attachments(noteId: owner), sender: self) }
     }
 
     public func moveNote(id: NoteID, toIndex index: Int) {
         guard let n0 = noteMap[id] else { return }
-        var list = notes(in: n0.folderId)
-        guard let from = list.firstIndex(where: { $0.id == id }) else { return }
-        var n = list.remove(at: from)
-        let i = max(0, min(index, list.count))
+        // Pinned notes always sort first: place the note among its own zone only (see moveFolder).
+        let others = notes(in: n0.folderId).filter { $0.id != id }
+        var list = others.filter { $0.isPinned == n0.isPinned }
+        let offset = n0.isPinned ? 0 : others.count - list.count
+        var n = n0
+        let i = max(0, min(index - offset, list.count))
         let p = Self.placement(at: i, in: list.map(\.sortIndex))
         n.sortIndex = p.value
         var changed = [n]
         for (k, v) in p.renumbered where list[k].sortIndex != v {
             list[k].sortIndex = v; changed.append(list[k])
         }
-        write("move note") { db in
-            for r in changed {
-                try db.execute(sql: "UPDATE note SET sortIndex = ? WHERE id = ?", arguments: [r.sortIndex, r.id])
-            }
-        }
-        for r in changed { noteMap[r.id]?.sortIndex = r.sortIndex }
+        for r in changed { noteMap[r.id]?.sortIndex = r.sortIndex; pendingNoteIDs.insert(r.id) }
         invalidateNotes(in: n.folderId)
+        flush()
         postStoreChange(.notes(folderId: n.folderId), sender: self)
     }
 
@@ -384,12 +390,10 @@ public final class GRDBNoteStore: NoteStore {
         n.folderId = folderId
         n.sortIndex = position == .top ? SortIndex.between(nil, list.first?.sortIndex)
                                        : SortIndex.between(list.last?.sortIndex, nil)
-        write("move note to folder") { db in
-            try db.execute(sql: "UPDATE note SET folderId = ?, sortIndex = ? WHERE id = ?",
-                           arguments: [n.folderId, n.sortIndex, n.id])
-        }
         noteMap[id] = n
+        pendingNoteIDs.insert(id)
         invalidateNotes(in: old); invalidateNotes(in: folderId)
+        flush()
         postStoreChange(.notes(folderId: old), sender: self)
         if old != folderId { postStoreChange(.notes(folderId: folderId), sender: self) }
         postStoreChange(.folders, sender: self)
@@ -408,6 +412,8 @@ public final class GRDBNoteStore: NoteStore {
     // MARK: - Debounced body persistence
 
     private func scheduleBodySave() {
+        // During a failure episode the retry timer (with backoff) saves the edits.
+        if writeFailing { scheduleRetry(); return }
         let now = Date()
         if firstPendingAt == nil { firstPendingAt = now }
         let deadline = min(now.addingTimeInterval(bodySaveDelay), firstPendingAt!.addingTimeInterval(maxBodySaveDelay))
@@ -417,21 +423,5 @@ public final class GRDBNoteStore: NoteStore {
         }
         RunLoop.main.add(timer, forMode: .common)
         debounceTimer = timer
-    }
-
-    public func flush() {
-        debounceTimer?.invalidate()
-        debounceTimer = nil
-        firstPendingAt = nil
-        guard !pendingBodyIDs.isEmpty, pool != nil else { return }
-        let notes = pendingBodyIDs.compactMap { noteMap[$0] }
-        let ok: Void? = write("save note bodies") { db in
-            for n in notes {
-                try db.execute(sql: SQL.updateNoteBody,
-                               arguments: [n.body, n.updatedAt.timeIntervalSince1970, n.id])
-            }
-        }
-        // On failure the edits stay pending and are retried on the next flush.
-        if ok != nil { pendingBodyIDs.removeAll() }
     }
 }

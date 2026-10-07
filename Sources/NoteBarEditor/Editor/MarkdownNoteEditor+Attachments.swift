@@ -224,7 +224,9 @@ extension MarkdownNoteEditor {
     }
 
     /// Inserts pasted text as markdown (checklists / attachment tokens become live).
-    func insertText(_ str: String, at range: NSRange) {
+    /// Attachment tokens from other notes are cloned into this note first (see `AttachmentRehoming`).
+    func insertText(_ pasted: String, at range: NSRange) {
+        let str = AttachmentRehoming.rehome(pasted, into: noteID, store: env.store)
         let s = textStorage.string as NSString
         let atLineStart = range.location == 0 || UC.isLineTerminator(s.character(at: range.location - 1))
         var opts = codecOptions
@@ -246,12 +248,17 @@ extension MarkdownNoteEditor {
         textView.scrollRangeToVisible(textView.selectedRange())
     }
 
-    func insertFiles(_ urls: [URL], at range: NSRange?) {
-        var added: [Attachment] = []
+    /// Adds the files as attachments and inserts their tokens. Returns (file, attachment) per added file.
+    @discardableResult
+    func insertFiles(_ urls: [URL], at range: NSRange?) -> [(URL, Attachment)] {
+        var added: [(URL, Attachment)] = []
+        var failed = false
         for u in urls {
-            do { added.append(try env.store.addAttachment(to: noteID, fileURL: u)) } catch { NSSound.beep() }
+            do { added.append((u, try env.store.addAttachment(to: noteID, fileURL: u))) } catch { failed = true }
         }
-        insertAttachmentTokens(added, at: range)
+        if failed { NSSound.beep() }
+        insertAttachmentTokens(added.map(\.1), at: range)
+        return added
     }
 
     func insertImageData(_ data: Data, ext: String, at range: NSRange?) {
@@ -291,29 +298,33 @@ extension MarkdownNoteEditor {
             return true
         }
         if let promises = pb.readObjects(forClasses: [NSFilePromiseReceiver.self], options: nil) as? [NSFilePromiseReceiver], !promises.isEmpty {
-            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("NoteBarDrops-\(UUID().uuidString)", isDirectory: true)
-            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            // A persistent folder: non-image files become bookmarks to the received copy.
+            guard let dir = DroppedFileStorage.makeDropFolder() else { NSSound.beep(); return false }
             let mdOffset = MarkdownCodec.markdownOffset(forStorageOffset: range.location, embeds: MarkdownCodec.embeds(in: textStorage))
-            var received: [URL] = []
-            let group = DispatchGroup()
-            for p in promises {
-                group.enter()
-                p.receivePromisedFiles(atDestination: dir, options: [:], operationQueue: .main) { url, error in
-                    if error == nil { received.append(url) }
-                    group.leave()
+            DroppedFileStorage.receive(promises, into: dir) { [weak self] received in
+                guard let self else {
+                    DroppedFileStorage.finishImport(folder: dir, received: received, added: [])
+                    return
                 }
-            }
-            group.notify(queue: .main) { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    let embeds = MarkdownCodec.embeds(in: self.textStorage)
-                    let loc = MarkdownCodec.storageOffset(forMarkdownOffset: min(mdOffset, (self.markdown as NSString).length), embeds: embeds)
-                    self.insertFiles(received, at: NSRange(location: min(loc, self.textStorage.length), length: 0))
-                }
+                if received.isEmpty { NSSound.beep() }
+                let embeds = MarkdownCodec.embeds(in: self.textStorage)
+                let loc = MarkdownCodec.storageOffset(forMarkdownOffset: min(mdOffset, (self.markdown as NSString).length), embeds: embeds)
+                let added = self.insertFiles(received, at: NSRange(location: min(loc, self.textStorage.length), length: 0))
+                DroppedFileStorage.finishImport(folder: dir, received: received, added: added)
+                Self.pruneDroppedFilesOnce(store: self.env.store)
             }
             return true
         }
         return false
+    }
+
+    private static var didPruneDroppedFiles = false
+
+    /// Removes unreferenced drop folders once per process, after the first promise drop.
+    static func pruneDroppedFilesOnce(store: NoteStore) {
+        guard !didPruneDroppedFiles else { return }
+        didPruneDroppedFiles = true
+        DroppedFileStorage.pruneUnreferenced(store: store)
     }
 }
 

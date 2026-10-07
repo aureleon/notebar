@@ -11,12 +11,19 @@ public final class SettingsModels {
 
     let launch = LaunchAtLoginModel()
     let themes: ThemesModel
+    /// Which global shortcuts macOS refused to register (shown in the Shortcuts pane).
+    public let hotkeyStatus: HotkeyRegistrationStatus
     lazy var backups = BackupsModel(models: self)
     lazy var about = AboutModel(store: env.store)
 
-    public init(env: AppEnvironment) {
+    public convenience init(env: AppEnvironment) {
+        self.init(env: env, hotkeyStatus: .shared)
+    }
+
+    public init(env: AppEnvironment, hotkeyStatus: HotkeyRegistrationStatus) {
         self.env = env
         self.themes = ThemesModel(env: env)
+        self.hotkeyStatus = hotkeyStatus
     }
 
     /// Re-reads values that can change outside the settings window (login item, backups, themes).
@@ -25,6 +32,7 @@ public final class SettingsModels {
         themes.reload()
         backups.refresh()
         about.refresh()
+        hotkeyStatus.refreshIfNeeded()
     }
 
     /// Writes pending edits (the theme editor debounces saves).
@@ -76,22 +84,33 @@ public final class SettingsModels {
 final class LaunchAtLoginModel: ObservableObject {
     @Published private(set) var state: LaunchAtLogin.State = .disabled
     @Published private(set) var lastError: String?
+    /// The last enable attempt was refused because the user turned NoteBar off in Login Items.
+    @Published private(set) var deniedByUser = false
 
     init() { refresh() }
 
     var isOn: Bool { state != .disabled }
 
+    /// Show the "Open Login Items Settings…" button.
+    var showsLoginItemsButton: Bool { state == .requiresApproval || deniedByUser }
+
     func refresh() {
-        LaunchAtLogin.repairLaunchAgentIfNeeded()
+        LaunchAtLogin.removeRedundantLaunchAgent()
         state = LaunchAtLogin.state
+        if state != .disabled, deniedByUser { deniedByUser = false; lastError = nil }
     }
 
     func set(_ on: Bool) {
         do {
             try LaunchAtLogin.setEnabled(on)
             lastError = nil
+            deniedByUser = false
+        } catch LaunchAtLogin.Failure.needsApproval {
+            lastError = LaunchAtLogin.Failure.needsApproval.errorDescription
+            deniedByUser = true
         } catch {
             lastError = error.localizedDescription
+            deniedByUser = false
         }
         refresh()
     }

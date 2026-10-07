@@ -107,18 +107,17 @@ extension GRDBNoteStore {
         else { return }
         a.bookmarkData = fresh
         attachmentMap[id] = a
-        write("refresh bookmark") { db in
-            try db.execute(sql: "UPDATE attachment SET bookmarkData = ? WHERE id = ?", arguments: [fresh, id])
-        }
+        pendingAttachmentIDs.insert(id)
+        flush()
     }
 
     public func deleteAttachment(id: AttachmentID) {
         guard let a = attachmentMap[id] else { return }
-        let deleted = write("delete attachment") { db in
-            try db.execute(sql: "DELETE FROM attachment WHERE id = ?", arguments: [id])
-        } != nil
         attachmentMap[id] = nil
-        if deleted { deleteImageFiles(of: [a]) }
+        pendingAttachmentIDs.remove(id)
+        pendingAttachmentDeletes.insert(id)
+        pendingFileRemovals.append(a)
+        flush()
         postStoreChange(.attachments(noteId: a.noteId), sender: self)
     }
 
@@ -162,12 +161,10 @@ extension GRDBNoteStore {
         let victims = attachmentMap.values.filter { !linked.contains($0.id) && $0.createdAt < cutoff }
         guard !victims.isEmpty else { return 0 }
         let ids = victims.map(\.id)
-        guard write("prune attachments", { db in
-            try db.execute(sql: "DELETE FROM attachment WHERE id IN (\(ids.map { _ in "?" }.joined(separator: ",")))",
-                           arguments: StatementArguments(ids))
-        }) != nil else { return 0 }
-        for id in ids { attachmentMap[id] = nil }
-        deleteImageFiles(of: victims)
+        for id in ids { attachmentMap[id] = nil; pendingAttachmentIDs.remove(id) }
+        pendingAttachmentDeletes.formUnion(ids)
+        pendingFileRemovals += victims
+        flush()
         return victims.count
     }
 

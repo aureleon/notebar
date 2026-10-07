@@ -50,10 +50,10 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func moveFolder(id: FolderID, toIndex index: Int) {
-        var list = folders()
-        guard let from = list.firstIndex(where: { $0.id == id }) else { return }
-        var f = list.remove(at: from)
-        let i = max(0, min(index, list.count))
+        guard var f = folderMap[id] else { return }
+        let others = folders().filter { $0.id != id }
+        let list = others.filter { $0.isPinned == f.isPinned }   // same zone only (pinned sort first)
+        let i = max(0, min(index - (f.isPinned ? 0 : others.count - list.count), list.count))
         f.sortIndex = SortIndex.between(i > 0 ? list[i - 1].sortIndex : nil, i < list.count ? list[i].sortIndex : nil)
         folderMap[id] = f
         postStoreChange(.folders, sender: self)
@@ -116,10 +116,10 @@ public final class InMemoryNoteStore: NoteStore {
 
     public func moveNote(id: NoteID, toIndex index: Int) {
         guard let n0 = noteMap[id] else { return }
-        var list = notes(in: n0.folderId)
-        guard let from = list.firstIndex(where: { $0.id == id }) else { return }
-        var n = list.remove(at: from)
-        let i = max(0, min(index, list.count))
+        var n = n0
+        let others = notes(in: n0.folderId).filter { $0.id != id }
+        let list = others.filter { $0.isPinned == n0.isPinned }   // same zone only (pinned sort first)
+        let i = max(0, min(index - (n0.isPinned ? 0 : others.count - list.count), list.count))
         n.sortIndex = SortIndex.between(i > 0 ? list[i - 1].sortIndex : nil, i < list.count ? list[i].sortIndex : nil)
         noteMap[id] = n
         postStoreChange(.notes(folderId: n.folderId), sender: self)

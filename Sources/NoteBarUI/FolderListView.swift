@@ -306,11 +306,11 @@ final class FolderListDocView: NSView, NSDraggingSource {
             owner.delegate?.folderList(owner, dropNote: noteId, on: row.folder.id)
             return true
         }
-        if let payload = PasteboardImport.payload(from: pb) {
-            owner.delegate?.folderList(owner, drop: payload, on: row.folder.id)
-            return true
+        let folderId = row.folder.id
+        return PasteboardImport.receive(from: pb) { [weak owner] payload in
+            guard let owner else { return }
+            owner.delegate?.folderList(owner, drop: payload, on: folderId)
         }
-        return false
     }
 
     private func showIndicator(gap: Int) {

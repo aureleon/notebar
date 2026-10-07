@@ -16,6 +16,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
     /// Optional: lets the menu list shortcuts that failed to register even if the registration
     /// notification was posted before this controller existed.
     public weak var hotkeyCenter: HotkeyCenter?
+    /// App-level problems (for example "can't save changes"), keyed by a caller-chosen id. While any
+    /// is set, the icon gets a badge dot and the menu lists the messages.
+    private var warnings: [(key: String, message: String)] = []
 
     private var failedHotkeys: [HotkeyAction] {
         if let hotkeyCenter { return HotkeyAction.allCases.filter { hotkeyCenter.failedActions.contains($0) } }
@@ -38,6 +41,15 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         updateIcon()
         installObservers()
     }
+
+    /// Sets (or clears, with nil) one warning shown as a badge on the icon and as a menu line.
+    public func setWarning(_ message: String?, for key: String) {
+        warnings.removeAll { $0.key == key }
+        if let message { warnings.append((key, message)) }
+        updateIcon()
+    }
+
+    public var hasWarnings: Bool { !warnings.isEmpty }
 
     // MARK: Click
 
@@ -96,6 +108,16 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
             menu.addItem(ClosureMenuItem("Show Open Bar") { s.showOpenBar = true })
         }
 
+        if !warnings.isEmpty {
+            menu.addItem(.separator())
+            for w in warnings {
+                let item = NSMenuItem(title: w.message, action: nil, keyEquivalent: "")
+                item.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: "Warning")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+        }
+
         if !failedHotkeys.isEmpty {
             menu.addItem(.separator())
             for action in failedHotkeys {
@@ -125,12 +147,34 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         let image = NSImage(systemSymbolName: name, accessibilityDescription: "NoteBar")
             ?? NSImage(systemSymbolName: "note.text", accessibilityDescription: "NoteBar")
         image?.isTemplate = true
-        button.image = image
+        button.image = warnings.isEmpty ? image : image.map(Self.badged)
         button.imagePosition = .imageOnly
         var tip = "NoteBar"
         if let combo = env.settings.hotkeys[.togglePanel] { tip += " (\(combo.displayString))" }
         tip += "\nClick to show or hide, right-click for the menu"
+        for w in warnings { tip += "\n⚠ \(w.message)" }
         button.toolTip = tip
+        button.setAccessibilityLabel(warnings.isEmpty ? "NoteBar" : "NoteBar, \(warnings.count) warning\(warnings.count == 1 ? "" : "s")")
+    }
+
+    /// The icon with a filled dot in the top-right corner (still a template image).
+    private static func badged(_ base: NSImage) -> NSImage {
+        let size = NSSize(width: max(base.size.width, 18), height: max(base.size.height, 16))
+        let image = NSImage(size: size, flipped: false) { rect in
+            let b = base.size
+            let origin = NSPoint(x: (rect.width - b.width) / 2 - 1, y: (rect.height - b.height) / 2)
+            let dot = NSRect(x: rect.maxX - 7, y: rect.maxY - 7, width: 7, height: 7)
+            base.draw(in: NSRect(origin: origin, size: b))
+            // Knock out a ring around the dot so it reads on top of the symbol.
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.5, dy: -1.5)).fill()
+            NSGraphicsContext.current?.compositingOperation = .sourceOver
+            NSColor.black.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     private func installObservers() {

@@ -1,4 +1,5 @@
 import Foundation
+import NoteBarCore
 
 /// Result of a pure text transformation: the new markdown and the new selection (UTF-16 offsets).
 public struct TextEditResult: Equatable, Sendable {
@@ -221,6 +222,8 @@ public enum FormatEditing {
             if case .link = $0.kind { return $0.range.location <= sel.location && sel.end <= $0.range.end }
             return false
         }) {
+            // Images and file tiles are attachment tokens, not links: never unwrap or nest them.
+            if isAttachmentToken(link) { return TextEditResult(text: text, selection: sel) }
             let edits = link.markers.map { TextEdit(range: $0, replacement: "") }
             return result(text, edits, sel, startAfter: true, endAfter: false)
         }
@@ -386,6 +389,12 @@ public enum FormatEditing {
 
     // MARK: - Clear formatting
 
+    /// `![name](attachment:ID)` / `[name](attachment:ID)` — rendered as an image or file tile.
+    static func isAttachmentToken(_ span: InlineSpan) -> Bool {
+        if case .link(let url) = span.kind { return url.hasPrefix(AttachmentLink.scheme + ":") }
+        return false
+    }
+
     /// Removes inline markers, heading/quote markers and code fences in the selected lines
     /// (the whole caret line when nothing is selected). Lists, checklists and attachments stay.
     public static func clearFormatting(text: String, selection sel: NSRange) -> TextEditResult {
@@ -400,8 +409,12 @@ public enum FormatEditing {
             case .heading, .quote: ranges.append(line.markerRange)
             default: break
             }
-            for span in InlineParser.parse(ns, in: line.contentRange) where !span.markers.isEmpty {
+            let spans = InlineParser.parse(ns, in: line.contentRange)
+            // Attachment tokens (images, file tiles) and everything inside their labels stay intact.
+            let protected = spans.filter(isAttachmentToken).map(\.range)
+            for span in spans where !span.markers.isEmpty {
                 if case .escape = span.kind { continue }
+                if protected.contains(where: { $0.location <= span.range.location && span.range.end <= $0.end }) { continue }
                 if sel.length == 0 || NSIntersectionRange(span.range, sel).length > 0 {
                     ranges += span.markers
                 }

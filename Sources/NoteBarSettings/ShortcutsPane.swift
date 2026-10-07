@@ -25,12 +25,22 @@ enum HotkeyConflicts {
         KeyCombo(keyCode: 0x02, carbonModifiers: cmd | opt): "showing and hiding the Dock",
     ]
 
-    /// A warning for one action, or nil.
-    static func warning(for action: HotkeyAction, in hotkeys: [HotkeyAction: KeyCombo]) -> String? {
+    /// A warning for one action, or nil. `failed`: actions that macOS refused to register.
+    static func warning(for action: HotkeyAction, in hotkeys: [HotkeyAction: KeyCombo],
+                        failed: Set<HotkeyAction> = []) -> String? {
         guard let combo = hotkeys[action] else { return nil }
         let others = HotkeyAction.allCases.filter { $0 != action && hotkeys[$0] == combo }
         if let other = others.first {
             return "\(combo.displayString) is also used for “\(other.displayName)”. Only one of them works."
+        }
+        if let problem = ShortcutRecorderView.problem(with: combo) {
+            return problem.message(for: combo)
+        }
+        if failed.contains(action) {
+            if let name = system[combo] {
+                return "Could not register \(combo.displayString): it is the system shortcut for \(name)."
+            }
+            return "Could not register \(combo.displayString): another app uses it. Record a different shortcut."
         }
         if let name = system[combo] {
             return "\(combo.displayString) is the system shortcut for \(name)."
@@ -45,7 +55,7 @@ enum HotkeyConflicts {
 
 struct ShortcutsPane: View {
     @ObservedObject var settings: AppSettings
-
+    @ObservedObject var registration: HotkeyRegistrationStatus
     private static let panelShortcuts: [(String, String)] = [
         ("Move to Folder…", "⇧⌘M"),
         ("Move to a New Folder", "⌥⌘M"),
@@ -56,10 +66,11 @@ struct ShortcutsPane: View {
 
     var body: some View {
         let hotkeys = settings.hotkeys
+        let failed = registration.failed
         Form {
             Section {
                 ForEach(HotkeyAction.allCases, id: \.self) { action in
-                    let warning = HotkeyConflicts.warning(for: action, in: hotkeys)
+                    let warning = HotkeyConflicts.warning(for: action, in: hotkeys, failed: failed)
                     LabeledContent {
                         HStack(spacing: 8) {
                             if warning != nil {
@@ -83,7 +94,7 @@ struct ShortcutsPane: View {
                 Text("Global Shortcuts")
             } footer: {
                 FootnoteText("These work in every app, also when the panel is hidden. Click a field and type the new shortcut. "
-                             + "A shortcut needs ⌘, ⌃ or ⌥. Press Esc to cancel and Delete to remove a shortcut.")
+                             + "A shortcut needs ⌘ or ⌃ and can add ⌥ and ⇧. Press Esc to cancel and Delete to remove a shortcut.")
             }
 
             Section {

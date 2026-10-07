@@ -71,6 +71,8 @@ for _ in $(seq 1 100); do
 done
 kill -0 "$PID" 2>/dev/null || { echo "NoteBar exited during launch; log:"; cat "$LOG"; exit 1; }
 check "AppleScript responds" "NoteBar" "$(ascript 'name')"
+# A first launch (empty data folder) reveals the panel once; start the checks from a hidden panel.
+sleep 0.5; ascript 'hide notebar' >/dev/null; sleep 0.5
 
 echo "== URL scheme"
 STAMP="smoke$$"

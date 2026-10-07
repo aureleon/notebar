@@ -6,6 +6,13 @@ import ServiceManagement
 /// First choice: `SMAppService.mainApp` (a real Login Item). With an ad-hoc signature, or when the
 /// binary is not inside an app bundle, `register()` can fail. Then NoteBar writes a LaunchAgent
 /// (`~/Library/LaunchAgents/local.dhguz.NoteBar.plist`) that runs the current executable at login.
+///
+/// Rules that keep exactly one mechanism active:
+/// - When the user turned NoteBar off in System Settings › Login Items (`.requiresApproval`), NoteBar
+///   does not install the LaunchAgent. The user must approve the login item there.
+/// - When the login item is enabled, a LaunchAgent is redundant and is removed.
+/// - Automatic repairs only run from the real installed app (bundle id `local.dhguz.NoteBar` in
+///   /Applications or ~/Applications), so dev builds and test copies cannot take over the agent.
 public enum LaunchAtLogin {
     public enum State: Equatable, Sendable {
         /// Nothing starts NoteBar at login.
@@ -21,6 +28,8 @@ public enum LaunchAtLogin {
 
     public enum Failure: LocalizedError {
         case noExecutable
+        /// The user turned NoteBar off in System Settings › General › Login Items.
+        case needsApproval
         case couldNotEnable(loginItem: Error, launchAgent: Error)
         case couldNotDisable(Error)
 
@@ -28,6 +37,8 @@ public enum LaunchAtLogin {
             switch self {
             case .noExecutable:
                 return "NoteBar cannot find its own executable."
+            case .needsApproval:
+                return "NoteBar is turned off in System Settings › General › Login Items. Turn it on there."
             case .couldNotEnable(let a, let b):
                 return "NoteBar cannot start at login. Login item: \(a.localizedDescription) Launch agent: \(b.localizedDescription)"
             case .couldNotDisable(let e):
@@ -37,6 +48,8 @@ public enum LaunchAtLogin {
     }
 
     public static let launchAgentLabel = "local.dhguz.NoteBar"
+    /// The bundle identifier of the real app. Copies with another identifier never touch the agent automatically.
+    public static let canonicalBundleIdentifier = "local.dhguz.NoteBar"
 
     public static var launchAgentURL: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -47,9 +60,13 @@ public enum LaunchAtLogin {
     /// The real current state (read from the system each time).
     public static var state: State {
         switch SMAppService.mainApp.status {
-        case .enabled: return .loginItem
-        case .requiresApproval: return .requiresApproval
-        default: return isLaunchAgentInstalled ? .launchAgent : .disabled
+        case .enabled:
+            return .loginItem
+        case .requiresApproval:
+            // A LaunchAgent from an earlier version still starts NoteBar: report that, it is the truth.
+            return isLaunchAgentInstalled ? .launchAgent : .requiresApproval
+        default:
+            return isLaunchAgentInstalled ? .launchAgent : .disabled
         }
     }
 
@@ -74,15 +91,54 @@ public enum LaunchAtLogin {
         SMAppService.openSystemSettingsLoginItems()
     }
 
-    /// If the LaunchAgent points to a different executable (the app was moved or rebuilt to a
-    /// new place), rewrite it. Only runs from a real `.app` bundle so dev builds do not take over.
+    // MARK: Maintenance (call at launch)
+
+    /// True when this process is the real installed NoteBar: bundle id `local.dhguz.NoteBar`,
+    /// inside /Applications or ~/Applications (also in a subfolder).
+    public static var isInstalledCopy: Bool {
+        isInstalledCopy(bundleIdentifier: Bundle.main.bundleIdentifier, bundleURL: Bundle.main.bundleURL)
+    }
+
+    static func isInstalledCopy(bundleIdentifier: String?, bundleURL: URL) -> Bool {
+        guard bundleIdentifier == canonicalBundleIdentifier, bundleURL.pathExtension == "app" else { return false }
+        let path = bundleURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let roots = ["/Applications",
+                     FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications").path]
+        return roots.contains { path.hasPrefix($0 + "/") }
+    }
+
+    /// Fixes the LaunchAgent at launch:
+    /// - removes it when the login item is enabled (else NoteBar would start twice), and
+    /// - points it at this executable when the app was moved or reinstalled.
+    ///
+    /// Only the real app does this: same bundle id, and either installed in an Applications folder or
+    /// the old target no longer exists. So build/NoteBar.app or a renamed test copy cannot take over.
     public static func repairLaunchAgentIfNeeded() {
+        guard Bundle.main.bundleIdentifier == canonicalBundleIdentifier else { return }
+        removeRedundantLaunchAgent()
         guard isLaunchAgentInstalled, Bundle.main.bundleURL.pathExtension == "app",
               let exe = Bundle.main.executablePath else { return }
+        let target = launchAgentProgram()
+        guard target != exe else { return }
+        let targetGone = target.map { !FileManager.default.isExecutableFile(atPath: $0) } ?? true
+        guard isInstalledCopy || targetGone else { return }
+        try? installLaunchAgent()
+    }
+
+    /// Removes the LaunchAgent when the login item is enabled: both would start NoteBar at login.
+    /// Only acts in the real app (bundle id `local.dhguz.NoteBar`).
+    public static func removeRedundantLaunchAgent() {
+        guard Bundle.main.bundleIdentifier == canonicalBundleIdentifier, isLaunchAgentInstalled,
+              SMAppService.mainApp.status == .enabled else { return }
+        removeLaunchAgent()
+    }
+
+    /// The executable the installed LaunchAgent runs, or nil.
+    public static func launchAgentProgram() -> String? {
         guard let data = try? Data(contentsOf: launchAgentURL),
               let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let args = plist["ProgramArguments"] as? [String] else { return }
-        if args.first != exe { try? installLaunchAgent() }
+              let args = plist["ProgramArguments"] as? [String] else { return nil }
+        return args.first
     }
 
     /// The LaunchAgent plist for `executablePath` (XML property list).
@@ -101,14 +157,29 @@ public enum LaunchAtLogin {
 
     // MARK: Private
 
+    /// True when `register()` failed only because the user turned the login item off in
+    /// System Settings. The user must approve it there; a LaunchAgent would bypass that choice.
+    static func needsApproval(after error: Error, status: SMAppService.Status) -> Bool {
+        if status == .requiresApproval { return true }
+        let ns = error as NSError
+        guard ns.domain != NSCocoaErrorDomain, ns.domain != NSPOSIXErrorDomain else { return false }
+        return ns.code == Int(kSMErrorLaunchDeniedByUser)
+    }
+
     private static func enable() throws {
         let service = SMAppService.mainApp
         if service.status == .enabled { removeLaunchAgent(); return }
         do {
             try service.register()
-            // Do not start twice at login.
-            removeLaunchAgent()
+            // Do not start twice at login. (If the item still needs approval, keep a working agent.)
+            if service.status == .enabled { removeLaunchAgent() }
         } catch let loginItemError {
+            // Turned off in System Settings › Login Items: the UI shows "Open Login Items Settings…".
+            if needsApproval(after: loginItemError, status: service.status) {
+                // `.requiresApproval` explains itself through `state`; otherwise tell the caller.
+                if service.status == .requiresApproval { return }
+                throw Failure.needsApproval
+            }
             do {
                 try installLaunchAgent()
             } catch let agentError {

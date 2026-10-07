@@ -119,7 +119,8 @@ public enum NoteBarURLParser {
         case "open", "reveal", "note":
             if let v = params.first("note", "id") ?? (path.count > 1 ? path[1] : nil) {
                 let t = v.trimmingCharacters(in: .whitespaces)
-                guard let id = Int64(t), id > 0 else { return .failure(.invalidParameter(name: "note", value: v)) }
+                // Any non-zero id: notes created while the database could not be written keep a negative id.
+                guard let id = Int64(t), id != 0 else { return .failure(.invalidParameter(name: "note", value: v)) }
                 return done(.openNote(id: id))
             }
             if let f = params.first("folder", "f")?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty {

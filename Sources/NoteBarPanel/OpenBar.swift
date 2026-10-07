@@ -4,7 +4,7 @@ import NoteBarCore
 /// The Open Bar: a thin vertical pill on the panel's inner side while the panel is shown, and at the
 /// screen edge while it is hidden. Click toggles the panel, right-click shows the side menu, vertical
 /// drag moves it (the offset is saved in UserDefaults "openBarOffset"). Dragging a file over it opens
-/// the panel so the user can drop onto a note.
+/// the panel passively (no keyboard focus) so the user can drop onto a note.
 @MainActor
 final class OpenBarController {
     static let offsetDefaultsKey = "openBarOffset"

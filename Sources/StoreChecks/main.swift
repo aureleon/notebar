@@ -1,6 +1,7 @@
 import Foundation
 import NoteBarCore
 import NoteBarStore
+import SQLite3
 
 // Owned by the Store agent. Run: swift run --scratch-path .build-agents/store StoreChecks
 // Every check runs in a fresh temporary directory; nothing touches the real Application Support data.
@@ -44,6 +45,50 @@ func makeSettings() -> AppSettings {
     let d = UserDefaults(suiteName: suite)!
     d.removePersistentDomain(forName: suite)
     return AppSettings(defaults: d)
+}
+
+/// Runs SQL on the store's database file from a separate SQLite connection (simulates failures).
+func rawSQL(_ dir: URL, _ sql: String) {
+    var db: OpaquePointer?
+    guard sqlite3_open(dir.appendingPathComponent("notebar.sqlite").path, &db) == SQLITE_OK else {
+        Check.expect(false, "raw sqlite open"); return
+    }
+    sqlite3_busy_timeout(db, 5000)
+    var err: UnsafeMutablePointer<CChar>?
+    if sqlite3_exec(db, sql, nil, nil, &err) != SQLITE_OK {
+        Check.expect(false, "raw sql failed: \(err.map { String(cString: $0) } ?? "?")")
+        sqlite3_free(err)
+    }
+    sqlite3_close(db)
+}
+
+/// Makes every write to note/folder/attachment/theme fail (like a full disk) until `allowWrites`.
+func failWrites(_ dir: URL) {
+    var sql = ""
+    for table in ["note", "folder", "attachment", "theme"] {
+        for op in ["INSERT", "UPDATE", "DELETE"] {
+            sql += "CREATE TRIGGER fail_\(table)_\(op) BEFORE \(op) ON \(table) BEGIN SELECT RAISE(ABORT, 'simulated disk full'); END;\n"
+        }
+    }
+    rawSQL(dir, sql)
+}
+
+func allowWrites(_ dir: URL) {
+    var sql = ""
+    for table in ["note", "folder", "attachment", "theme"] {
+        for op in ["INSERT", "UPDATE", "DELETE"] { sql += "DROP TRIGGER IF EXISTS fail_\(table)_\(op);\n" }
+    }
+    rawSQL(dir, sql)
+}
+
+/// Counts notifications with `name` posted while `body` runs.
+@MainActor
+func count(_ name: Notification.Name, _ body: () -> Void) -> Int {
+    var n = 0
+    let o = NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { _ in n += 1 }
+    body()
+    NotificationCenter.default.removeObserver(o)
+    return n
 }
 
 MainActor.assumeIsolated {
@@ -113,6 +158,12 @@ do {
     Check.equal(store.notes(in: notesFolder.id).map(\.id), [third.id, first.id, newTop.id, second.id], "moveNote toIndex")
     store.moveNote(id: first.id, toIndex: 100)
     Check.equal(store.notes(in: notesFolder.id).last?.id, first.id, "moveNote clamps to end")
+    // Zone-aware: an unpinned note cannot move above pinned notes, and lands just below them.
+    store.moveNote(id: first.id, toIndex: 0)
+    Check.equal(store.notes(in: notesFolder.id).map(\.id), [third.id, first.id, newTop.id, second.id],
+                "moveNote clamps to the unpinned zone")
+    store.moveNote(id: third.id, toIndex: 3)
+    Check.equal(store.notes(in: notesFolder.id).first?.id, third.id, "pinned note stays in the pinned zone")
 
     // Move between folders.
     let w1 = store.createNote(in: work.id, body: "Work 1")
@@ -620,6 +671,136 @@ do {
     try! service.exportAllAsMarkdown(to: out)
     let again = Set((try? fm.contentsOfDirectory(atPath: out.path)) ?? [])
     Check.equal(again.count, 4, "second export goes into new folder names")
+    try! store.close()
+}
+
+
+// MARK: - Linked attachments survive the deletion of their owner note / folder
+do {
+    let dir = freshDir("linked-attachments")
+    let store = try! GRDBNoteStore(directory: dir)
+    let fid = store.folders()[0].id
+    let a = store.createNote(in: fid, body: "A")
+    let b = store.createNote(in: fid, body: "B")
+    let shared = try! store.addImageAttachment(to: a.id, data: pngData, fileExtension: "png", displayName: "s.png")
+    let own = try! store.addImageAttachment(to: a.id, data: pngData, fileExtension: "png", displayName: "o.png")
+    store.updateNoteBody(id: a.id, body: "A " + AttachmentLink.markdown(for: shared) + AttachmentLink.markdown(for: own))
+    // The link was copied/dragged into B (same attachment id).
+    store.updateNoteBody(id: b.id, body: "B " + AttachmentLink.markdown(for: shared))
+    let sharedFile = store.url(for: shared)!, ownFile = store.url(for: own)!
+    let c = changes { store.deleteNote(id: a.id) }
+    Check.expect(c.contains(.attachments(noteId: b.id)), "new owner gets .attachments")
+    Check.equal(store.attachment(id: shared.id)?.noteId, b.id, "linked attachment moved to B")
+    Check.expect(fm.fileExists(atPath: sharedFile.path), "linked image file kept")
+    Check.expect(store.attachment(id: own.id) == nil, "unlinked attachment of A removed")
+    Check.expect(!fm.fileExists(atPath: ownFile.path), "unlinked image file of A removed")
+    try! store.reopen()
+    Check.equal(store.attachment(id: shared.id)?.noteId, b.id, "relink persisted")
+    Check.equal(store.attachments(for: b.id).map(\.id), [shared.id], "B lists the attachment")
+    Check.expect(fm.fileExists(atPath: sharedFile.path), "file survives reopen (orphan cleanup)")
+
+    // Folder delete: the link lives in a note of another folder.
+    let other = store.createFolder(name: "Other")
+    let x = store.createNote(in: other.id, body: "X")
+    let img = try! store.addImageAttachment(to: x.id, data: pngData, fileExtension: "png", displayName: nil)
+    store.updateNoteBody(id: x.id, body: AttachmentLink.markdown(for: img))
+    let y = store.createNote(in: fid, body: "see " + AttachmentLink.markdown(for: img))
+    let imgFile = store.url(for: img)!
+    store.deleteFolder(id: other.id)
+    Check.equal(store.attachment(id: img.id)?.noteId, y.id, "folder delete relinks to surviving note")
+    Check.expect(fm.fileExists(atPath: imgFile.path), "folder delete keeps linked file")
+    try! store.reopen()
+    Check.equal(store.attachment(id: img.id)?.noteId, y.id, "folder relink persisted")
+    // Deleting the last linking note finally removes the image.
+    store.deleteNote(id: y.id)
+    Check.expect(store.attachment(id: img.id) == nil && !fm.fileExists(atPath: imgFile.path), "last link gone -> image gone")
+    try! store.close()
+}
+
+// MARK: - Failed writes stay pending, are retried and reported
+do {
+    let dir = freshDir("write-failures")
+    let store = try! GRDBNoteStore(directory: dir)
+    let fid = store.folders()[0].id
+    let n = store.createNote(in: fid, body: "start")
+    store.flush()
+    Check.expect(!store.writeFailing && store.lastError == nil, "healthy at start")
+
+    failWrites(dir)
+    var failed = 0
+    failed += count(.noteStoreWriteFailed) {
+        store.updateNoteBody(id: n.id, body: "typed while disk full")
+        store.flush()
+    }
+    Check.equal(failed, 1, "failure posts .noteStoreWriteFailed")
+    Check.expect(store.writeFailing && store.lastError != nil, "failure state + lastError")
+    Check.expect(store.hasPendingChanges, "body edit still pending after failed flush")
+
+    // updateNote must not drop the pending body when its write fails.
+    var colored = store.note(id: n.id)!; colored.color = .blue
+    failed += count(.noteStoreWriteFailed) { store.updateNote(colored) }
+    Check.equal(failed, 1, "no second notification in the same episode")
+    Check.expect(store.hasPendingChanges, "updateNote failure keeps changes pending")
+
+    // Creates during the failure get transient (negative) ids and are inserted later.
+    let folder2 = store.createFolder(name: "Made offline")
+    Check.expect(folder2.id < 0, "transient folder id")
+    let t = store.createNote(in: folder2.id, body: "new while failing")
+    Check.expect(t.id < 0, "transient note id")
+    store.updateNoteBody(id: t.id, body: "new while failing, edited")
+    // Delete during failure is retried too.
+    let gone = store.createNote(in: fid, body: "delete me")
+    store.deleteNote(id: gone.id)
+    var offlineTheme = Theme.defaultTheme
+    offlineTheme.id = "offline"; offlineTheme.name = "Offline theme"
+    store.saveTheme(offlineTheme)
+    store.flush()
+    Check.expect(store.hasPendingChanges, "still pending while writes fail")
+
+    // Writes work again: the retry timer saves everything without any user action.
+    allowWrites(dir)
+    var recovered = 0
+    recovered += count(.noteStoreWriteRecovered) { spin(4.5) }
+    Check.equal(recovered, 1, "retry timer recovers and posts .noteStoreWriteRecovered")
+    Check.expect(!store.hasPendingChanges && !store.writeFailing && store.lastError == nil, "drained")
+
+    let peek = try! GRDBNoteStore(directory: dir)
+    Check.equal(peek.note(id: n.id)?.body, "typed while disk full", "failed body edit persisted on retry")
+    Check.equal(peek.note(id: n.id)?.color, .blue, "failed updateNote persisted on retry")
+    Check.equal(peek.folder(id: folder2.id)?.name, "Made offline", "transient folder persisted")
+    Check.equal(peek.note(id: t.id)?.body, "new while failing, edited", "transient note + edits persisted")
+    Check.equal(peek.note(id: t.id)?.folderId, folder2.id, "transient note in transient folder")
+    Check.expect(peek.note(id: gone.id) == nil, "failed delete retried")
+    Check.expect(peek.customThemes().contains { $0.name == "Offline theme" }, "failed theme save retried")
+    try! peek.close()
+
+    // New transient ids never collide with persisted negative ids.
+    try! store.reopen()
+    failWrites(dir)
+    let t2 = store.createNote(in: fid, body: "second offline note")
+    Check.expect(t2.id < min(t.id, folder2.id), "transient ids continue below persisted ones")
+    allowWrites(dir)
+    store.flush()
+    Check.expect(!store.hasPendingChanges, "second offline note saved")
+    try! store.reopen()
+    Check.equal(store.note(id: t2.id)?.body, "second offline note", "second offline note persisted")
+
+    // Restore refuses to discard unsaved changes.
+    failWrites(dir)
+    store.updateNoteBody(id: n.id, body: "unsaved")
+    let settings = makeSettings()
+    let backups = FileBackupService(store: store, settings: settings,
+                                    backupsDirectory: dir.appendingPathComponent("backups", isDirectory: true))
+    allowWrites(dir)
+    let info = try! backups.backupNow()
+    failWrites(dir)
+    store.updateNoteBody(id: n.id, body: "unsaved 2")
+    var refused = false
+    do { try backups.restore(info) } catch { refused = true }
+    Check.expect(refused, "restore refuses while changes cannot be saved")
+    Check.equal(store.note(id: n.id)?.body, "unsaved 2", "unsaved edit kept in memory")
+    allowWrites(dir)
+    store.flush()
     try! store.close()
 }
 

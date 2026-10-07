@@ -18,7 +18,8 @@ public final class FileBackupService: BackupService {
     public var now: () -> Date = { Date() }
     /// How often the daily schedule checks whether a backup is due.
     public var scheduleInterval: TimeInterval = 3600
-    /// Last error from an automatic (scheduled) backup. Manual calls throw instead.
+    /// Last error from an automatic (scheduled) backup (nil after the next successful one).
+    /// Manual calls throw instead. A failure also posts `.backupDidFail`.
     public private(set) var lastError: Error?
 
     public static let filePrefix = "NoteBar-"
@@ -26,7 +27,7 @@ public final class FileBackupService: BackupService {
     static let formatVersion = 1
 
     /// Posted (object: the service) after a backup was created or old backups were pruned.
-    public static let backupsDidChangeNotification = Notification.Name("NoteBar.backupsDidChange")
+    public static let backupsDidChangeNotification = Notification.Name.backupsDidChange
 
     /// Zip automatic (daily) backups on a background queue so a large attachments folder never
     /// blocks the UI. Manual `backupNow()` is always synchronous.
@@ -160,6 +161,7 @@ public final class FileBackupService: BackupService {
     public func backupNow() throws -> BackupInfo {
         let p = try prepareBackup()
         try Self.archive(p)
+        lastError = nil  // A good backup exists again.
         postBackupsChanged()
         return info(for: p.final) ?? BackupInfo(url: p.final, date: p.date, sizeBytes: 0)
     }
@@ -249,6 +251,10 @@ public final class FileBackupService: BackupService {
     private func recordAutomaticBackupError(_ error: Error) {
         lastError = error
         NSLog("NoteBarStore: daily backup failed: %@", String(describing: error))
+        NotificationCenter.default.post(name: .backupDidFail, object: self,
+                                        userInfo: [NoteStoreWriteFailureKey.error: error])
+        // Lets the Data pane refresh and show `lastError`.
+        postBackupsChanged()
     }
 
     /// Removes hidden half-written archives left behind by a crash or quit during zipping.
@@ -323,6 +329,12 @@ public final class FileBackupService: BackupService {
 
         // 2. Safety backup of the current state.
         if !store.isOpen { try? store.reopen() }
+        store.flush()
+        if store.hasPendingChanges {
+            // Restoring would throw away edits that only exist in memory.
+            let reason = store.lastError?.localizedDescription ?? "unknown error"
+            throw BackupError.restoreFailed("Some changes could not be saved yet (\(reason)). Fix the problem first.")
+        }
         do { try backupNow() } catch {
             throw BackupError.restoreFailed("Could not make a safety backup first: \(error.localizedDescription)")
         }

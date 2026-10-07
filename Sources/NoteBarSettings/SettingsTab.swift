@@ -47,7 +47,7 @@ public enum SettingsViews {
         switch tab {
         case .general: content = AnyView(GeneralPane(settings: settings, launch: models.launch))
         case .appearance: content = AnyView(AppearancePane(settings: settings, themes: models.themes, models: models))
-        case .shortcuts: content = AnyView(ShortcutsPane(settings: settings))
+        case .shortcuts: content = AnyView(ShortcutsPane(settings: settings, registration: models.hotkeyStatus))
         case .data: content = AnyView(DataPane(settings: settings, backups: models.backups))
         case .about: content = AnyView(AboutPane(env: models.env, about: models.about))
         }

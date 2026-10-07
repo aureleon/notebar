@@ -31,6 +31,9 @@ final class NoteCardView: NSView {
     private let titleLabel = PassthroughLabel()
     private let badge = BadgeButton()
     private let pinButton = IconButton(symbol: "pin", size: 10.5, toolTip: "Pin")
+    /// For checks: the pin button frame and the preview (when there is no live editor).
+    var pinButtonFrame: NSRect { pinButton.frame }
+    var previewForChecks: NotePreviewView? { preview }
     /// Created on first hover / focus (keeps long lists light).
     private(set) var footer: CardFooterView?
     private var folderLabel: PassthroughLabel?
@@ -261,14 +264,53 @@ final class NoteCardView: NSView {
 
     private func contentWidth(forCardWidth w: CGFloat) -> CGFloat { max(40, w - 2 * Metrics.cardPaddingX) }
 
+    // MARK: Pin corner
+
+    /// The top-right part of the content area under the pin button (content coordinates), where text
+    /// must not go. Reserved for every card (not only pinned / hovered ones) so text does not reflow
+    /// when the pin appears on hover. nil: the pin does not reach the text (folder row above it, export).
+    private func pinCornerRect(contentWidth w: CGFloat) -> NSRect? {
+        guard !isExport else { return nil }
+        let pin = Metrics.pinButtonSize
+        let contentTop = Metrics.cardPaddingTop + folderRowHeight
+        let height = Metrics.pinButtonInset + pin - contentTop
+        guard height > 0 else { return nil }
+        // Pin left edge in content coordinates, minus a small gap.
+        let minX = w + Metrics.cardPaddingX - Metrics.pinButtonInset - pin - Metrics.pinTextGap
+        guard minX > 0, minX < w else { return nil }
+        return NSRect(x: minX, y: 0, width: w - minX + 200, height: height)
+    }
+
+    /// Puts `rect` into the editor's text container as an exclusion path. The `NoteEditing` contract
+    /// has no call for this, so it works on the editor's NSTextView directly (any editor built on
+    /// one). Returns true if the paths changed and the editor must measure again.
+    private func reservePinCorner(_ rect: NSRect?, in editor: NSView, contentWidth w: CGFloat) -> Bool {
+        guard let tv = editor.firstDescendantTextView(), let tc = tv.textContainer else { return false }
+        let paths = rect.map { [NSBezierPath(rect: $0)] } ?? []
+        let current = tc.exclusionPaths.map(\.bounds)
+        guard current != paths.map(\.bounds) else { return false }
+        tc.exclusionPaths = paths
+        // Editors that size their container themselves may cache the height per container width.
+        // A different width makes their next layout drop that cache and measure again.
+        if !tc.widthTracksTextView {
+            tc.size = NSSize(width: tc.size.width + 1, height: tc.size.height)
+        }
+        return true
+    }
+
     private func contentHeight(forWidth w: CGFloat) -> CGFloat {
         if let h = cachedContentHeight, cachedContentWidth == w { return h }
         var h: CGFloat
+        let corner = pinCornerRect(contentWidth: w)
         if let editor {
             isMeasuring = true
+            let cornerChanged = reservePinCorner(corner, in: editor, contentWidth: w)
             if editor.frame.width != w {
                 editor.setFrameSize(NSSize(width: w, height: max(editor.frame.height, Metrics.minEditorHeight)))
                 // Editors built on Auto Layout update their text container width in layout().
+                editor.layoutSubtreeIfNeeded()
+            } else if cornerChanged {
+                editor.needsLayout = true
                 editor.layoutSubtreeIfNeeded()
             }
             let ih = editor.intrinsicContentSize.height
@@ -276,6 +318,7 @@ final class NoteCardView: NSView {
             isMeasuring = false
         } else {
             ensurePreview()
+            preview?.firstLineExclusion = corner
             h = preview?.height(forWidth: w) ?? Metrics.minEditorHeight
         }
         h = max(h, Metrics.minEditorHeight)
@@ -329,7 +372,8 @@ final class NoteCardView: NSView {
             let r = NSRect(x: cr.minX + px, y: y, width: w, height: h)
             if let editor, editor.frame != r { editor.frame = r }
             if let preview, preview.frame != r { preview.frame = r }
-            pinButton.frame = NSRect(x: cr.maxX - 8 - pin, y: cr.minY + 8, width: pin, height: pin)
+            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + Metrics.pinButtonInset,
+                                     width: pin, height: pin)
             y += h
         }
         if let footer {
@@ -634,7 +678,23 @@ final class NoteCardView: NSView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         isDropTarget = false
-        guard let payload = PasteboardImport.payload(from: sender.draggingPasteboard) else { return false }
-        return delegate?.card(self, drop: payload) ?? false
+        return PasteboardImport.receive(from: sender.draggingPasteboard) { [weak self] payload in
+            guard let self else { return }
+            _ = self.delegate?.card(self, drop: payload)
+        }
+    }
+}
+
+extension NSView {
+    /// The first NSTextView in this view's subtree (breadth-first), or self.
+    func firstDescendantTextView() -> NSTextView? {
+        if let tv = self as? NSTextView { return tv }
+        var queue = subviews
+        while !queue.isEmpty {
+            let v = queue.removeFirst()
+            if let tv = v as? NSTextView { return tv }
+            queue.append(contentsOf: v.subviews)
+        }
+        return nil
     }
 }

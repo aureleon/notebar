@@ -13,19 +13,18 @@ extension GRDBNoteStore {
     }
 
     public func saveTheme(_ theme: Theme) {
-        guard let data = try? JSONEncoder().encode(theme) else { return }
-        write("save theme") { db in
-            try db.execute(sql: """
-                INSERT INTO theme (id, name, json, updatedAt) VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET name = excluded.name, json = excluded.json, updatedAt = excluded.updatedAt
-                """, arguments: [theme.id, theme.name, data, Date().timeIntervalSince1970])
-        }
+        guard (try? JSONEncoder().encode(theme)) != nil else { return }
         themeMap[theme.id] = theme
+        pendingThemeDeletes.remove(theme.id)
+        pendingThemeIDs.insert(theme.id)
+        flush()
     }
 
     public func deleteTheme(id: String) {
         guard themeMap[id] != nil else { return }
-        write("delete theme") { db in try db.execute(sql: "DELETE FROM theme WHERE id = ?", arguments: [id]) }
         themeMap[id] = nil
+        pendingThemeIDs.remove(id)
+        pendingThemeDeletes.insert(id)
+        flush()
     }
 }

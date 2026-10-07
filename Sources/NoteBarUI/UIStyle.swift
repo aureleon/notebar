@@ -36,6 +36,10 @@ enum Metrics {
     /// Room around each card for its drawn shadow (card views are this much larger than the card).
     static let cardShadowPad: CGFloat = 8
     static let pinButtonSize: CGFloat = 22
+    /// Distance of the (unfolded) card's pin button from the card's top and right edges.
+    static let pinButtonInset: CGFloat = 8
+    /// Space between the end of the first text line and the pin button.
+    static let pinTextGap: CGFloat = 4
     static let minEditorHeight: CGFloat = 18
     /// Editors are created for cards within this distance of the visible area.
     static let editorPrefetchDistance: CGFloat = 900

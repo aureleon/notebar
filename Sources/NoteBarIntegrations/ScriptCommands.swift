@@ -90,9 +90,9 @@ class NBScriptCommand: NSScriptCommand {
     func noteID() throws -> NoteID {
         let raw: Any? = evaluatedArguments?[ScriptKey.noteID] ?? directParameter
         switch raw {
-        case let n as NSNumber where n.int64Value > 0: return n.int64Value
+        case let n as NSNumber where n.int64Value != 0: return n.int64Value
         case let s as String:
-            if let v = Int64(s.trimmingCharacters(in: .whitespaces)), v > 0 { return v }
+            if let v = Int64(s.trimmingCharacters(in: .whitespaces)), v != 0 { return v }
             throw IntegrationError.invalid("note id \"\(s)\"")
         case nil: throw IntegrationError.missing("note id (use: id 42)")
         default: throw IntegrationError.invalid("note id")

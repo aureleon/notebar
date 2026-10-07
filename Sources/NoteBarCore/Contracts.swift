@@ -59,7 +59,13 @@ public protocol AppController: AnyObject {
     @discardableResult func createNote(text: String?, folderName: String?, reveal: Bool) -> Note?
     func revealNote(_ id: NoteID)
     func showSearch()
+    /// Shows the panel with the search field filled with `query` (blank = like `showSearch()`).
+    func showSearch(query: String)
     func openSettings()
+}
+
+public extension AppController {
+    func showSearch(query: String) { showSearch() }
 }
 
 /// Implemented by the notes UI (NoteBarUI.NotesRootViewController).
@@ -72,9 +78,15 @@ public protocol NotesPresenting: AnyObject {
     /// Scrolls to the note (switching folder if needed). `edit` focuses its editor.
     func reveal(noteId: NoteID, edit: Bool)
     func beginSearch()
+    /// Starts search with `query` already typed into the search field (blank = like `beginSearch()`).
+    func beginSearch(query: String)
     /// Called by the panel right after it slides in / before it slides out.
     func panelDidShow()
     func panelWillHide()
+}
+
+public extension NotesPresenting {
+    func beginSearch(query: String) { beginSearch() }
 }
 
 /// Shared services. Created once by the app delegate and passed to every module.

@@ -504,9 +504,9 @@ final class NotesDocView: NSView, NSDraggingSource {
             owner.handleMove(id, gap: owner.gapIndex(at: convert(sender.draggingLocation, from: nil)))
             return true
         }
-        guard let payload = PasteboardImport.payload(from: pb) else { return false }
-        owner.handleBackgroundDrop(payload)
-        return true
+        return PasteboardImport.receive(from: pb) { [weak owner] payload in
+            owner?.handleBackgroundDrop(payload)
+        }
     }
 }
 

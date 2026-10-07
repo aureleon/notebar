@@ -39,6 +39,16 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     private var displayedFolder: FolderID?
     private var observers: [NSObjectProtocol] = []
 
+    /// Where the UI keeps its own state (the screen to restore at launch).
+    /// `env.settings.lastFolderId` always means "last opened folder"; it stays set while the
+    /// folder list shows, so new notes from hotkeys / URLs / scripts go to that folder.
+    public var stateDefaults: UserDefaults = .standard
+    static let showsFolderListKey = "NoteBarUI.showsFolderList"
+    private var showsFolderListAtLaunch: Bool {
+        get { stateDefaults.bool(forKey: Self.showsFolderListKey) }
+        set { if newValue != showsFolderListAtLaunch { stateDefaults.set(newValue, forKey: Self.showsFolderListKey) } }
+    }
+
     var rootView: NotesRootView!
     var header: HeaderView!
     var folderList: FolderListView!
@@ -94,7 +104,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     private func restoreInitialScreen() {
-        if let id = env.settings.lastFolderId, store.folder(id: id) != nil {
+        if !showsFolderListAtLaunch, let id = env.settings.lastFolderId, store.folder(id: id) != nil {
             showFolder(id)
         } else {
             showFolderList()
@@ -260,7 +270,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         let previous: FolderID? = { if case .folder(let id) = screen { return id }; return nil }()
         let hadEditorFocus = focusedNoteID != nil
         screen = .folders
-        if env.settings.lastFolderId != nil { env.settings.lastFolderId = nil }
+        showsFolderListAtLaunch = true
         clearNotesList()
         focusedNoteID = nil
         reloadFolderList()
@@ -285,6 +295,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             if hadFocus { focusRoot() }
         }
         if env.settings.lastFolderId != id { env.settings.lastFolderId = id }
+        showsFolderListAtLaunch = false
         folderList.endRename()
         updateHeader()
         setListVisibility()
@@ -333,6 +344,20 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             runSearch(animated: false)
         }
         header.focusSearchField()
+    }
+
+    /// Starts search with `query` already typed (URL scheme / AppleScript). A non-blank query searches all folders.
+    public func beginSearch(query: String) {
+        beginSearch()
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, search != nil else { return }
+        searchWork?.cancel()
+        header.searchField.stringValue = q
+        search?.query = q
+        search?.allFolders = true
+        runSearch(animated: false)
+        header.focusSearchField()
+        header.searchField.currentEditor()?.selectedRange = NSRange(location: (q as NSString).length, length: 0)
     }
 
     public func panelDidShow() {

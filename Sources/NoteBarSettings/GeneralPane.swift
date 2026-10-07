@@ -29,7 +29,7 @@ struct GeneralPane: View {
                     Text("Launch at login")
                     if let status = launch.statusText { Text(status) }
                 }
-                if launch.state == .requiresApproval {
+                if launch.showsLoginItemsButton {
                     HStack {
                         Spacer()
                         Button("Open Login Items Settings…") { LaunchAtLogin.openSystemSettings() }

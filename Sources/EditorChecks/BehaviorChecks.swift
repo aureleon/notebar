@@ -213,5 +213,72 @@ enum BehaviorChecks {
         _ = h11.tv.writeSelection(to: cpb, types: [.string])
         Check.equal(cpb.string(forType: .string), "- [x] **done**", "copy as markdown")
         cpb.releaseGlobally()
+
+        attachmentOwnershipChecks()
+    }
+
+    /// Pasting a tile from another note gives this note its own attachment row (and image file copy).
+    static func attachmentOwnershipChecks() {
+        let h = Harness("target")
+        let store = h.env.store
+        let other = store.createNote(in: store.folders()[0].id, body: "", mode: .standard, position: .top)
+        guard let img = try? store.addImageAttachment(to: other.id, data: Snapshots.samplePNG(width: 8, height: 8),
+                                                     fileExtension: "png", displayName: "Shot.png") else {
+            Check.expect(false, "image attachment for ownership check"); return
+        }
+        let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("nb-editor-owner.txt")
+        try? "x".write(to: fileURL, atomically: true, encoding: .utf8)
+        guard let file = try? store.addAttachment(to: other.id, fileURL: fileURL) else {
+            Check.expect(false, "file attachment for ownership check"); return
+        }
+        let own = try? store.addImageAttachment(to: h.note.id, data: Snapshots.samplePNG(width: 8, height: 8),
+                                                fileExtension: "png", displayName: "Own.png")
+        let pasted = "![Shot.png](attachment:\(img.id)) and [nb-editor-owner.txt](attachment:\(file.id)) again ![Shot.png](attachment:\(img.id))"
+            + " own ![Own.png](attachment:\(own?.id ?? 0)) gone [x](attachment:999999)"
+        h.focus()
+        let pb = NSPasteboard(name: NSPasteboard.Name("NoteBarEditorChecks-own-\(UUID().uuidString)"))
+        pb.clearContents()
+        pb.setString(pasted, forType: .string)
+        h.editor.pasteForTesting(pb)
+        spin()
+        pb.releaseGlobally()
+        let ids = AttachmentLink.matches(in: h.body).map(\.attachmentID)
+        Check.equal(ids.count, 5, "pasted tokens kept: \(h.body.debugDescription)")
+        if ids.count == 5 {
+            Check.expect(ids[0] != img.id && ids[1] != file.id, "foreign tokens rewritten")
+            Check.equal(ids[0], ids[2], "same source cloned once")
+            Check.equal(ids[3], own?.id ?? -1, "own attachment kept")
+            Check.equal(ids[4], 999999, "unknown attachment left alone")
+            for id in ids.prefix(2) {
+                Check.equal(store.attachment(id: id)?.noteId, h.note.id, "clone owned by target note")
+            }
+            Check.equal(store.attachment(id: ids[0])?.kind, .image, "image clone kind")
+            Check.equal(store.attachment(id: ids[0])?.displayName, "Shot.png", "image clone name")
+            Check.equal(store.attachment(id: ids[1])?.kind, .fileBookmark, "file clone kind")
+            let a = store.attachment(id: ids[0]).flatMap(store.url(for:))
+            let b = store.url(for: img)
+            Check.expect(a != nil && a != b, "image file copied")
+        }
+        Check.equal(store.attachment(id: img.id)?.noteId, other.id, "source attachment untouched")
+        // Pure helper: nothing to do for own / plain text.
+        Check.equal(AttachmentRehoming.rehome("plain", into: h.note.id, store: store), "plain", "rehome plain text")
+        // Drop folders: an unreferenced, old folder is pruned; a referenced one is kept.
+        // Never touches the real support folder: a private root.
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("nb-editor-drops-\(UUID().uuidString)", isDirectory: true)
+        let old = root.appendingPathComponent("old", isDirectory: true)
+        let ref = root.appendingPathComponent("ref", isDirectory: true)
+        let young = root.appendingPathComponent("young", isDirectory: true)
+        for d in [old, ref, young] { try? fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let refFile = ref.appendingPathComponent("Mail.pdf")
+        try? "pdf".write(to: refFile, atomically: true, encoding: .utf8)
+        _ = try? store.addAttachment(to: h.note.id, fileURL: refFile)
+        let past = Date().addingTimeInterval(-30 * 24 * 3600)
+        for d in [old, ref] { try? fm.setAttributes([.creationDate: past], ofItemAtPath: d.path) }
+        Check.equal(DroppedFileStorage.pruneUnreferenced(store: store, olderThan: 7 * 24 * 3600, root: root), 1, "prune old drop folder")
+        Check.expect(!fm.fileExists(atPath: old.path), "old unreferenced folder removed")
+        Check.expect(fm.fileExists(atPath: refFile.path), "referenced dropped file kept")
+        Check.expect(fm.fileExists(atPath: young.path), "young folder kept")
+        try? fm.removeItem(at: root)
     }
 }

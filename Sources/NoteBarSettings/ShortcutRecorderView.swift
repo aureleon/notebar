@@ -12,7 +12,8 @@ extension Notification.Name {
 /// A click-to-record shortcut field.
 ///
 /// - Click (or Space / Return when focused) starts recording; the field shows "Type shortcut…".
-/// - A key with at least one of ⌘ ⌃ ⌥ sets the shortcut. ⇧ alone is not enough.
+/// - A key with ⌘ or ⌃ (plus any of ⌥ ⇧) sets the shortcut. ⇧, ⌥ and ⌥⇧ alone are not enough:
+///   macOS 15+ rejects ⌥-only global hotkeys. Keys without a display name are rejected too.
 /// - Esc cancels. ⌫ / ⌦ clears the shortcut. The ⓧ button clears it too.
 public final class ShortcutRecorderView: NSView {
     public var combo: KeyCombo? {
@@ -21,7 +22,7 @@ public final class ShortcutRecorderView: NSView {
     /// Called when the user records or clears a shortcut.
     public var onChange: ((KeyCombo?) -> Void)?
     public private(set) var isRecording = false
-    /// Beep when a key without ⌘ ⌃ ⌥ is pressed while recording (off in automated checks).
+    /// Beep when an invalid combo is pressed while recording (off in automated checks).
     public static var beepsOnInvalidKey = true
 
     private var liveModifiers: NSEvent.ModifierFlags = []
@@ -222,14 +223,53 @@ public final class ShortcutRecorderView: NSView {
                 break
             }
         }
-        guard !mods.intersection([.command, .option, .control]).isEmpty else {
-            hint = "Add ⌘, ⌃ or ⌥"
+        let candidate = KeyCombo(keyCode: event.keyCode, modifierFlags: mods)
+        if let problem = Self.problem(with: candidate) {
+            hint = problem.hint
             needsDisplay = true
             if Self.beepsOnInvalidKey { NSSound.beep() }
             return .rejected
         }
-        commit(KeyCombo(keyCode: event.keyCode, modifierFlags: mods))
+        commit(candidate)
         return .recorded
+    }
+
+    /// Why a combo cannot work as a global hotkey.
+    enum Problem: Equatable {
+        /// No ⌘ or ⌃. Plain and ⇧ keys would break typing; ⌥ and ⌥⇧ combos are rejected by
+        /// `RegisterEventHotKey` on macOS 15 and later.
+        case needsCommandOrControl
+        /// A key NoteBar cannot name (it would show as "Key115").
+        case unsupportedKey
+
+        /// Short text for the recorder field.
+        var hint: String {
+            switch self {
+            case .needsCommandOrControl: return "Add ⌘ or ⌃"
+            case .unsupportedKey: return "Key not supported"
+            }
+        }
+
+        /// Sentence for a stored shortcut that has this problem.
+        func message(for combo: KeyCombo) -> String {
+            switch self {
+            case .needsCommandOrControl:
+                return "\(combo.displayString) does not work: macOS needs ⌘ or ⌃ in a global shortcut. Record a new one."
+            case .unsupportedKey:
+                return "\(combo.displayString) uses a key that NoteBar does not support. Record a new one."
+            }
+        }
+    }
+
+    static func problem(with combo: KeyCombo) -> Problem? {
+        if combo.carbonModifiers & (KeyCombo.cmd | KeyCombo.control) == 0 { return .needsCommandOrControl }
+        if !isSupportedKey(combo.keyCode) { return .unsupportedKey }
+        return nil
+    }
+
+    /// True when Core has a display name for the key (Core falls back to "Key<code>").
+    static func isSupportedKey(_ keyCode: UInt32) -> Bool {
+        !KeyCombo(keyCode: keyCode, carbonModifiers: 0).displayString.hasPrefix("Key")
     }
 
     enum RecordResult: Equatable { case ignored, cancelled, cleared, rejected, recorded }

@@ -49,6 +49,12 @@ struct DataPane: View {
                 if !backups.isAvailable {
                     FootnoteText("Backups are not available in this build.")
                 }
+                ForEach([backups.saveProblem, backups.backupProblem].compactMap { $0 }, id: \.self) { problem in
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .disabled(!backups.isAvailable)
 

@@ -7,8 +7,11 @@ import NoteBarCore
 /// Behavior summary:
 /// - The panel appears on the screen with the cursor, inset `PanelMetrics.edgeInset` from the edge, the
 ///   menu bar and the bottom of `visibleFrame` (so it never covers the menu bar or the Dock).
-/// - Showing orders the panel front without activating NoteBar and makes it key, so typing goes to it
-///   while the previous app stays frontmost.
+/// - An explicit show (hotkey, menu bar icon, Open Bar click, reveal) orders the panel front without
+///   activating NoteBar and makes it key, so typing goes to it while the previous app stays frontmost.
+/// - A passive show (Hot Side dwell, file drag over the Open Bar) does not take keyboard focus. A click
+///   in the panel focuses it. If the user does not interact and the cursor leaves the panel area, it
+///   hides again (`PassiveOpenTracker`).
 /// - Settings changes (side, width, Open Bar, Hot Side) and display changes apply immediately.
 @MainActor
 public final class PanelController {
@@ -26,6 +29,7 @@ public final class PanelController {
     private let autoHide: AutoHideMonitor
     private let hotSide: HotSideController
     private let openBar: OpenBarController
+    private let passive = PassiveOpenTracker()
 
     /// Screen the panel is (or was last) shown on. The Open Bar stays on it while the panel is hidden.
     private var screenID: CGDirectDisplayID?
@@ -60,18 +64,31 @@ public final class PanelController {
             guard let self else { return false }
             return self.isVisible && self.screenID == screen.nbDisplayID
         }
-        hotSide.onTrigger = { [weak self] screen in self?.show(on: screen) }
+        // Passive: the cursor resting on the edge must not take focus from the app the user types in.
+        hotSide.onTrigger = { [weak self] screen in self?.show(on: screen, makeKey: false) }
 
         openBar.onToggle = { [weak self] in self?.toggleFromOpenBar() }
         openBar.onShowRequest = { [weak self] in
             guard let self, !self.isVisible else { return }
-            self.show(on: self.currentScreen)
+            self.show(on: self.currentScreen, makeKey: false)   // file drag hover: passive
         }
         openBar.isPanelVisible = { [weak self] in self?.isVisible ?? false }
         openBar.currentLayout = { [weak self] in
             guard let self, let screen = self.currentScreen else { return nil }
             return (self.geometry(for: screen), self.isVisible)
         }
+
+        autoHide.onFocusChange = { [weak self] focused in
+            if focused { self?.passive.stop() }
+        }
+        passive.isEngaged = { [weak self] in self?.autoHide.panelHasFocus ?? true }
+        passive.mayHide = { [weak self] in self?.autoHide.isEnabled ?? false }
+        passive.onLeave = { [weak self] in self?.hide() }
+        passive.panelFrame = { [weak self] in
+            guard let self, let screen = self.currentScreen else { return nil }
+            return self.geometry(for: screen).shownFrame
+        }
+        passive.zone = { [weak self] in self?.passiveZone() ?? [] }
 
         installObservers()
         hotSide.rebuild()
@@ -92,7 +109,11 @@ public final class PanelController {
 
     /// Shows the panel on `screen` (default: the screen with the cursor). If it is already visible on
     /// another screen it moves there.
-    public func show(on screen: NSScreen?, animated: Bool = true) {
+    ///
+    /// `makeKey`: false for passive opens (Hot Side, drag hover). The panel then does not take keyboard
+    /// focus and hides again if the user does not interact with it. A visible panel keeps its current
+    /// focus state when a passive show moves it.
+    public func show(on screen: NSScreen?, animated: Bool = true, makeKey: Bool = true) {
         guard let target = screen ?? NSScreen.nbScreenWithMouse else { return }
         let g = geometry(for: target)
         let wasVisible = isVisible
@@ -101,7 +122,7 @@ public final class PanelController {
         if wasVisible && sameScreen {
             // Already there: just bring it forward and focus it (e.g. revealNote / showSearch).
             window.orderFrontRegardless()
-            window.makeKey()
+            if makeKey { focusPanel() }
             return
         }
 
@@ -116,20 +137,59 @@ public final class PanelController {
             setFrame(slide ? g.hiddenFrame : g.shownFrame, alpha: 0, duration: 0)
         }
         window.orderFrontRegardless()
-        window.makeKey()
+        if makeKey {
+            window.makeKey()
+            passive.stop()
+        }
         setFrame(g.shownFrame, alpha: 1, duration: animated ? PanelMetrics.animationDuration : 0, timing: .easeOut)
         openBar.update(animated: animated)
 
         if !wasVisible {
             env.presenter?.panelDidShow()
-            autoHide.panelDidShow()
+            autoHide.panelDidShow(focused: makeKey)
+            if !makeKey { passive.start() }
             notifyVisibility(true)
+        } else if makeKey {
+            autoHide.noteFocusGained()
         }
+    }
+
+    /// Brings the visible panel forward and gives it keyboard focus (without activating NoteBar).
+    private func focusPanel() {
+        window.orderFrontRegardless()
+        window.makeKey()
+        passive.stop()
+        autoHide.noteFocusGained()
+    }
+
+    /// True while the panel is visible and keyboard focus is in NoteBar. Unlike `isKeyWindow` this is
+    /// not stale after the user clicks a window of the already-active app.
+    public var panelHasFocus: Bool { isVisible && autoHide.panelHasFocus }
+
+    /// Area that counts as "at the panel" for a passive open: the panel, the Open Bar, child windows,
+    /// and the band between them and the screen edge (where the Hot Side cursor rests).
+    private func passiveZone() -> [CGRect] {
+        guard let screen = currentScreen else { return [] }
+        let g = geometry(for: screen)
+        var core = g.shownFrame
+        if env.settings.showOpenBar {
+            core = core.union(g.openBarFrame(panelShown: true, offset: openBar.offset))
+        }
+        if openBar.window.isVisible { core = core.union(openBar.window.frame) }
+        let sf = screen.frame
+        let band: CGRect
+        if g.side == .right {
+            band = CGRect(x: core.minX, y: sf.minY, width: max(sf.maxX - core.minX, 0), height: sf.height)
+        } else {
+            band = CGRect(x: sf.minX, y: sf.minY, width: max(core.maxX - sf.minX, 0), height: sf.height)
+        }
+        return [band] + (window.childWindows ?? []).filter(\.isVisible).map(\.frame)
     }
 
     public func hide(animated: Bool = true) {
         guard isVisible else { return }
         isVisible = false
+        passive.stop()
         autoHide.panelDidHide()
         env.presenter?.panelWillHide()
         env.store.flush()
@@ -156,13 +216,18 @@ public final class PanelController {
         if !others { NSApp.deactivate() }
     }
 
-    /// Hotkey / menu bar icon. A pinned panel that is visible but not focused (the user works in another
-    /// app next to it) gets focus first; the next toggle hides it.
+    /// Hotkey / menu bar icon. A visible panel without focus gets focus first; the next toggle hides
+    /// it. This applies when it stays open on purpose (Keep Panel Open, or auto-hide off: the user works
+    /// in another app next to it) and after a passive open (Hot Side, drag hover).
+    ///
+    /// Focus comes from `AutoHideMonitor.panelHasFocus`, not `isKeyWindow`, which stays true for a
+    /// non-activating panel after the user clicks a window of the already-active app.
     public func toggle() {
         if !isVisible { show(); return }
-        if env.settings.pinnedOpen && !window.isKeyWindow && NSApp.keyWindow == nil {
-            window.orderFrontRegardless()
-            window.makeKey()
+        let staysOpen = env.settings.pinnedOpen || !env.settings.autoHide
+        if !autoHide.panelHasFocus && (staysOpen || passive.isActive)
+            && NSApp.modalWindow == nil && window.attachedSheet == nil {
+            focusPanel()
             return
         }
         hide()

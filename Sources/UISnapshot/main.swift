@@ -17,6 +17,20 @@ final class Backdrop: NSView {
     }
 }
 
+/// Stands in for the real editor's text view: handles ⌘1–⌘3 like `MarkdownTextView` does.
+@MainActor
+final class HeadingKeyTextView: NSTextView {
+    var receivedHeading: Int?
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, event.modifierFlags.intersection([.command, .shift, .option, .control]) == [.command],
+           let ch = event.charactersIgnoringModifiers, let level = Int(ch), (1...3).contains(level) {
+            receivedHeading = level
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 @MainActor
 func seed(_ store: InMemoryNoteStore) -> (notes: Folder, work: Folder, ideas: Folder, empty: Folder) {
     let notes = store.folders()[0]
@@ -68,6 +82,7 @@ MainActor.assumeIsolated {
                              editorFactory: PlainNoteEditorFactory())
 
     let vc = NotesRootViewController(env: env)
+    vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
     let panelSize = NSSize(width: 290, height: 720)
@@ -292,12 +307,28 @@ MainActor.assumeIsolated {
     probe.focusList()
     probe.pressEscape()
     Check.expect(probe.folderRowsVisible, "Esc goes back to the folder list")
-    Check.expect(settings.lastFolderId == nil, "folder list remembered")
+    Check.expect(UserDefaults(suiteName: suite)!.bool(forKey: "NoteBarUI.showsFolderList"), "folder list remembered")
+    Check.equal(settings.lastFolderId, folders.work.id, "lastFolderId keeps the last opened folder at the folder list")
 
     // ⌘1 opens the first folder.
     probe.press(keyCode: 18, characters: "1", modifiers: [.command])
     Check.equal(vc.currentFolderId, store.folders()[0].id, "⌘1 opens folder 1")
+
+    // ⌘digits while editing: the editor gets them first (⌘1–⌘3 = headings in the real editor).
+    vc.showFolder(folders.ideas.id)
+    let headingProbe = HeadingKeyTextView(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
+    vc.view.addSubview(headingProbe)
+    window.makeFirstResponder(headingProbe)
+    probe.press(keyCode: 19, characters: "2", modifiers: [.command])
+    Check.equal(vc.currentFolderId, folders.ideas.id, "⌘2 while editing does not switch folders")
+    Check.equal(headingProbe.receivedHeading, 2, "⌘2 while editing reaches the text view")
+    Check.expect(window.firstResponder === headingProbe, "⌘2 while editing keeps focus")
+    // A key the editor does not use still switches folders.
+    probe.press(keyCode: 21, characters: "4", modifiers: [.command])
+    Check.equal(vc.currentFolderId, store.folders()[3].id, "unused ⌘4 while editing opens folder 4")
+    headingProbe.removeFromSuperview()
     vc.showFolderList()
+    Check.equal(settings.lastFolderId, store.folders()[3].id, "folder list keeps lastFolderId for new-note hotkeys")
 
     // Folder reorder across the pinned boundary: Ideas to the top of the unpinned zone.
     probe.moveFolder(folders.ideas.id, toGap: 1)
@@ -356,6 +387,55 @@ MainActor.assumeIsolated {
     }
     Check.equal(overlaps, 0, "cards keep their gaps")
     render("20-big-scrolled-light")
+
+    // MARK: Import rules outside the editor
+    do {
+        let pb = NSPasteboard(name: NSPasteboard.Name("NoteBarUISnapshot-\(UUID().uuidString)"))
+        let img = NSImage(size: NSSize(width: 4, height: 4))
+        img.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 4, height: 4).fill(); img.unlockFocus()
+        let tiff = img.tiffRepresentation!
+        pb.clearContents(); pb.setData(tiff, forType: .tiff)
+        Check.equal(NotesUIProbe.importKind(of: pb), "image", "TIFF only -> image")
+        pb.clearContents(); pb.setData(tiff, forType: .tiff); pb.setString("https://example.com/cat.png", forType: .string)
+        Check.equal(NotesUIProbe.importKind(of: pb), "image", "TIFF + its web URL (browser Copy Image) -> image")
+        pb.clearContents(); pb.setData(tiff, forType: .tiff); pb.setString("Some copied words", forType: .string)
+        Check.equal(NotesUIProbe.importKind(of: pb), "text", "TIFF + real text -> text")
+        pb.clearContents(); pb.setString("Plain text", forType: .string)
+        Check.equal(NotesUIProbe.importKind(of: pb), "text", "text -> text")
+        pb.releaseGlobally()
+        let promiseTypes = NSFilePromiseReceiver.readableDraggedTypes.map { NSPasteboard.PasteboardType($0) }
+        Check.expect(!promiseTypes.isEmpty && promiseTypes.allSatisfy(NotesUIProbe.acceptsDragType),
+                     "file-promise drags accepted outside the editor")
+    }
+
+    // MARK: Pin corner keeps the title clear
+    let pinFolder = store.createFolder(name: "Pins")
+    var longPinned = store.createNote(in: pinFolder.id, body: "A pinned note title which is long ok yes\nBody", mode: .standard, position: .bottom)
+    longPinned.isPinned = true; longPinned.color = .cream; store.updateNote(longPinned)
+    let longPlain = store.createNote(in: pinFolder.id, body: "Unpinned long title that runs to it now\nBody", mode: .standard, position: .bottom)
+    vc.showFolder(pinFolder.id)
+    probe.ensureEditor(of: longPinned.id)
+    probe.ensureEditor(of: longPlain.id)
+    probe.setHovered(longPlain.id, true)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    render("21-pin-corner-light")
+    for id in [longPinned.id, longPlain.id] {
+        if let pin = probe.pinFrame(of: id), let line = probe.firstLineFrame(of: id) {
+            Check.expect(line.maxX <= pin.minX, "first line ends before the pin (\(line.maxX) <= \(pin.minX))")
+        } else { Check.expect(false, "pin / first line frames") }
+    }
+    probe.setHovered(longPlain.id, false)
+    // Far cards are previews: the same corner is kept free there.
+    var farNote = store.note(id: bigIDs[199])!
+    // Not pinned (pinned notes sort to the top); the corner is reserved on every card anyway.
+    farNote.body = "An unpinned far away title that is long\nBody"
+    store.updateNote(farNote)
+    vc.showFolder(big.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(probe.editor(of: farNote.id) == nil, "far card is a preview")
+    if let pin = probe.pinFrame(of: farNote.id), let line = probe.firstLineFrame(of: farNote.id) {
+        Check.expect(line.maxX <= pin.minX, "preview first line ends before the pin (\(line.maxX) <= \(pin.minX))")
+    } else { Check.expect(false, "preview pin / first line frames") }
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()

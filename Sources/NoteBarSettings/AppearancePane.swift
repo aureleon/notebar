@@ -68,7 +68,7 @@ struct AppearancePane: View {
 
                 Toggle(isOn: $settings.hideMarkup) {
                     Text("Hide Markdown markup")
-                    Text("Markers such as ** and # are hidden when the text cursor is not on them. When off, they are dimmed.")
+                    Text("On by default. Markers such as ** and # are hidden until the text cursor is on them. When off, the markers are shown dimmed.")
                 }
             }
         }

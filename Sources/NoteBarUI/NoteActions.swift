@@ -72,41 +72,15 @@ final class NoteActions {
         root?.noteDidMoveByKeyboard(id)
     }
 
-    /// Moves a note to `dest` (final index in `notes(in:)` order, inside its pinned/unpinned zone).
-    /// `NoteStore.moveNote(toIndex:)` places the note between its raw neighbors, which is wrong at the
-    /// pinned/unpinned boundary (the neighbor on the other side has an unrelated sortIndex). There the
-    /// sort index is computed from same-zone neighbors and written with `updateNote`.
+    /// Moves a note to `dest` (final index in `notes(in:)` order). The store keeps the note inside its
+    /// pinned/unpinned zone and places it between same-zone neighbors.
     func reorderNote(_ id: NoteID, toIndex dest: Int) {
-        guard let note = store.note(id: id) else { return }
-        let remaining = store.notes(in: note.folderId).filter { $0.id != id }
-        let i = max(0, min(dest, remaining.count))
-        let prev = i > 0 ? remaining[i - 1] : nil
-        let next = i < remaining.count ? remaining[i] : nil
-        let crossesZone = (prev.map { $0.isPinned != note.isPinned } ?? false) || (next.map { $0.isPinned != note.isPinned } ?? false)
-        guard crossesZone else { store.moveNote(id: id, toIndex: i); return }
-        let a = prev.flatMap { $0.isPinned == note.isPinned ? $0.sortIndex : nil }
-        let b = next.flatMap { $0.isPinned == note.isPinned ? $0.sortIndex : nil }
-        if let a, let b, SortIndex.needsRebalance(a, b) { store.moveNote(id: id, toIndex: i); return }
-        var n = note
-        n.sortIndex = SortIndex.between(a, b)
-        store.updateNote(n)
+        store.moveNote(id: id, toIndex: dest)
     }
 
     /// Folder equivalent of `reorderNote` (pinned folders sort first).
     func reorderFolder(_ id: FolderID, toIndex dest: Int) {
-        guard let folder = store.folder(id: id) else { return }
-        let remaining = store.folders().filter { $0.id != id }
-        let i = max(0, min(dest, remaining.count))
-        let prev = i > 0 ? remaining[i - 1] : nil
-        let next = i < remaining.count ? remaining[i] : nil
-        let crossesZone = (prev.map { $0.isPinned != folder.isPinned } ?? false) || (next.map { $0.isPinned != folder.isPinned } ?? false)
-        guard crossesZone else { store.moveFolder(id: id, toIndex: i); return }
-        let a = prev.flatMap { $0.isPinned == folder.isPinned ? $0.sortIndex : nil }
-        let b = next.flatMap { $0.isPinned == folder.isPinned ? $0.sortIndex : nil }
-        if let a, let b, SortIndex.needsRebalance(a, b) { store.moveFolder(id: id, toIndex: i); return }
-        var f = folder
-        f.sortIndex = SortIndex.between(a, b)
-        store.updateFolder(f)
+        store.moveFolder(id: id, toIndex: dest)
     }
 
     func move(_ id: NoteID, toFolder folderId: FolderID) {

@@ -50,7 +50,7 @@ public extension Theme {
     static let defaultTheme = Theme(
         id: "default", name: "Default",
         light: ThemePalette(
-            text: "#1D1D1F", secondaryText: "#86868B", accent: "#E8A33D", link: "#0A66D8",
+            text: "#1D1D1F", secondaryText: "#86868B", accent: "#1F4F99", link: "#0A66D8",
             inlineCode: "#2F6FDB", codeBlockBackground: "#0000000D", highlight: "#D8F5A2", quote: "#8A5A2B",
             markup: "#00000040", headerBackground: "#FFFFFFE6", folderRowBackground: "#FFFFFFF2",
             cardBackgrounds: ["none": "#FFFFFF", "purple": "#EADFFB", "yellow": "#FBF0C2", "blue": "#D8E7FB",
@@ -120,6 +120,7 @@ public final class ThemeManager {
     private let settings: AppSettings
     private weak var store: NoteStore?
     private var observer: NSObjectProtocol?
+    private var storeObserver: NSObjectProtocol?
 
     public init(settings: AppSettings, store: NoteStore?) {
         self.settings = settings
@@ -129,6 +130,11 @@ public final class ThemeManager {
         observer = NotificationCenter.default.addObserver(forName: .appSettingsDidChange, object: nil, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
             guard key == nil || key == "themeId" || key == "appearance" || key == "colorStyle" else { return }
+            MainActor.assumeIsolated { self?.reload() }
+        }
+        // Custom themes live in the store: reload after a restore (`.all`).
+        storeObserver = NotificationCenter.default.addObserver(forName: .noteStoreDidChange, object: nil, queue: .main) { [weak self] n in
+            guard n.storeChange == .all else { return }
             MainActor.assumeIsolated { self?.reload() }
         }
     }

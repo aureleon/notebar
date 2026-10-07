@@ -2,7 +2,9 @@ import AppKit
 import NoteBarCore
 
 /// The floating side panel window. Borderless, non-activating (typing works while another app stays
-/// frontmost), transparent: the hosted content draws its own cards and shadows.
+/// frontmost), visually transparent: the hosted content draws its own cards and shadows. The content
+/// view has a nearly invisible fill so empty areas do not pass clicks to the app below.
+/// (See `PanelContentView.hitTestFill`.)
 final class NoteBarPanelWindow: NSPanel {
     /// Escape that no view handled.
     var onEscape: (() -> Void)?
@@ -84,15 +86,21 @@ final class NoteBarPanelWindow: NSPanel {
     }
 }
 
-/// Root view of the panel: transparent, hosts the notes view controller's view and the resize handle.
+/// Root view of the panel: invisible but hit-testable, hosts the notes view controller's view and the
+/// resize handle.
 final class PanelContentView: NSView {
+    /// The window server sends mouse, scroll and drag events on alpha-0 pixels to the window below.
+    /// The content draws nothing in the gaps between cards and under a short list, so a nearly invisible
+    /// fill (2/255) keeps the whole panel rect "solid": those events stay in the panel.
+    static let hitTestFill = NSColor(white: 0, alpha: 0.008)
+
     let resizeHandle = PanelResizeHandle()
     private(set) weak var hostedView: NSView?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.backgroundColor = Self.hitTestFill.cgColor
         autoresizesSubviews = true
         addSubview(resizeHandle)
     }

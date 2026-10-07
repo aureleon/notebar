@@ -109,6 +109,51 @@ public final class NotesUIProbe {
     public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
     public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }
     public var searchQuery: String? { root.search?.query }
+
+    /// Pin button frame in the root view (nil if no card).
+    public func pinFrame(of id: NoteID) -> NSRect? {
+        list.card(for: id).map { $0.convert($0.pinButtonFrame, to: root.view) }
+    }
+
+    /// Used rect of the card's first text line in the root view: from the live editor's text view,
+    /// else from the preview.
+    public func firstLineFrame(of id: NoteID) -> NSRect? {
+        guard let card = list.card(for: id) else { return nil }
+        if let editor = card.editor {
+            guard let tv = editor.firstDescendantTextView(), let lm = tv.layoutManager, let tc = tv.textContainer,
+                  lm.numberOfGlyphs > 0 else { return nil }
+            lm.ensureLayout(for: tc)
+            var r = lm.lineFragmentUsedRect(forGlyphAt: 0, effectiveRange: nil)
+            r.origin.x += tv.textContainerOrigin.x
+            r.origin.y += tv.textContainerOrigin.y
+            return tv.convert(r, to: root.view)
+        }
+        guard let p = card.previewForChecks, let r = p.firstLineUsedRect else { return nil }
+        return p.convert(r, to: root.view)
+    }
+
+    public func discardEditor(of id: NoteID) { list.card(for: id)?.discardEditor() }
+    public func ensureEditor(of id: NoteID) {
+        guard let card = list.card(for: id) else { return }
+        card.ensureEditor()
+        list.layoutCards(animated: false)
+    }
+
+    /// How a pasteboard would be imported by a drop / paste outside the editor:
+    /// "files", "image", "text" or "none".
+    public static func importKind(of pb: NSPasteboard) -> String {
+        switch PasteboardImport.payload(from: pb) {
+        case .files?: return "files"
+        case .image?: return "image"
+        case .text?: return "text"
+        case nil: return "none"
+        }
+    }
+
+    /// True if drops of `type` are accepted on the notes list background.
+    public static func acceptsDragType(_ type: NSPasteboard.PasteboardType) -> Bool {
+        PasteboardImport.externalTypes.contains(type) && PasteboardImport.attachmentTypes.contains(type)
+    }
     public func showToast(_ text: String, action: String?) { root.showToast(text, actionTitle: action, action: action == nil ? nil : {}) }
 }
 

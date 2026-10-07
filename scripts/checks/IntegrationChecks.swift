@@ -86,7 +86,9 @@ func runChecks() {
     Check.equal(parse("notebar://open?folder=Work"), .openFolder(name: "Work"), "open folder")
     Check.equal(parse("notebar://open"), .show, "open without args = show")
     Check.equal(parseError("notebar://open?note=abc"), .invalidParameter(name: "note", value: "abc"), "bad id")
-    Check.equal(parseError("notebar://open?note=-3"), .invalidParameter(name: "note", value: "-3"), "negative id")
+    // Negative ids are real: notes created while the database could not be written keep them.
+    Check.equal(parse("notebar://open?note=-3"), .openNote(id: -3), "negative id")
+    Check.equal(parseError("notebar://open?note=0"), .invalidParameter(name: "note", value: "0"), "zero id")
     Check.equal(parse("notebar://settings"), .settings, "settings")
     Check.equal(parseError("notebar://frobnicate"), .unknownAction("frobnicate"), "unknown action")
     Check.equal(parseError("notebar://"), .unknownAction(""), "missing action")

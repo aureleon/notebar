@@ -155,9 +155,7 @@ public final class IntegrationActions {
 
     /// Opens the panel's search field and types `query` into it.
     public func beginSearch(query: String) {
-        env.controller?.showSearch()
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !q.isEmpty { SearchFieldFiller.fill(q) }
+        env.controller?.showSearch(query: query.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     public func noteText(id: NoteID) throws -> String {

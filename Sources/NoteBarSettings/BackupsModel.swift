@@ -9,8 +9,14 @@ final class BackupsModel: ObservableObject {
     @Published private(set) var backups: [BackupInfo] = []
     @Published private(set) var isWorking = false
     @Published private(set) var statusMessage: String?
+    /// "NoteBar can't save changes: …" while the store's writes fail (nil when all is saved).
+    @Published private(set) var saveProblem: String?
+    /// The error of the last failed backup (nil after a good one).
+    @Published private(set) var backupProblem: String?
 
     private var storeObserver: NSObjectProtocol?
+    private var backupsObserver: NSObjectProtocol?
+    private var problemObservers: [NSObjectProtocol] = []
 
     init(models: SettingsModels) {
         self.models = models
@@ -18,11 +24,22 @@ final class BackupsModel: ObservableObject {
             guard n.storeChange == .all else { return }
             MainActor.assumeIsolated { self?.refresh() }
         }
+        // The daily backup runs in the background; refresh the list when it is done.
+        backupsObserver = NotificationCenter.default.addObserver(forName: .backupsDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
+        for name in [Notification.Name.noteStoreWriteFailed, .noteStoreWriteRecovered, .backupDidFail] {
+            problemObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            })
+        }
         refresh()
     }
 
     deinit {
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
+        if let backupsObserver { NotificationCenter.default.removeObserver(backupsObserver) }
+        for o in problemObservers { NotificationCenter.default.removeObserver(o) }
     }
 
     private var service: BackupService? { models.env.backups }
@@ -30,6 +47,10 @@ final class BackupsModel: ObservableObject {
 
     func refresh() {
         backups = service?.backups() ?? []
+        saveProblem = models.env.store.lastError.map {
+            "NoteBar can't save changes (\($0.localizedDescription)). Your edits are kept in memory and saving is retried."
+        }
+        backupProblem = service?.lastError.map { "The last backup failed (\($0.localizedDescription))." }
     }
 
     var lastBackupText: String {

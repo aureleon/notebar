@@ -87,6 +87,20 @@ enum FormatChecks {
         expect(FormatEditing.clearFormatting(text: "# Head", selection: sel(3)), "Head", nil, "clear heading")
         expect(FormatEditing.clearFormatting(text: "- [ ] **x**", selection: sel(0, 11)), "- [ ] x", nil, "clear keeps checklist")
         expect(FormatEditing.clearFormatting(text: "**a** **b**", selection: sel(8, 1)), "**a** b", nil, "clear only selected span")
+
+        // Attachment tokens are images / file tiles, not links: clear formatting and ⌘K keep them.
+        let img = "Title\n![Pasted Image.png](attachment:5)\nmore"
+        expect(FormatEditing.clearFormatting(text: img, selection: sel(0, (img as NSString).length)), img, nil, "clear keeps image")
+        expect(FormatEditing.clearFormatting(text: "see [report.pdf](attachment:3) **now**", selection: sel(2)),
+               "see [report.pdf](attachment:3) now", nil, "clear keeps file tile on caret line")
+        expect(FormatEditing.clearFormatting(text: "[my_file_x.pdf](attachment:3) *a*", selection: sel(0, 33)),
+               "[my_file_x.pdf](attachment:3) a", nil, "clear keeps tile label")
+        expect(FormatEditing.clearFormatting(text: "**![a.png](attachment:1)**", selection: sel(0, 26)),
+               "![a.png](attachment:1)", nil, "clear removes bold around image")
+        expect(FormatEditing.toggleLink(text: img, selection: sel(6, 33), url: nil), img, sel(6, 33), "cmd-K keeps image")
+        expect(FormatEditing.toggleLink(text: "see [report.pdf](attachment:3)", selection: sel(8), url: nil),
+               "see [report.pdf](attachment:3)", sel(8), "cmd-K keeps file tile")
+        expect(FormatEditing.toggleLink(text: "see [d](https://x.y)", selection: sel(6), url: nil), "see d", nil, "cmd-K unwraps a real link")
     }
 }
 

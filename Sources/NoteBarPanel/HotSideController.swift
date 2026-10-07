@@ -2,7 +2,8 @@ import AppKit
 import NoteBarCore
 
 /// "Hot Side": a 1 pt transparent strip on the panel-side edge of every screen. Resting the cursor on
-/// it for `settings.hotSideDelay` seconds (no mouse button down) opens the panel on that screen.
+/// it for `settings.hotSideDelay` seconds (no mouse button down) opens the panel on that screen. The
+/// open is passive: it does not take keyboard focus (see `PassiveOpenTracker`).
 /// Dragging a file / text onto the edge also opens it, so the user can drop onto the panel.
 ///
 /// The strip skips the menu bar area, the bottom corner (hot corners) and edge parts that touch another

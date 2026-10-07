@@ -58,7 +58,8 @@ public protocol NoteStore: AnyObject {
     func updateFolder(_ folder: Folder)
     /// Deletes the folder and all its notes + attachments. Never deletes the last folder.
     func deleteFolder(id: FolderID)
-    /// Moves the folder to `index` in the `folders()` order.
+    /// Moves the folder to `index` in the `folders()` order. The folder stays in its pinned/unpinned
+    /// zone: the index is clamped to that zone and only same-zone neighbors define the new sortIndex.
     func moveFolder(id: FolderID, toIndex index: Int)
 
     // MARK: Notes
@@ -72,7 +73,8 @@ public protocol NoteStore: AnyObject {
     /// Updates metadata (color, mode, isFolded, isPinned, body). Posts `.note` (+ `.notes` if pin changed).
     func updateNote(_ note: Note)
     func deleteNote(id: NoteID)
-    /// Moves the note to `index` in the `notes(in:)` order of its folder.
+    /// Moves the note to `index` in the `notes(in:)` order of its folder. Like `moveFolder`, the note
+    /// stays in its pinned/unpinned zone (index clamped to the zone, same-zone neighbors only).
     func moveNote(id: NoteID, toIndex index: Int)
     /// Moves the note to another folder.
     func moveNote(id: NoteID, toFolder folderId: FolderID, position: InsertPosition)
@@ -96,9 +98,17 @@ public protocol NoteStore: AnyObject {
 
     /// Writes any pending debounced changes now (call on quit / panel hide).
     func flush()
+
+    /// The error of the current write-failure episode; nil while everything is saved (or can be).
+    var lastError: Error? { get }
+    /// True when some changes are not in the database yet (debounced edits or failed writes).
+    var hasPendingChanges: Bool { get }
 }
 
 public extension NoteStore {
+    var lastError: Error? { nil }
+    var hasPendingChanges: Bool { false }
+
     func folder(named name: String) -> Folder? {
         folders().first { $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
     }
@@ -129,8 +139,32 @@ public struct BackupInfo: Hashable, Sendable, Identifiable {
     public init(url: URL, date: Date, sizeBytes: Int64) { self.url = url; self.date = date; self.sizeBytes = sizeBytes }
 }
 
+public extension Notification.Name {
+    /// Posted (main thread) by the backup service after a backup was created or old backups were pruned.
+    static let backupsDidChange = Notification.Name("NoteBar.backupsDidChange")
+    /// Posted (object: the store) when a database write fails and the store enters the
+    /// "unsaved changes" state. Posted once per failure episode, not for every retry.
+    /// `userInfo[NoteStoreWriteFailureKey.error]` holds the `Error`, `.operation` a short description.
+    static let noteStoreWriteFailed = Notification.Name("NoteBar.noteStoreWriteFailed")
+    /// Posted (object: the store) when all changes that failed earlier are saved again.
+    static let noteStoreWriteRecovered = Notification.Name("NoteBar.noteStoreWriteRecovered")
+    /// Posted (object: the backup service) when an automatic (daily) backup fails.
+    /// `userInfo[NoteStoreWriteFailureKey.error]` holds the `Error`.
+    static let backupDidFail = Notification.Name("NoteBar.backupDidFail")
+}
+
+/// `userInfo` keys of `noteStoreWriteFailed` / `backupDidFail`.
+public enum NoteStoreWriteFailureKey {
+    public static let error = "error"
+    public static let operation = "operation"
+}
+
 @MainActor
 public protocol BackupService: AnyObject {
+    /// Date of the newest backup, if any.
+    var lastBackupDate: Date? { get }
+    /// True while a (background) backup is running.
+    var isBackingUp: Bool { get }
     /// Zips database + attachments into `AppPaths.backupsDirectory/NoteBar-YYYY-MM-DD-HHmmss.zip`.
     @discardableResult func backupNow() throws -> BackupInfo
     /// Newest first.
@@ -141,4 +175,11 @@ public protocol BackupService: AnyObject {
     func performDailyBackupIfNeeded()
     /// One `.md` file per note in one subfolder per folder. Images/files are copied next to them.
     func exportAllAsMarkdown(to directory: URL) throws
+}
+
+public extension BackupService {
+    /// The error of the last failed backup; nil after a successful one.
+    var lastError: Error? { nil }
+    var lastBackupDate: Date? { backups().first?.date }
+    var isBackingUp: Bool { false }
 }

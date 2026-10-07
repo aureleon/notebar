@@ -111,11 +111,20 @@ final class SegmentToggle: NSView {
                 c.accent.setFill()
                 NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
             }
-            let color: NSColor = selected ? (c.isDark ? .black : .white) : c.text.withAlphaComponent(0.75)
+            let color: NSColor = selected ? Self.labelColor(on: c.accent) : c.text.withAlphaComponent(0.75)
             let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
             let s = (titles[i] as NSString).size(withAttributes: attrs)
             (titles[i] as NSString).draw(at: NSPoint(x: r.midX - s.width / 2, y: r.midY - s.height / 2), withAttributes: attrs)
         }
+    }
+
+    /// Black or white, whichever has more contrast on `fill` (WCAG relative luminance).
+    static func labelColor(on fill: NSColor) -> NSColor {
+        guard let c = fill.usingColorSpace(.sRGB) else { return .white }
+        func lin(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        let l = 0.2126 * lin(c.redComponent) + 0.7152 * lin(c.greenComponent) + 0.0722 * lin(c.blueComponent)
+        // Contrast with white = 1.05 / (l + 0.05); with black = (l + 0.05) / 0.05.
+        return 1.05 / (l + 0.05) >= (l + 0.05) / 0.05 ? .white : .black
     }
 
     override func mouseDown(with event: NSEvent) {}

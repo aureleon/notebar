@@ -151,6 +151,12 @@ extension NotesRootViewController {
                 guard !isEditingText else { return false }
                 pasteAsNewNote(); return true
             case "1", "2", "3", "4", "5", "6", "7", "8", "9":
+                // The root runs before its subviews. While text is being edited, the editor gets ⌘digit
+                // first (⌘1–⌘3 = headings in Standard mode). Only keys it does not use switch folders.
+                if isEditingText, let editor = view.window?.firstResponder as? NSView,
+                   editor.performKeyEquivalent(with: event) {
+                    return true
+                }
                 openFolder(atShortcutIndex: Int(key)! - 1); return true
             default: return false
             }

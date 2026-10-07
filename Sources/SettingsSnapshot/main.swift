@@ -1,6 +1,7 @@
 import AppKit
+import ServiceManagement
 import NoteBarCore
-import NoteBarSettings
+@testable import NoteBarSettings
 
 // Renders the settings panes offscreen (no window is shown on screen) to PNG files and runs a few
 // behavior checks (shortcut recorder, launch agent plist, window wiring).
@@ -91,6 +92,17 @@ func checkRecorder() {
     Check.expect(recorder.isRecording, "⇧A alone is rejected, still recording")
     Check.expect(changes.isEmpty, "no change for ⇧A")
 
+    // macOS 15+ rejects ⌥-only and ⌥⇧ global hotkeys: the recorder must not accept them.
+    recorder.keyDown(with: key(0x31, " ", [.option], window: window))
+    Check.expect(recorder.isRecording, "⌥Space is rejected, still recording")
+    recorder.keyDown(with: key(0x28, "K", [.option, .shift], window: window))
+    Check.expect(recorder.isRecording, "⌥⇧K is rejected, still recording")
+    // Home (0x73) has no display name in Core ("Key115"): rejected.
+    _ = recorder.performKeyEquivalent(with: key(0x73, "", [.command, .option], window: window))
+    Check.expect(recorder.isRecording, "⌥⌘Home (unnamed key) is rejected, still recording")
+    Check.expect(changes.isEmpty, "no change for rejected combos")
+    Check.equal(recorder.handleRecording(key(0x31, " ", [.option], window: window)), .rejected, "handleRecording ⌥Space → rejected")
+
     _ = recorder.performKeyEquivalent(with: key(0x28, "k", [.command, .option], window: window))
     Check.expect(!recorder.isRecording, "⌥⌘K stops recording")
     Check.equal(recorder.combo, KeyCombo(keyCode: 0x28, carbonModifiers: KeyCombo.cmd | KeyCombo.option), "⌥⌘K recorded")
@@ -124,6 +136,57 @@ func checkRecorder() {
     Check.equal(states.filter { $0 }.count, states.filter { !$0 }.count, "active true/false notifications are balanced")
     NotificationCenter.default.removeObserver(token)
     window.close()
+}
+
+@MainActor
+func checkHotkeyWarnings() {
+    let status = HotkeyRegistrationStatus(observing: true)
+    let name = Notification.Name("NoteBar.hotkeyRegistrationDidChange")
+    Check.expect(!status.hasReport, "no report before the first pass")
+    NotificationCenter.default.post(name: name, object: nil, userInfo: ["failed": ["newNote"], "suspended": false])
+    Check.equal(status.failed, [.newNote], "failed actions from userInfo")
+    Check.expect(status.hasReport, "report received")
+    NotificationCenter.default.post(name: name, object: nil, userInfo: ["failed": [], "suspended": true])
+    Check.equal(status.failed, [.newNote], "suspended pass is ignored")
+    NotificationCenter.default.post(name: name, object: nil, userInfo: ["failed": ["search", "bogus"], "suspended": false])
+    Check.equal(status.failed, [.search], "unknown raw values are dropped")
+
+    let defaults = HotkeyAction.defaults
+    Check.expect(HotkeyConflicts.warning(for: .togglePanel, in: defaults) == nil, "defaults have no warning")
+    let failedText = HotkeyConflicts.warning(for: .search, in: defaults, failed: [.search]) ?? ""
+    Check.expect(failedText.contains("another app uses it"), "registration failure shown: \(failedText)")
+    var h = defaults
+    h[.togglePanel] = KeyCombo(keyCode: 0x31, carbonModifiers: KeyCombo.option)
+    let optText = HotkeyConflicts.warning(for: .togglePanel, in: h) ?? ""
+    Check.expect(optText.contains("⌘ or ⌃"), "stored ⌥-only combo is flagged: \(optText)")
+    h[.togglePanel] = KeyCombo(keyCode: 0x73, carbonModifiers: KeyCombo.cmd | KeyCombo.control)
+    Check.expect((HotkeyConflicts.warning(for: .togglePanel, in: h) ?? "").contains("does not support"), "unnamed key is flagged")
+    h[.togglePanel] = KeyCombo(keyCode: 0x31, carbonModifiers: KeyCombo.cmd)
+    let sysText = HotkeyConflicts.warning(for: .togglePanel, in: h, failed: [.togglePanel]) ?? ""
+    Check.expect(sysText.contains("Spotlight") && sysText.hasPrefix("Could not register"), "failed system combo names the owner")
+}
+
+@MainActor
+func checkLaunchAtLoginGuards() {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    let id = LaunchAtLogin.canonicalBundleIdentifier
+    Check.expect(LaunchAtLogin.isInstalledCopy(bundleIdentifier: id, bundleURL: URL(fileURLWithPath: "/Applications/NoteBar.app")),
+                 "/Applications copy is the installed copy")
+    Check.expect(LaunchAtLogin.isInstalledCopy(bundleIdentifier: id, bundleURL: home.appendingPathComponent("Applications/NoteBar.app")),
+                 "~/Applications copy is the installed copy")
+    Check.expect(!LaunchAtLogin.isInstalledCopy(bundleIdentifier: id, bundleURL: home.appendingPathComponent("Projects/NoteBar/build/NoteBar.app")),
+                 "build/NoteBar.app is not the installed copy")
+    Check.expect(!LaunchAtLogin.isInstalledCopy(bundleIdentifier: "local.dhguz.NoteBar.smoke", bundleURL: URL(fileURLWithPath: "/Applications/NoteBarSmoke.app")),
+                 "a copy with another bundle id is not the installed copy")
+    Check.expect(!LaunchAtLogin.isInstalledCopy(bundleIdentifier: id, bundleURL: URL(fileURLWithPath: "/ApplicationsX/NoteBar.app")),
+                 "prefix match needs a path separator")
+    let denied = NSError(domain: "SMAppServiceErrorDomain", code: Int(kSMErrorLaunchDeniedByUser))
+    Check.expect(LaunchAtLogin.needsApproval(after: denied, status: .notRegistered), "denied-by-user error needs approval")
+    Check.expect(LaunchAtLogin.needsApproval(after: NSError(domain: "x", code: 1), status: .requiresApproval), "requiresApproval status needs approval")
+    Check.expect(!LaunchAtLogin.needsApproval(after: NSError(domain: "SMAppServiceErrorDomain", code: Int(kSMErrorInvalidSignature)), status: .notRegistered),
+                 "invalid signature falls back to the launch agent")
+    Check.expect(!LaunchAtLogin.needsApproval(after: NSError(domain: NSPOSIXErrorDomain, code: Int(kSMErrorLaunchDeniedByUser)), status: .notFound),
+                 "POSIX error with the same code does not count")
 }
 
 @MainActor
@@ -172,6 +235,8 @@ MainActor.assumeIsolated {
 
     checkRecorder()
     checkLaunchAgentPlist()
+    checkHotkeyWarnings()
+    checkLaunchAtLoginGuards()
 
     // A duplicate shortcut, to show the warning.
     settings.hotkeys[.search] = settings.hotkeys[.togglePanel]

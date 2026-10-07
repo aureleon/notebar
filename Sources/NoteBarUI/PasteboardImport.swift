@@ -19,16 +19,14 @@ enum ImportPayload {
 @MainActor
 enum PasteboardImport {
     /// Types the panel accepts from other apps.
-    static let externalTypes: [NSPasteboard.PasteboardType] = [
-        .fileURL, .URL, .png, .tiff, NSPasteboard.PasteboardType(UTType.jpeg.identifier),
-        NSPasteboard.PasteboardType(UTType.heic.identifier), .string,
-    ]
+    static let externalTypes: [NSPasteboard.PasteboardType] =
+        [.fileURL, .URL, .png, .tiff, NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+         NSPasteboard.PasteboardType(UTType.heic.identifier), .string] + filePromiseTypes
 
     /// Types that carry a file or an image (accepted on an existing card's chrome).
-    static let attachmentTypes: [NSPasteboard.PasteboardType] = [
-        .fileURL, .png, .tiff, NSPasteboard.PasteboardType(UTType.jpeg.identifier),
-        NSPasteboard.PasteboardType(UTType.heic.identifier), .string,
-    ]
+    static let attachmentTypes: [NSPasteboard.PasteboardType] =
+        [.fileURL, .png, .tiff, NSPasteboard.PasteboardType(UTType.jpeg.identifier),
+         NSPasteboard.PasteboardType(UTType.heic.identifier), .string] + filePromiseTypes
 
     static func hasInternalNote(_ pb: NSPasteboard) -> Bool { pb.availableType(from: [.noteBarNoteID]) != nil }
     static func hasInternalFolder(_ pb: NSPasteboard) -> Bool { pb.availableType(from: [.noteBarFolderID]) != nil }
@@ -41,12 +39,28 @@ enum PasteboardImport {
         pb.string(forType: .noteBarFolderID).flatMap { Int64($0) }
     }
 
-    /// Files first, then image data, then a web URL / text.
+    /// Synchronous content only (no file promises; see `receive(from:completion:)`).
+    /// Files first. Then image data, when there is no text or the text is only the image's web URL
+    /// (browser "Copy Image" / image drags), same rule as the editor. Then text / a URL.
     static func payload(from pb: NSPasteboard) -> ImportPayload? {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
             return .files(urls)
         }
+        let text = pb.string(forType: .string)
+        let hasText = !(text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        if !hasText || isSingleWebURL(text!), let image = imageData(from: pb) {
+            return image
+        }
+        if hasText, let text { return .text(text) }
+        if let url = pb.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL {
+            return .text(url.absoluteString)
+        }
+        return imageData(from: pb)
+    }
+
+    /// PNG / JPEG / HEIC data as is; TIFF converted to PNG.
+    static func imageData(from pb: NSPasteboard) -> ImportPayload? {
         let imageTypes: [(NSPasteboard.PasteboardType, String)] = [
             (.png, "png"), (NSPasteboard.PasteboardType(UTType.jpeg.identifier), "jpg"),
             (NSPasteboard.PasteboardType(UTType.heic.identifier), "heic"),
@@ -54,21 +68,18 @@ enum PasteboardImport {
         for (type, ext) in imageTypes {
             if let data = pb.data(forType: type), !data.isEmpty { return .image(data, fileExtension: ext, name: nil) }
         }
-        if pb.availableType(from: [.string]) == nil, let tiff = pb.data(forType: .tiff),
-           let rep = NSBitmapImageRep(data: tiff), let png = rep.representation(using: .png, properties: [:]) {
-            return .image(png, fileExtension: "png", name: nil)
-        }
-        if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return .text(s)
-        }
-        if let url = pb.readObjects(forClasses: [NSURL.self], options: nil)?.first as? URL {
-            return .text(url.absoluteString)
-        }
         if let tiff = pb.data(forType: .tiff), let rep = NSBitmapImageRep(data: tiff),
            let png = rep.representation(using: .png, properties: [:]) {
             return .image(png, fileExtension: "png", name: nil)
         }
         return nil
+    }
+
+    /// One http(s) URL and nothing else.
+    static func isSingleWebURL(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = t.lowercased()
+        return !t.isEmpty && !t.contains(where: { $0.isWhitespace }) && (lower.hasPrefix("http://") || lower.hasPrefix("https://"))
     }
 
     static func canImport(_ pb: NSPasteboard) -> Bool {

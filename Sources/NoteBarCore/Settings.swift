@@ -74,7 +74,7 @@ public final class AppSettings: ObservableObject {
         colorStyle = getEnum("colorStyle", .background)
         appearance = getEnum("appearance", .system)
         themeId = get("themeId", "default")
-        hideMarkup = get("hideMarkup", false)
+        hideMarkup = get("hideMarkup", true)
         defaultNoteMode = getEnum("defaultNoteMode", .standard)
         backupsEnabled = get("backupsEnabled", true)
         backupRetention = get("backupRetention", 14)

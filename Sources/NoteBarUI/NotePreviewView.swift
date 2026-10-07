@@ -10,26 +10,69 @@ final class NotePreviewView: NSView {
     private var cachedWidth: CGFloat = -1
     private var cachedHeight: CGFloat = 0
     var onClick: ((NSEvent) -> Void)?
+    /// Area (in view coordinates) text must not use: the corner under the card's pin button.
+    var firstLineExclusion: NSRect? {
+        didSet {
+            guard firstLineExclusion != oldValue else { return }
+            textContainer.exclusionPaths = firstLineExclusion.map { [NSBezierPath(rect: $0)] } ?? []
+            cachedWidth = -1
+            needsDisplay = true
+        }
+    }
+
+    // TextKit 1 stack: exclusion paths and the same line breaking as the editor.
+    private let textStorage = NSTextStorage()
+    private let layoutManager = NSLayoutManager()
+    private let textContainer = NSTextContainer(size: NSSize(width: 100, height: CGFloat.greatestFiniteMagnitude))
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        textContainer.lineFragmentPadding = 0
+        layoutManager.usesFontLeading = true
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
 
     func configure(note: Note, env: AppEnvironment, appearance: NSAppearance) {
         text = Self.render(note: note, env: env, appearance: appearance)
+        textStorage.setAttributedString(text)
         cachedWidth = -1
         needsDisplay = true
     }
 
     func height(forWidth width: CGFloat) -> CGFloat {
         if width == cachedWidth { return cachedHeight }
-        let r = text.boundingRect(with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
-                                  options: [.usesLineFragmentOrigin, .usesFontLeading])
+        layOut(width: width)
+        let used = layoutManager.usedRect(for: textContainer)
         cachedWidth = width
-        cachedHeight = max(Metrics.minEditorHeight, ceil(r.height))
+        cachedHeight = max(Metrics.minEditorHeight, ceil(used.maxY))
         return cachedHeight
     }
 
+    private func layOut(width: CGFloat) {
+        let w = max(1, width)
+        if textContainer.size.width != w {
+            textContainer.size = NSSize(width: w, height: CGFloat.greatestFiniteMagnitude)
+        }
+        layoutManager.ensureLayout(for: textContainer)
+    }
+
+    /// Used rect of the first line (view coordinates). For checks.
+    var firstLineUsedRect: NSRect? {
+        layOut(width: bounds.width)
+        guard layoutManager.numberOfGlyphs > 0 else { return nil }
+        return layoutManager.lineFragmentUsedRect(forGlyphAt: 0, effectiveRange: nil)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        text.draw(with: bounds, options: [.usesLineFragmentOrigin, .usesFontLeading, .truncatesLastVisibleLine])
+        layOut(width: bounds.width)
+        let glyphs = layoutManager.glyphRange(forBoundingRect: dirtyRect, in: textContainer)
+        layoutManager.drawBackground(forGlyphRange: glyphs, at: .zero)
+        layoutManager.drawGlyphs(forGlyphRange: glyphs, at: .zero)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
