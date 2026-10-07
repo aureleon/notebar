@@ -19,6 +19,12 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 plutil -lint -s "$APP/Contents/Info.plist"
 # Everything else in Resources/ (sdef, icons...) goes into Contents/Resources.
 find Resources -maxdepth 1 -type f ! -name Info.plist -exec cp {} "$APP/Contents/Resources/" \;
+# The app icon is drawn in code (scripts/make-icon.swift) and generated at build time; it is not kept in the repo.
+ICON_CACHE="build/AppIcon.icns"
+if [[ ! -f "$ICON_CACHE" || scripts/make-icon.swift -nt "$ICON_CACHE" ]]; then
+    scripts/make-icon.sh "$ICON_CACHE"
+fi
+cp "$ICON_CACHE" "$APP/Contents/Resources/AppIcon.icns"
 # SwiftPM resource bundles, if any.
 find "$BIN" -maxdepth 1 -name '*.bundle' -exec cp -R {} "$APP/Contents/Resources/" \;
 

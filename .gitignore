@@ -4,3 +4,12 @@ build/
 *.app
 .DS_Store
 .swiftpm/
+
+# Binary assets are generated at build time or kept out of the repo.
+*.icns
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.mov
