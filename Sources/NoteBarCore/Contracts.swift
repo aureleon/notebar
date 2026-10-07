@@ -38,8 +38,11 @@ public protocol NoteEditing: NSView {
     func perform(_ action: FormatAction)
     /// Insert attachment tokens at the caret (or at the end if not focused) and render them.
     func insertAttachments(_ attachments: [Attachment])
-    /// Select + scroll-into-view the first match of `query` (search results). Empty = clear.
+    /// Marks every match of `query` in the text (search results). Empty = clear. Does not move the
+    /// selection or scroll.
     func highlightSearch(_ query: String)
+    /// Scrolls to the first marked match and shows the find indicator. Call only on the first result.
+    func revealFirstSearchMatch()
 }
 
 @MainActor
@@ -203,6 +206,8 @@ public final class PlainNoteEditor: NSView, NoteEditing, NSTextViewDelegate {
         let loc = isEditingFocused ? textView.selectedRange() : NSRange(location: (textView.string as NSString).length, length: 0)
         textView.insertText((loc.location == 0 ? "" : "\n") + text, replacementRange: loc)
     }
+
+    public func revealFirstSearchMatch() {}
 
     public func highlightSearch(_ query: String) {
         guard !query.isEmpty else { return }

@@ -37,7 +37,7 @@ public struct Theme: Codable, Hashable, Sendable, Identifiable {
     public var light: ThemePalette
     public var dark: ThemePalette
 
-    public init(id: String, name: String, cornerRadius: Double = 16, fontSize: Double = 13,
+    public init(id: String, name: String, cornerRadius: Double = 16, fontSize: Double = 14,
                 light: ThemePalette, dark: ThemePalette) {
         self.id = id; self.name = name; self.cornerRadius = cornerRadius; self.fontSize = fontSize
         self.light = light; self.dark = dark

@@ -44,6 +44,20 @@ public enum AppPaths {
     }
 }
 
+/// Panel width rules shared by every module (Panel, UI, Settings, snapshots).
+public enum PanelWidth {
+    /// Automatic width: about 27 % of the visible screen width, clamped to 380...600 pt.
+    public static func automatic(visibleWidth: CGFloat) -> CGFloat {
+        guard visibleWidth.isFinite, visibleWidth > 0 else { return 380 }
+        return min(max((visibleWidth * 0.27).rounded(), 380), 600)
+    }
+    /// Hard limits for a user-set width.
+    public static let minWidth: CGFloat = 280
+    public static let maxWidth: CGFloat = 720
+    /// Width used when no screen is known (for example, in tests).
+    public static let fallback: CGFloat = 380
+}
+
 public extension Notification.Name {
     /// userInfo["key"] = the property name that changed (String).
     static let appSettingsDidChange = Notification.Name("NoteBar.appSettingsDidChange")
@@ -65,10 +79,22 @@ public final class AppSettings: ObservableObject {
             (defaults.string(forKey: k)).flatMap(E.init(rawValue:)) ?? d
         }
         panelSide = getEnum("panelSide", .right)
-        panelWidth = get("panelWidth", 290.0)
+        // Migration (once): the old default 290 pt and the Open Bar keys are gone.
+        if !defaults.bool(forKey: "migratedPanelWidthV2") {
+            if defaults.object(forKey: "panelWidth") == nil || defaults.double(forKey: "panelWidth") == 290 {
+                defaults.removeObject(forKey: "panelWidth")
+                defaults.set(true, forKey: "panelWidthIsAutomatic")
+            }
+            defaults.removeObject(forKey: "showOpenBar")
+            defaults.removeObject(forKey: "openBarOffset")
+            defaults.set(true, forKey: "migratedPanelWidthV2")
+        }
+        panelWidth = get("panelWidth", 380.0)
+        // A saved width without the flag was set by the user before automatic width existed: keep it fixed.
+        panelWidthIsAutomatic = get("panelWidthIsAutomatic", defaults.object(forKey: "panelWidth") == nil)
+        blurBackdrop = get("blurBackdrop", true)
         hotSideEnabled = get("hotSideEnabled", true)
         hotSideDelay = get("hotSideDelay", 0.3)
-        showOpenBar = get("showOpenBar", true)
         autoHide = get("autoHide", true)
         pinnedOpen = get("pinnedOpen", false)
         colorStyle = getEnum("colorStyle", .background)
@@ -93,12 +119,16 @@ public final class AppSettings: ObservableObject {
 
     // MARK: Panel
     @Published public var panelSide: PanelSide { didSet { save("panelSide", panelSide.rawValue) } }
-    /// Points. Clamp to 240...520 when using.
+    /// Points. Clamp to 280...720 when using. Ignored while `panelWidthIsAutomatic` is true.
     @Published public var panelWidth: Double { didSet { save("panelWidth", panelWidth) } }
+    /// true = width follows the screen (about 27 % of the visible width, 380...600 pt).
+    /// Set to false when the user resizes the panel or picks a width.
+    @Published public var panelWidthIsAutomatic: Bool { didSet { save("panelWidthIsAutomatic", panelWidthIsAutomatic) } }
     @Published public var hotSideEnabled: Bool { didSet { save("hotSideEnabled", hotSideEnabled) } }
     /// Seconds the cursor must rest on the edge before the panel opens.
     @Published public var hotSideDelay: Double { didSet { save("hotSideDelay", hotSideDelay) } }
-    @Published public var showOpenBar: Bool { didSet { save("showOpenBar", showOpenBar) } }
+    /// Blur the screen area behind the panel (Notification Center style). Off = no backdrop.
+    @Published public var blurBackdrop: Bool { didSet { save("blurBackdrop", blurBackdrop) } }
     /// Hide the panel when another app/window becomes active.
     @Published public var autoHide: Bool { didSet { save("autoHide", autoHide) } }
     /// Keep the panel open (overrides autoHide).
