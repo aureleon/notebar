@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!--
+  NoteBar scripting dictionary. Command classes live in Sources/NoteBarIntegrations/ScriptCommands.swift.
+  Examples:
+    tell application "NoteBar"
+        set n to new note with text "Buy milk" in folder "Inbox" show false
+        get note text id n
+        search notes for "milk" returning titles
+        list folders
+        toggle notebar
+    end tell
+-->
+<dictionary title="NoteBar Terminology">
+
+    <suite name="Standard Suite" code="????" description="Common terms.">
+        <command name="quit" code="aevtquit" description="Quit NoteBar.">
+            <cocoa class="NSQuitCommand"/>
+        </command>
+
+        <class name="application" code="capp" description="The NoteBar application.">
+            <cocoa class="NSApplication"/>
+            <property name="name" code="pnam" type="text" access="r" description="The name of the application."/>
+            <property name="frontmost" code="pisf" type="boolean" access="r" description="Is this the active application?">
+                <cocoa key="isActive"/>
+            </property>
+            <property name="version" code="vers" type="text" access="r" description="The version of the application."/>
+            <responds-to command="quit">
+                <cocoa method="handleQuitScriptCommand:"/>
+            </responds-to>
+        </class>
+    </suite>
+
+    <suite name="NoteBar Suite" code="NBar" description="Create, find and show notes.">
+
+        <class-extension extends="application" description="The NoteBar application.">
+            <property name="panel visible" code="NBpv" type="boolean" access="r" description="Is the side panel on screen?">
+                <cocoa key="notebarPanelVisible"/>
+            </property>
+        </class-extension>
+
+        <enumeration name="search result kind" code="NBrk">
+            <enumerator name="identifiers" code="NBri" description="Note ids (integers)."/>
+            <enumerator name="bodies" code="NBrb" description="Full note text (Markdown)."/>
+            <enumerator name="titles" code="NBrt" description="Note titles (first line)."/>
+        </enumeration>
+
+        <command name="new note" code="NBarNewN" description="Create a note. Returns its id.">
+            <cocoa class="NBNewNoteCommand"/>
+            <direct-parameter type="text" optional="yes" description="The note text (same as 'with text')."/>
+            <parameter name="with text" code="NBtx" type="text" optional="yes" description="The note text (Markdown). The first line is the title.">
+                <cocoa key="Text"/>
+            </parameter>
+            <parameter name="in folder" code="NBfd" type="text" optional="yes" description="Folder name. Created if missing. Default: the current folder.">
+                <cocoa key="Folder"/>
+            </parameter>
+            <parameter name="show" code="NBsh" type="boolean" optional="yes" description="Show the panel and focus the new note. Default: true.">
+                <cocoa key="Show"/>
+            </parameter>
+            <result type="integer" description="The id of the new note."/>
+        </command>
+
+        <command name="show notebar" code="NBarShow" description="Show the side panel.">
+            <cocoa class="NBShowCommand"/>
+        </command>
+
+        <command name="hide notebar" code="NBarHide" description="Hide the side panel.">
+            <cocoa class="NBHideCommand"/>
+        </command>
+
+        <command name="toggle notebar" code="NBarTogl" description="Show the side panel if it is hidden, else hide it.">
+            <cocoa class="NBToggleCommand"/>
+        </command>
+
+        <command name="search notes" code="NBarSrch" description="Find notes that contain a text (case-insensitive). Does not change the panel.">
+            <cocoa class="NBSearchNotesCommand"/>
+            <direct-parameter type="text" optional="yes" description="The text to find (same as 'for')."/>
+            <parameter name="for" code="NBqr" type="text" optional="yes" description="The text to find. Empty or missing: all notes.">
+                <cocoa key="Query"/>
+            </parameter>
+            <parameter name="in folder" code="NBfd" type="text" optional="yes" description="Only search this folder.">
+                <cocoa key="Folder"/>
+            </parameter>
+            <parameter name="returning" code="NBrk" type="search result kind" optional="yes" description="What to return. Default: identifiers.">
+                <cocoa key="ResultKind"/>
+            </parameter>
+            <result description="Note ids, bodies or titles, in panel order.">
+                <type type="any" list="yes"/>
+            </result>
+        </command>
+
+        <command name="get note text" code="NBarGtxt" description="Get the text (Markdown) of a note.">
+            <cocoa class="NBGetNoteTextCommand"/>
+            <direct-parameter type="integer" optional="yes" description="The note id (same as 'id')."/>
+            <parameter name="id" code="ID  " type="integer" optional="yes" description="The note id.">
+                <cocoa key="NoteID"/>
+            </parameter>
+            <result type="text" description="The note text."/>
+        </command>
+
+        <command name="reveal note" code="NBarRevl" description="Show the panel and focus a note.">
+            <cocoa class="NBRevealNoteCommand"/>
+            <direct-parameter type="integer" optional="yes" description="The note id (same as 'id')."/>
+            <parameter name="id" code="ID  " type="integer" optional="yes" description="The note id.">
+                <cocoa key="NoteID"/>
+            </parameter>
+        </command>
+
+        <command name="list folders" code="NBarLsFd" description="Get the folder names, in panel order.">
+            <cocoa class="NBListFoldersCommand"/>
+            <result description="The folder names.">
+                <type type="text" list="yes"/>
+            </result>
+        </command>
+
+        <command name="search notebar" code="NBarOSrc" description="Show the panel with its search field, optionally filled in.">
+            <cocoa class="NBOpenSearchCommand"/>
+            <direct-parameter type="text" optional="yes" description="The text to search for (same as 'for')."/>
+            <parameter name="for" code="NBqr" type="text" optional="yes" description="The text to search for.">
+                <cocoa key="Query"/>
+            </parameter>
+        </command>
+
+        <command name="open notebar settings" code="NBarSett" description="Open the Settings window.">
+            <cocoa class="NBOpenSettingsCommand"/>
+        </command>
+    </suite>
+</dictionary>

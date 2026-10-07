@@ -1,0 +1,179 @@
+import AppKit
+import NoteBarCore
+
+/// Sizes used by the panel, the Open Bar and the Hot Side.
+enum PanelMetrics {
+    /// Gap between the panel and the screen edge / menu bar / bottom of the visible frame.
+    static let edgeInset: CGFloat = 8
+    static let minWidth: CGFloat = 240
+    static let maxWidth: CGFloat = 520
+    static let animationDuration: TimeInterval = 0.18
+
+    /// Open Bar window (hit area) and the visible pill drawn inside it.
+    static let openBarHitWidth: CGFloat = 16
+    static let openBarHitHeight: CGFloat = 80
+    static let openBarPillWidth: CGFloat = 5
+    static let openBarPillHeight: CGFloat = 56
+    /// Gap between the Open Bar hit window and the panel while the panel is shown.
+    static let openBarPanelGap: CGFloat = 1
+    /// Distance between the pill and the screen edge while the panel is hidden.
+    static let openBarEdgeGap: CGFloat = 3
+
+    /// Hot Side strip thickness (1 pt = 2 px on Retina; the cursor stops on the last pixel column).
+    static let hotSideThickness: CGFloat = 1
+    /// Vertical areas of the edge that never trigger (hot corners, Dock corners).
+    static let hotSideBottomExclusion: CGFloat = 16
+    static let hotSideMinTopExclusion: CGFloat = 28
+    static let hotSideMinSegment: CGFloat = 60
+}
+
+/// Pure frame math for one screen. All rects are in global (Cocoa, bottom-left origin) coordinates.
+struct PanelGeometry: Equatable {
+    var screenFrame: CGRect
+    var visibleFrame: CGRect
+    var side: PanelSide
+    /// Requested width (unclamped).
+    var requestedWidth: CGFloat
+    /// True if another display touches this screen on the panel side. The panel then must not slide
+    /// across the edge (it would show up on the neighbor display) and only fades.
+    var hasNeighborOnSide: Bool
+
+    static func clampWidth(_ width: Double) -> CGFloat {
+        guard width.isFinite else { return 290 }
+        return min(max(CGFloat(width), PanelMetrics.minWidth), PanelMetrics.maxWidth)
+    }
+
+    /// Clamped width that also fits on small screens (leaves room for the Open Bar).
+    var width: CGFloat {
+        let fit = visibleFrame.width - 2 * PanelMetrics.edgeInset - PanelMetrics.openBarHitWidth - PanelMetrics.openBarPanelGap
+        let w = Self.clampWidth(Double(requestedWidth))
+        return w > fit ? max(fit, 160) : w
+    }
+
+    var shownFrame: CGRect {
+        let inset = PanelMetrics.edgeInset
+        let w = width
+        let h = max(visibleFrame.height - 2 * inset, 100)
+        let x = side == .right ? visibleFrame.maxX - inset - w : visibleFrame.minX + inset
+        return CGRect(x: round(x), y: round(visibleFrame.minY + inset), width: round(w), height: round(h))
+    }
+
+    /// Frame the panel slides from / to. With a neighbor display only a short slide is used.
+    var hiddenFrame: CGRect {
+        let shown = shownFrame
+        let distance: CGFloat
+        if hasNeighborOnSide {
+            distance = PanelMetrics.edgeInset
+        } else {
+            let edgeGap = side == .right ? screenFrame.maxX - shown.maxX : shown.minX - screenFrame.minX
+            distance = shown.width + max(edgeGap, 0) + 2
+        }
+        return shown.offsetBy(dx: side == .right ? distance : -distance, dy: 0)
+    }
+
+    /// Open Bar hit window frame. `offset` = vertical offset of the bar center from the middle of the
+    /// visible frame (user drag). The result is clamped into the visible frame.
+    func openBarFrame(panelShown: Bool, offset: CGFloat) -> CGRect {
+        let w = PanelMetrics.openBarHitWidth
+        let h = PanelMetrics.openBarHitHeight
+        let x: CGFloat
+        if panelShown {
+            let panel = shownFrame
+            x = side == .right ? panel.minX - PanelMetrics.openBarPanelGap - w : panel.maxX + PanelMetrics.openBarPanelGap
+        } else {
+            x = side == .right ? visibleFrame.maxX - w : visibleFrame.minX
+        }
+        let y = Self.clampedOpenBarCenterY(offset: offset, visibleFrame: visibleFrame) - h / 2
+        return CGRect(x: round(x), y: round(y), width: w, height: h)
+    }
+
+    static func clampedOpenBarCenterY(offset: CGFloat, visibleFrame: CGRect) -> CGFloat {
+        let h = PanelMetrics.openBarHitHeight
+        let margin = PanelMetrics.edgeInset + h / 2
+        let lo = visibleFrame.minY + margin
+        let hi = visibleFrame.maxY - margin
+        guard hi > lo else { return visibleFrame.midY }
+        return min(max(visibleFrame.midY + (offset.isFinite ? offset : 0), lo), hi)
+    }
+
+    /// Largest allowed |offset| for the Open Bar on this screen.
+    static func clampOpenBarOffset(_ offset: CGFloat, visibleFrame: CGRect) -> CGFloat {
+        clampedOpenBarCenterY(offset: offset, visibleFrame: visibleFrame) - visibleFrame.midY
+    }
+
+    /// Hot Side strips for a screen: the side edge minus the menu bar area, the bottom corner, and any
+    /// part of the edge that touches another display (the cursor does not stop there).
+    static func hotSideSegments(screenFrame: CGRect, visibleFrame: CGRect, side: PanelSide,
+                                otherScreenFrames: [CGRect]) -> [CGRect] {
+        let topExclusion = max(screenFrame.maxY - visibleFrame.maxY, PanelMetrics.hotSideMinTopExclusion) + 4
+        var ranges: [ClosedRange<CGFloat>] = []
+        let lo = screenFrame.minY + PanelMetrics.hotSideBottomExclusion
+        let hi = screenFrame.maxY - topExclusion
+        guard hi > lo else { return [] }
+        ranges = [lo...hi]
+
+        let edgeX = side == .right ? screenFrame.maxX : screenFrame.minX
+        for other in otherScreenFrames {
+            let touches = side == .right ? abs(other.minX - edgeX) < 1 : abs(other.maxX - edgeX) < 1
+            guard touches else { continue }
+            let oLo = other.minY, oHi = other.maxY
+            ranges = ranges.flatMap { r -> [ClosedRange<CGFloat>] in
+                if oHi <= r.lowerBound || oLo >= r.upperBound { return [r] }
+                var out: [ClosedRange<CGFloat>] = []
+                if oLo > r.lowerBound { out.append(r.lowerBound...oLo) }
+                if oHi < r.upperBound { out.append(oHi...r.upperBound) }
+                return out
+            }
+        }
+        let t = PanelMetrics.hotSideThickness
+        let x = side == .right ? screenFrame.maxX - t : screenFrame.minX
+        return ranges
+            .filter { $0.upperBound - $0.lowerBound >= PanelMetrics.hotSideMinSegment }
+            .map { CGRect(x: x, y: $0.lowerBound, width: t, height: $0.upperBound - $0.lowerBound) }
+    }
+
+    /// True if any other screen touches `screenFrame` on `side` with a vertical overlap.
+    static func hasNeighbor(screenFrame: CGRect, side: PanelSide, otherScreenFrames: [CGRect]) -> Bool {
+        let edgeX = side == .right ? screenFrame.maxX : screenFrame.minX
+        return otherScreenFrames.contains { other in
+            let touches = side == .right ? abs(other.minX - edgeX) < 1 : abs(other.maxX - edgeX) < 1
+            return touches && other.maxY > screenFrame.minY && other.minY < screenFrame.maxY
+        }
+    }
+}
+
+// MARK: - Screens
+
+extension NSScreen {
+    var nbDisplayID: CGDirectDisplayID? {
+        (deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+    }
+
+    /// The screen under the cursor, falling back to the main / first screen.
+    static var nbScreenWithMouse: NSScreen? {
+        let p = NSEvent.mouseLocation
+        let screens = NSScreen.screens
+        // The cursor can sit exactly on maxX / maxY, which `contains` excludes; check exact first.
+        return screens.first { $0.frame.contains(p) }
+            ?? screens.first { $0.frame.insetBy(dx: -1, dy: -1).contains(p) }
+            ?? NSScreen.main ?? screens.first
+    }
+
+    static func nbScreen(withID id: CGDirectDisplayID?) -> NSScreen? {
+        guard let id else { return nil }
+        return NSScreen.screens.first { $0.nbDisplayID == id }
+    }
+
+    func nbGeometry(side: PanelSide, width: Double) -> PanelGeometry {
+        let others = NSScreen.screens.filter { $0 != self }.map(\.frame)
+        return PanelGeometry(screenFrame: frame, visibleFrame: visibleFrame, side: side,
+                             requestedWidth: CGFloat(width),
+                             hasNeighborOnSide: PanelGeometry.hasNeighbor(screenFrame: frame, side: side, otherScreenFrames: others))
+    }
+}
+
+/// Collection behavior shared by every NoteBar edge window: on all Spaces, over full-screen apps,
+/// not moved by Mission Control / Exposé, not in the window cycle.
+let edgeWindowCollectionBehavior: NSWindow.CollectionBehavior = [
+    .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,
+]
