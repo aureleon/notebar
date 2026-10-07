@@ -16,6 +16,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/NoteBar" "$APP/Contents/MacOS/NoteBar"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+plutil -lint -s "$APP/Contents/Info.plist"
 # Everything else in Resources/ (sdef, icons...) goes into Contents/Resources.
 find Resources -maxdepth 1 -type f ! -name Info.plist -exec cp {} "$APP/Contents/Resources/" \;
 # SwiftPM resource bundles, if any.
@@ -25,10 +26,16 @@ codesign -s - --force --deep "$APP"
 echo "Built $APP"
 
 if [[ $INSTALL == 1 ]]; then
+    LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
     mkdir -p ~/Applications
     pkill -x NoteBar 2>/dev/null || true
+    # Drop the old registration first so Launch Services picks up changed URL types / services.
+    [[ -d ~/Applications/NoteBar.app ]] && "$LSREGISTER" -u ~/Applications/NoteBar.app 2>/dev/null || true
     rm -rf ~/Applications/NoteBar.app
     cp -R "$APP" ~/Applications/NoteBar.app
-    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f ~/Applications/NoteBar.app
+    # Register the notebar:// URL scheme and the AppleScript dictionary.
+    "$LSREGISTER" -f ~/Applications/NoteBar.app
+    # Refresh the Services menu (NSServices in Info.plist).
+    /System/Library/CoreServices/pbs -update 2>/dev/null || true
     echo "Installed ~/Applications/NoteBar.app"
 fi

@@ -1,0 +1,125 @@
+import AppKit
+import NoteBarCore
+
+/// Test / snapshot hooks (used by the `UISnapshot` executable; XCTest is unavailable).
+/// Not needed by the app.
+@MainActor
+public final class NotesUIProbe {
+    private unowned let root: NotesRootViewController
+
+    init(root: NotesRootViewController) { self.root = root }
+
+    private var list: NotesListView { root.notesList }
+
+    public var displayedNoteIDs: [NoteID] { list.noteIDs }
+    public var liveEditorCount: Int { list.cards.filter(\.hasEditor).count }
+    public var cardCount: Int { list.cards.count }
+    public var folderRowIDs: [FolderID] { root.folderList.folderIDs }
+    public var folderRowsVisible: Bool { !root.folderList.isHidden }
+    public var notesVisible: Bool { !list.isHidden }
+    public var isSearching: Bool { root.search != nil }
+    public var isToastVisible: Bool { root.toast.isShowing }
+    public var selectedNoteID: NoteID? { list.selectedNoteID }
+    public var focusedNoteID: NoteID? { root.focusedNoteID }
+    public var pendingDeletion: NoteID? { root.pendingDeletion }
+    public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
+
+    public func cardIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id).map { ObjectIdentifier($0) } }
+    public func editorIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id)?.editor.map { ObjectIdentifier($0) } }
+    public func editor(of id: NoteID) -> (any NoteEditing)? { list.card(for: id)?.editor }
+    public func cardFrame(of id: NoteID) -> NSRect? { list.card(for: id).map { $0.convert($0.cardRect, to: root.view) } }
+    public func isCardFolded(_ id: NoteID) -> Bool? { list.card(for: id)?.isFolded }
+
+    public func layoutNow() {
+        root.view.layoutSubtreeIfNeeded()
+        list.layoutCards(animated: false)
+        list.updateLiveEditors()
+        root.view.layoutSubtreeIfNeeded()
+    }
+
+    public func createAllEditors() { list.createAllEditors() }
+    public func setHovered(_ id: NoteID, _ on: Bool) { list.card(for: id)?.setHoveredForSnapshot(on) }
+
+    public func select(_ id: NoteID?) { root.select(id) }
+    public func focusList() { root.focusRoot() }
+
+    public func createNewNote() { root.createNewNote() }
+    public func plus() { root.plusPressed() }
+    public func deleteWithUndo(_ id: NoteID) { root.softDelete(id) }
+    public func undoDelete() { root.undoDeletion() }
+    public func commitDelete() { root.commitPendingDeletion() }
+
+    public func setSearchQuery(_ q: String, allFolders: Bool? = nil) {
+        root.beginSearch()
+        root.header.searchField.stringValue = q
+        root.search?.query = q
+        if let allFolders { root.search?.allFolders = allFolders }
+        root.runSearch(animated: false)
+    }
+
+    public func pressEscape() { root.handleEscape() }
+
+    /// Synthesizes a key-down and routes it like the panel would (key equivalent first, then keyDown
+    /// on the first responder chain's root view).
+    @discardableResult
+    public func press(keyCode: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) -> Bool {
+        guard let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                                        windowNumber: root.view.window?.windowNumber ?? 0, context: nil,
+                                        characters: characters, charactersIgnoringModifiers: characters,
+                                        isARepeat: false, keyCode: keyCode) else { return false }
+        if !modifiers.intersection([.command]).isEmpty { return root.handleKeyEquivalent(ev) }
+        return root.handleKeyDown(ev)
+    }
+
+    public func dropOnBackground(text: String) { root.createNote(from: .text(text)) }
+    public func dropFiles(_ urls: [URL], onCard id: NoteID) -> Bool {
+        guard let card = list.card(for: id) else { return false }
+        return root.notesList(list, drop: .files(urls), on: card)
+    }
+    public func dropFiles(_ urls: [URL]) { root.createNote(from: .files(urls)) }
+    public func moveNote(_ id: NoteID, toGap gap: Int) { root.notesList(list, moveNote: id, toGap: gap) }
+    public func clickCard(_ id: NoteID) {
+        guard let card = list.card(for: id),
+              let ev = NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0,
+                                          windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 0) else { return }
+        root.notesList(list, clicked: card, event: ev)
+    }
+    public func beginRename(_ folderId: FolderID) { root.beginRenameFolder(folderId) }
+    public func endRename() { root.folderList.endRename() }
+    public func showMoveMenuItems(for id: NoteID) -> [String] {
+        guard let n = root.store.note(id: id) else { return [] }
+        return MenuBuilder.moveMenu(for: n, actions: root.actions).items.map { $0.isSeparatorItem ? "-" : $0.title }
+    }
+    public func gearMenuItems(for id: NoteID) -> [String] {
+        guard let n = root.store.note(id: id) else { return [] }
+        return MenuBuilder.gearMenu(for: n, actions: root.actions).items.map { $0.isSeparatorItem ? "-" : ($0.view != nil ? "<colors>" : $0.title + ($0.state == .on ? " ✓" : "")) }
+    }
+    public func cardMenuItems(for id: NoteID) -> [String] {
+        guard let n = root.store.note(id: id) else { return [] }
+        return MenuBuilder.cardContextMenu(for: n, actions: root.actions, inSearch: root.search != nil).items
+            .map { $0.isSeparatorItem ? "-" : $0.title }
+    }
+    public func exportImage(_ id: NoteID) -> NSBitmapImageRep? {
+        guard let n = root.store.note(id: id) else { return nil }
+        let ctx = root.exportContext()
+        return NoteImageExporter.render(note: n, width: ctx.width, appearance: ctx.appearance, env: root.env)
+    }
+    public func moveByKeyboard(_ id: NoteID, up: Bool) { root.actions.move(id, up ? .up : .down) }
+    public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }
+    public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
+    public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }
+    public var searchQuery: String? { root.search?.query }
+    public func showToast(_ text: String, action: String?) { root.showToast(text, actionTitle: action, action: action == nil ? nil : {}) }
+}
+
+extension NotesRootViewController {
+    /// Hooks for snapshots / checks.
+    public var probe: NotesUIProbe { NotesUIProbe(root: self) }
+
+    var currentHeaderTitle: String {
+        switch screen {
+        case .folders: return "NoteBar"
+        case .folder(let id): return store.folder(id: id)?.name ?? "Notes"
+        }
+    }
+}

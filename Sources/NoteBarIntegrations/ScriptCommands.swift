@@ -102,6 +102,10 @@ class NBScriptCommand: NSScriptCommand {
     static func scriptInteger(_ id: NoteID) -> NSNumber {
         id <= Int64(Int32.max) ? NSNumber(value: Int32(id)) : NSNumber(value: Double(id))
     }
+
+    static func scriptIntegerDescriptor(_ id: NoteID) -> NSAppleEventDescriptor {
+        id <= Int64(Int32.max) ? NSAppleEventDescriptor(int32: Int32(id)) : NSAppleEventDescriptor(double: Double(id))
+    }
 }
 
 /// `new note [with text "…"] [in folder "…"] [show boolean]` → note id (integer).
@@ -140,11 +144,16 @@ final class NBSearchNotesCommand: NBScriptCommand {
     override func run(_ actions: IntegrationActions) throws -> Any? {
         let query = string(ScriptKey.query) ?? directString ?? ""
         let notes = try actions.findNotes(query: query, folder: string(ScriptKey.folder))
+        // Built as a descriptor: Cocoa Scripting cannot coerce Swift arrays to the sdef type "any".
+        let items: [NSAppleEventDescriptor]
         switch uint32(ScriptKey.kind) ?? ScriptEnum.identifiers {
-        case ScriptEnum.bodies: return notes.map(\.body)
-        case ScriptEnum.titles: return notes.map(\.title)
-        default: return notes.map { Self.scriptInteger($0.id) }
+        case ScriptEnum.bodies: items = notes.map { NSAppleEventDescriptor(string: $0.body) }
+        case ScriptEnum.titles: items = notes.map { NSAppleEventDescriptor(string: $0.title) }
+        default: items = notes.map { Self.scriptIntegerDescriptor($0.id) }
         }
+        let list = NSAppleEventDescriptor.list()
+        for (i, item) in items.enumerated() { list.insert(item, at: i + 1) }
+        return list
     }
 }
 

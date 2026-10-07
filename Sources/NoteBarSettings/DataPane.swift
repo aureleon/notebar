@@ -18,10 +18,16 @@ struct DataPane: View {
                     Text("Once a day, NoteBar saves the notes database and attachments as a zip file.")
                 }
 
-                Stepper(value: retention, in: 1...365) {
-                    LabeledContent("Keep the last") {
-                        Text("\(retention.wrappedValue) backup\(retention.wrappedValue == 1 ? "" : "s")").monospacedDigit()
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        Text("\(retention.wrappedValue) backup\(retention.wrappedValue == 1 ? "" : "s")")
+                            .monospacedDigit()
+                        Stepper("Keep the last", value: retention, in: 1...365)
+                            .labelsHidden()
                     }
+                } label: {
+                    Text("Keep the last")
+                    Text("Older backups are deleted automatically.")
                 }
                 .disabled(!settings.backupsEnabled)
 
@@ -45,6 +51,32 @@ struct DataPane: View {
                 }
             }
             .disabled(!backups.isAvailable)
+
+            Section("Files") {
+                LabeledContent {
+                    Button("Open Data Folder") { backups.openDataFolder() }
+                } label: {
+                    Text("Data folder")
+                    Text(SettingsFormat.abbreviatedPath(AppPaths.supportDirectory))
+                        .textSelection(.enabled)
+                }
+
+                LabeledContent {
+                    Button("Open Backups Folder") { backups.openBackupsFolder() }
+                } label: {
+                    Text("Backups folder")
+                    Text(SettingsFormat.abbreviatedPath(AppPaths.backupsDirectory))
+                        .textSelection(.enabled)
+                }
+
+                LabeledContent {
+                    Button("Export All as Markdown…") { backups.exportAllAsMarkdown() }
+                        .disabled(!backups.isAvailable || backups.isWorking)
+                } label: {
+                    Text("Export")
+                    Text("One Markdown file per note, one folder per NoteBar folder.")
+                }
+            }
 
             Section {
                 if backups.backups.isEmpty {
@@ -71,24 +103,6 @@ struct DataPane: View {
                 }
             }
             .disabled(!backups.isAvailable)
-
-            Section("Files") {
-                LabeledContent {
-                    Button("Open Data Folder") { backups.openDataFolder() }
-                } label: {
-                    Text("Data folder")
-                    Text(SettingsFormat.abbreviatedPath(AppPaths.supportDirectory))
-                        .textSelection(.enabled)
-                }
-
-                LabeledContent {
-                    Button("Export All as Markdown…") { backups.exportAllAsMarkdown() }
-                        .disabled(!backups.isAvailable || backups.isWorking)
-                } label: {
-                    Text("Export")
-                    Text("One Markdown file per note, one folder per NoteBar folder.")
-                }
-            }
         }
         .formStyle(.grouped)
     }

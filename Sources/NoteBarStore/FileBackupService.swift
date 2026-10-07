@@ -25,6 +25,15 @@ public final class FileBackupService: BackupService {
     static let manifestName = "manifest.json"
     static let formatVersion = 1
 
+    /// Posted (object: the service) after a backup was created or old backups were pruned.
+    public static let backupsDidChangeNotification = Notification.Name("NoteBar.backupsDidChange")
+
+    /// Zip automatic (daily) backups on a background queue so a large attachments folder never
+    /// blocks the UI. Manual `backupNow()` is always synchronous.
+    public var archivesInBackground = true
+    /// True while an automatic backup is being zipped in the background.
+    public private(set) var isBackingUp = false
+
     private var timer: Timer?
     private var observers: [NSObjectProtocol] = []
 
@@ -66,55 +75,97 @@ public final class FileBackupService: BackupService {
         while true {
             let name = Self.filePrefix + stamp + (n == 1 ? "" : "-\(n)") + ".zip"
             let url = backupsDirectory.appendingPathComponent(name)
-            if !FileManager.default.fileExists(atPath: url.path) { return url }
+            if !FileManager.default.fileExists(atPath: url.path),
+               !FileManager.default.fileExists(atPath: Self.partialURL(for: url).path) { return url }
             n += 1
         }
     }
 
     // MARK: - Backup
 
-    @discardableResult
-    public func backupNow() throws -> BackupInfo {
+    /// A backup whose content (snapshot, attachments copy, manifest) is ready in `content` and
+    /// only needs to be zipped to `final`.
+    private struct PreparedBackup: Sendable {
+        let work: URL
+        let content: URL
+        let final: URL
+        let partial: URL
+        let date: Date
+    }
+
+    /// Main thread part: consistent database snapshot (includes pending edits), attachments copy
+    /// (APFS clones, so cheap), manifest, and a reserved archive name.
+    private func prepareBackup() throws -> PreparedBackup {
         let fm = FileManager.default
         try fm.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
         let work = try fm.url(for: .itemReplacementDirectory, in: .userDomainMask,
                               appropriateFor: backupsDirectory, create: true)
-        defer { try? fm.removeItem(at: work) }
-
-        let content = work.appendingPathComponent("NoteBar", isDirectory: true)
-        try fm.createDirectory(at: content, withIntermediateDirectories: true)
-        try store.writeSnapshot(to: content.appendingPathComponent(StoreSchema.databaseFileName))
-
-        let attachmentsCopy = content.appendingPathComponent(StoreSchema.attachmentsFolderName, isDirectory: true)
-        if fm.fileExists(atPath: store.attachmentsDirectory.path) {
-            try fm.copyItem(at: store.attachmentsDirectory, to: attachmentsCopy)
-        } else {
-            try fm.createDirectory(at: attachmentsCopy, withIntermediateDirectories: true)
-        }
-
-        let date = now()
-        let manifest: [String: Any] = [
-            "app": "NoteBar",
-            "format": Self.formatVersion,
-            "createdAt": ISO8601DateFormatter().string(from: date),
-            "folders": store.folders().count,
-            "notes": store.folders().reduce(0) { $0 + store.noteCount(in: $1.id) },
-        ]
-        let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
-        try manifestData.write(to: content.appendingPathComponent(Self.manifestName))
-
-        let final = uniqueArchiveURL(for: date)
-        // Zip to a hidden temporary name first so a half-written archive never looks like a backup.
-        let partial = backupsDirectory.appendingPathComponent("." + final.lastPathComponent + ".partial")
-        try? fm.removeItem(at: partial)
         do {
-            try Ditto.zip(contentsOf: content, to: partial)
-            try fm.moveItem(at: partial, to: final)
+            let content = work.appendingPathComponent("NoteBar", isDirectory: true)
+            try fm.createDirectory(at: content, withIntermediateDirectories: true)
+            try store.writeSnapshot(to: content.appendingPathComponent(StoreSchema.databaseFileName))
+
+            let attachmentsCopy = content.appendingPathComponent(StoreSchema.attachmentsFolderName, isDirectory: true)
+            if fm.fileExists(atPath: store.attachmentsDirectory.path) {
+                try fm.copyItem(at: store.attachmentsDirectory, to: attachmentsCopy)
+            } else {
+                try fm.createDirectory(at: attachmentsCopy, withIntermediateDirectories: true)
+            }
+
+            let date = now()
+            let manifest: [String: Any] = [
+                "app": "NoteBar",
+                "format": Self.formatVersion,
+                "createdAt": ISO8601DateFormatter().string(from: date),
+                "folders": store.folders().count,
+                "notes": store.folders().reduce(0) { $0 + store.noteCount(in: $1.id) },
+                "attachments": fileCount(in: attachmentsCopy),
+            ]
+            let manifestData = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
+            try manifestData.write(to: content.appendingPathComponent(Self.manifestName))
+
+            let final = uniqueArchiveURL(for: date)
+            // Zip to a hidden temporary name first so a half-written archive never looks like a backup.
+            let partial = Self.partialURL(for: final)
+            return PreparedBackup(work: work, content: content, final: final, partial: partial, date: date)
         } catch {
-            try? fm.removeItem(at: partial)
+            try? fm.removeItem(at: work)
             throw error
         }
-        return info(for: final) ?? BackupInfo(url: final, date: date, sizeBytes: 0)
+    }
+
+    private func fileCount(in dir: URL) -> Int {
+        ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { !$0.hasPrefix(".") }.count
+    }
+
+    private static func partialURL(for final: URL) -> URL {
+        final.deletingLastPathComponent().appendingPathComponent("." + final.lastPathComponent + ".partial")
+    }
+
+    /// Thread-safe part: zips the prepared content and moves it into place. Always removes `work`.
+    nonisolated private static func archive(_ p: PreparedBackup) throws {
+        let fm = FileManager.default
+        defer { try? fm.removeItem(at: p.work) }
+        try? fm.removeItem(at: p.partial)
+        do {
+            try Ditto.zip(contentsOf: p.content, to: p.partial)
+            try fm.moveItem(at: p.partial, to: p.final)
+        } catch {
+            try? fm.removeItem(at: p.partial)
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func backupNow() throws -> BackupInfo {
+        let p = try prepareBackup()
+        try Self.archive(p)
+        postBackupsChanged()
+        return info(for: p.final) ?? BackupInfo(url: p.final, date: p.date, sizeBytes: 0)
+    }
+
+    private func postBackupsChanged() {
+        NotificationCenter.default.post(name: FileBackupService.backupsDidChangeNotification, object: self)
     }
 
     private func info(for url: URL) -> BackupInfo? {
@@ -127,7 +178,9 @@ public final class FileBackupService: BackupService {
     public func backups() -> [BackupInfo] {
         let items = (try? FileManager.default.contentsOfDirectory(
             at: backupsDirectory, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])) ?? []
-        return items.compactMap { url -> (BackupInfo, Int)? in
+        return items.compactMap { item -> (BackupInfo, Int)? in
+            // Same URL form as `backupNow()` returns (contentsOfDirectory resolves /var → /private/var).
+            let url = backupsDirectory.appendingPathComponent(item.lastPathComponent)
             guard let p = Self.parse(fileName: url.lastPathComponent), let i = info(for: url) else { return nil }
             return (i, p.sequence)
         }
@@ -139,29 +192,80 @@ public final class FileBackupService: BackupService {
     @discardableResult
     public func pruneBackups(keeping count: Int) -> [URL] {
         let doomed = backups().dropFirst(max(1, count)).map(\.url)
-        return doomed.filter { (try? FileManager.default.removeItem(at: $0)) != nil }
+        let deleted = doomed.filter { (try? FileManager.default.removeItem(at: $0)) != nil }
+        if !deleted.isEmpty { postBackupsChanged() }
+        return deleted
     }
 
-    public func performDailyBackupIfNeeded() {
-        guard settings.backupsEnabled else { return }
+    /// True if a backup was already made on the calendar day of `now()`.
+    public var hasBackupToday: Bool {
         let today = now()
-        let calendar = Calendar.current
-        if !backups().contains(where: { calendar.isDate($0.date, inSameDayAs: today) }) {
-            do {
-                try backupNow()
-                lastError = nil
-            } catch {
-                lastError = error
-                NSLog("NoteBarStore: daily backup failed: %@", String(describing: error))
+        return backups().contains { Calendar.current.isDate($0.date, inSameDayAs: today) }
+    }
+
+    /// Creates a backup if none was made today (and backups are enabled), then prunes to
+    /// `settings.backupRetention`. With `archivesInBackground` the zip step runs off the main thread;
+    /// `completion` is called on the main thread when everything is done.
+    public func performDailyBackupIfNeeded() { performDailyBackupIfNeeded(completion: nil) }
+
+    public func performDailyBackupIfNeeded(completion: (@MainActor () -> Void)?) {
+        guard settings.backupsEnabled, !isBackingUp else { completion?(); return }
+        guard !hasBackupToday else {
+            pruneBackups(keeping: settings.backupRetention)
+            completion?()
+            return
+        }
+        let prepared: PreparedBackup
+        do { prepared = try prepareBackup() } catch {
+            recordAutomaticBackupError(error)
+            completion?()
+            return
+        }
+        guard archivesInBackground else {
+            do { try Self.archive(prepared); lastError = nil; postBackupsChanged() } catch { recordAutomaticBackupError(error) }
+            pruneBackups(keeping: settings.backupRetention)
+            completion?()
+            return
+        }
+        isBackingUp = true
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let failure: Error?
+            do { try Self.archive(prepared); failure = nil } catch { failure = error }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isBackingUp = false
+                    if let failure { self.recordAutomaticBackupError(failure) } else {
+                        self.lastError = nil
+                        self.postBackupsChanged()
+                    }
+                    self.pruneBackups(keeping: self.settings.backupRetention)
+                    completion?()
+                }
             }
         }
-        pruneBackups(keeping: settings.backupRetention)
+    }
+
+    private func recordAutomaticBackupError(_ error: Error) {
+        lastError = error
+        NSLog("NoteBarStore: daily backup failed: %@", String(describing: error))
+    }
+
+    /// Removes hidden half-written archives left behind by a crash or quit during zipping.
+    private func removeStalePartialArchives() {
+        guard !isBackingUp else { return }
+        let fm = FileManager.default
+        let items = (try? fm.contentsOfDirectory(atPath: backupsDirectory.path)) ?? []
+        for name in items where name.hasPrefix("." + Self.filePrefix) && name.hasSuffix(".partial") {
+            try? fm.removeItem(at: backupsDirectory.appendingPathComponent(name))
+        }
     }
 
     /// Runs `performDailyBackupIfNeeded` now, then every `scheduleInterval`, after wake from sleep,
     /// and when backups get enabled in Settings.
     public func startDailySchedule() {
         stopDailySchedule()
+        removeStalePartialArchives()
         performDailyBackupIfNeeded()
         let t = Timer(timeInterval: scheduleInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.performDailyBackupIfNeeded() }

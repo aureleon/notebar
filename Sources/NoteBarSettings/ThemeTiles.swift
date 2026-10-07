@@ -75,6 +75,7 @@ struct ThemeTile: View {
                     )
                 Text(theme.name)
                     .font(.callout)
+                    .foregroundStyle(.primary)
                     .fontWeight(isSelected ? .semibold : .regular)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -114,6 +115,7 @@ struct ColorStyleTile: View {
                 Text(style == .background ? "Full background" : "Left bar")
                     .font(.callout)
                     .fontWeight(isSelected ? .semibold : .regular)
+                    .foregroundStyle(.primary)
             }
             .contentShape(Rectangle())
         }

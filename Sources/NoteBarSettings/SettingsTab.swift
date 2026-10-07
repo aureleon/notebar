@@ -41,7 +41,7 @@ public enum SettingsTab: String, CaseIterable, Sendable {
 @MainActor
 public enum SettingsViews {
     /// The SwiftUI view of one tab.
-    public static func view(for tab: SettingsTab, models: SettingsModels) -> AnyView {
+    public static func view(for tab: SettingsTab, models: SettingsModels, height: CGFloat? = nil) -> AnyView {
         let settings = models.env.settings
         let content: AnyView
         switch tab {
@@ -49,15 +49,15 @@ public enum SettingsViews {
         case .appearance: content = AnyView(AppearancePane(settings: settings, themes: models.themes, models: models))
         case .shortcuts: content = AnyView(ShortcutsPane(settings: settings))
         case .data: content = AnyView(DataPane(settings: settings, backups: models.backups))
-        case .about: content = AnyView(AboutPane(env: models.env))
+        case .about: content = AnyView(AboutPane(env: models.env, about: models.about))
         }
-        return AnyView(content.frame(width: tab.contentSize.width, height: tab.contentSize.height))
+        return AnyView(content.frame(width: tab.contentSize.width, height: height ?? tab.contentSize.height))
     }
 
-    /// An `NSHostingView` of one tab, sized to `tab.contentSize` (used by the snapshot tool).
-    public static func makeHostingView(for tab: SettingsTab, models: SettingsModels) -> NSView {
-        let v = NSHostingView(rootView: view(for: tab, models: models))
-        v.frame = NSRect(origin: .zero, size: tab.contentSize)
+    /// An `NSHostingView` of one tab, sized to `tab.contentSize` (or `height`; used by the snapshot tool).
+    public static func makeHostingView(for tab: SettingsTab, models: SettingsModels, height: CGFloat? = nil) -> NSView {
+        let v = NSHostingView(rootView: view(for: tab, models: models, height: height))
+        v.frame = NSRect(origin: .zero, size: NSSize(width: tab.contentSize.width, height: height ?? tab.contentSize.height))
         return v
     }
 }

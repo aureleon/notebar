@@ -11,8 +11,11 @@ enum PanelMetrics {
 
     /// Open Bar window (hit area) and the visible pill drawn inside it.
     static let openBarHitWidth: CGFloat = 16
+    /// Narrower hit area while the panel is hidden and the bar sits on the screen edge, so it takes as
+    /// little as possible from scroll bars / controls of windows that touch the edge.
+    static let openBarHiddenHitWidth: CGFloat = 10
     static let openBarHitHeight: CGFloat = 80
-    static let openBarPillWidth: CGFloat = 5
+    static let openBarPillWidth: CGFloat = 6
     static let openBarPillHeight: CGFloat = 56
     /// Gap between the Open Bar hit window and the panel while the panel is shown.
     static let openBarPanelGap: CGFloat = 1
@@ -74,8 +77,7 @@ struct PanelGeometry: Equatable {
     /// Open Bar hit window frame. `offset` = vertical offset of the bar center from the middle of the
     /// visible frame (user drag). The result is clamped into the visible frame.
     func openBarFrame(panelShown: Bool, offset: CGFloat) -> CGRect {
-        let w = PanelMetrics.openBarHitWidth
-        let h = PanelMetrics.openBarHitHeight
+        let w = panelShown ? PanelMetrics.openBarHitWidth : PanelMetrics.openBarHiddenHitWidth
         let x: CGFloat
         if panelShown {
             let panel = shownFrame
@@ -83,8 +85,8 @@ struct PanelGeometry: Equatable {
         } else {
             x = side == .right ? visibleFrame.maxX - w : visibleFrame.minX
         }
-        let y = Self.clampedOpenBarCenterY(offset: offset, visibleFrame: visibleFrame) - h / 2
-        return CGRect(x: round(x), y: round(y), width: w, height: h)
+        let y = Self.clampedOpenBarCenterY(offset: offset, visibleFrame: visibleFrame) - PanelMetrics.openBarHitHeight / 2
+        return CGRect(x: round(x), y: round(y), width: w, height: PanelMetrics.openBarHitHeight)
     }
 
     static func clampedOpenBarCenterY(offset: CGFloat, visibleFrame: CGRect) -> CGFloat {

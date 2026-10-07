@@ -172,7 +172,7 @@ final class OpenBarView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         // Nearly invisible fill so the whole hit area receives clicks (alpha-0 pixels are click-through).
-        hitLayer.backgroundColor = NSColor(white: 0, alpha: 0.012).cgColor
+        hitLayer.backgroundColor = NSColor(white: 0.5, alpha: 0.008).cgColor
         hitLayer.cornerRadius = 6
         layer?.addSublayer(hitLayer)
         pill.borderWidth = 0.5

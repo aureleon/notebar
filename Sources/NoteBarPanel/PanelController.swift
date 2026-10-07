@@ -109,16 +109,16 @@ public final class PanelController {
         screenID = target.nbDisplayID
         container.side = g.side
         let slide = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        if !wasVisible || !window.isVisible {
-            // Start from the hidden position (or fade in place when Reduce Motion is on).
-            setFrame(slide ? g.hiddenFrame : g.shownFrame, alpha: 0, duration: 0)
-        } else if !sameScreen {
+        // Start from the hidden position (or fade in place when Reduce Motion is on). If a hide animation
+        // on the same screen is still running, reverse it from where it is instead of jumping.
+        let midHideOnSameScreen = window.isVisible && sameScreen && window.frame.width == g.shownFrame.width
+        if !midHideOnSameScreen {
             setFrame(slide ? g.hiddenFrame : g.shownFrame, alpha: 0, duration: 0)
         }
         window.orderFrontRegardless()
         window.makeKey()
         setFrame(g.shownFrame, alpha: 1, duration: animated ? PanelMetrics.animationDuration : 0, timing: .easeOut)
-        openBar.update(animated: animated && !(!wasVisible && false))
+        openBar.update(animated: animated)
 
         if !wasVisible {
             env.presenter?.panelDidShow()
@@ -142,9 +142,31 @@ public final class PanelController {
         }
         openBar.update(animated: animated)
         notifyVisibility(false)
+        yieldActivationIfIdle()
     }
 
-    public func toggle() { isVisible ? hide() : show() }
+    /// The panel never activates NoteBar, but an alert / sheet / Settings window may have. If NoteBar is
+    /// active and has no other visible window left, give focus back to the previous app so keystrokes do
+    /// not go nowhere.
+    private func yieldActivationIfIdle() {
+        guard NSApp.isActive else { return }
+        let others = NSApp.windows.contains { w in
+            w !== window && w.isVisible && w.canBecomeKey && w.styleMask.contains(.titled)
+        }
+        if !others { NSApp.deactivate() }
+    }
+
+    /// Hotkey / menu bar icon. A pinned panel that is visible but not focused (the user works in another
+    /// app next to it) gets focus first; the next toggle hides it.
+    public func toggle() {
+        if !isVisible { show(); return }
+        if env.settings.pinnedOpen && !window.isKeyWindow && NSApp.keyWindow == nil {
+            window.orderFrontRegardless()
+            window.makeKey()
+            return
+        }
+        hide()
+    }
 
     /// Clicking the Open Bar: it lives on a specific screen, so open on that screen.
     private func toggleFromOpenBar() {
@@ -223,16 +245,14 @@ public final class PanelController {
 
     private func settingsChanged(_ key: String?) {
         switch key {
-        case "panelSide":
-            relayout()
-            hotSide.rebuild()  // also observed by HotSideController; rebuild is idempotent
-        case "panelWidth", "showOpenBar":
+        case "panelSide", "panelWidth", "showOpenBar":
+            // HotSideController observes panelSide / hotSideEnabled itself.
             relayout()
         case "autoHide", "pinnedOpen":
             // Turning pin off while focus is elsewhere should hide on the next check.
             autoHide.scheduleCheck()
         case nil:
-            relayout(); hotSide.rebuild()
+            relayout()
         default:
             break
         }

@@ -77,6 +77,8 @@ final class BackupsModel: ObservableObject {
         models.env.store.flush()
         do {
             try service.restore(backup)
+            // Custom themes live in the database too.
+            models.env.themes.reload()
             let date = SettingsFormat.backupDate.string(from: backup.date)
             statusMessage = "Restored the backup from \(date)."
             refresh()

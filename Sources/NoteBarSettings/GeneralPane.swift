@@ -7,12 +7,19 @@ struct GeneralPane: View {
 
     private var widthBinding: Binding<Double> {
         Binding(get: { min(max(settings.panelWidth, 240), 520) },
-                set: { settings.panelWidth = $0.rounded() })
+                set: { v in
+                    // Steps of 5 pt; only write real changes (every write moves the panel).
+                    let w = min(max((v / 5).rounded() * 5, 240), 520)
+                    if w != settings.panelWidth { settings.panelWidth = w }
+                })
     }
 
     private var delayBinding: Binding<Double> {
         Binding(get: { min(max(settings.hotSideDelay, 0), 1.5) },
-                set: { settings.hotSideDelay = ($0 * 20).rounded() / 20 })
+                set: { v in
+                    let d = min(max((v * 20).rounded() / 20, 0), 1.5)
+                    if d != settings.hotSideDelay { settings.hotSideDelay = d }
+                })
     }
 
     var body: some View {
@@ -39,7 +46,7 @@ struct GeneralPane: View {
 
                 LabeledContent("Width") {
                     HStack(spacing: 10) {
-                        Slider(value: widthBinding, in: 240...520, step: 10)
+                        Slider(value: widthBinding, in: 240...520)
                             .frame(maxWidth: 220)
                         Text("\(Int(widthBinding.wrappedValue)) pt")
                             .monospacedDigit()
@@ -73,7 +80,7 @@ struct GeneralPane: View {
 
                 LabeledContent("Hot Side delay") {
                     HStack(spacing: 10) {
-                        Slider(value: delayBinding, in: 0...1.5, step: 0.05)
+                        Slider(value: delayBinding, in: 0...1.5)
                             .frame(maxWidth: 220)
                         Text(String(format: "%.2f s", delayBinding.wrappedValue))
                             .monospacedDigit()

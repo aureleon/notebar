@@ -84,9 +84,8 @@
             <parameter name="returning" code="NBrk" type="search result kind" optional="yes" description="What to return. Default: identifiers.">
                 <cocoa key="ResultKind"/>
             </parameter>
-            <result description="Note ids, bodies or titles, in panel order.">
-                <type type="any" list="yes"/>
-            </result>
+            <!-- "any" (not list="yes"): the command returns a ready-made list descriptor. -->
+            <result type="any" description="A list of note ids, bodies or titles, in panel order."/>
         </command>
 
         <command name="get note text" code="NBarGtxt" description="Get the text (Markdown) of a note.">

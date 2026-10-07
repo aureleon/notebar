@@ -78,6 +78,14 @@ enum StoreSchema {
 
 // MARK: - Row mapping
 
+extension Date {
+    /// The value exactly as it reads back from the database (dates are stored as REAL seconds since
+    /// 1970, which rounds differently from `Date`'s reference-date storage). Cached dates use this so
+    /// that the cache and freshly loaded records compare equal.
+    var storeNormalized: Date { Date(timeIntervalSince1970: timeIntervalSince1970) }
+    static var storeNow: Date { Date().storeNormalized }
+}
+
 extension Folder {
     init(row: Row) {
         let colorRaw: String = row["color"] ?? ""

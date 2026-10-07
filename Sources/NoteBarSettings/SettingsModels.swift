@@ -12,6 +12,7 @@ public final class SettingsModels {
     let launch = LaunchAtLoginModel()
     let themes: ThemesModel
     lazy var backups = BackupsModel(models: self)
+    lazy var about = AboutModel(store: env.store)
 
     public init(env: AppEnvironment) {
         self.env = env
@@ -23,6 +24,7 @@ public final class SettingsModels {
         launch.refresh()
         themes.reload()
         backups.refresh()
+        about.refresh()
     }
 
     /// Writes pending edits (the theme editor debounces saves).

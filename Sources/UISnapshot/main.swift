@@ -2,28 +2,361 @@ import AppKit
 import NoteBarCore
 import NoteBarUI
 
-// Owned by the UI agent. Renders the notes UI offscreen (no window on screen) to PNGs.
-// Usage: swift run UISnapshot /tmp/nb-snap
+// Renders the notes UI offscreen (no window is ever shown) to PNGs and runs behavior checks.
+// Usage: swift run UISnapshot [/tmp/nb-snap]
+// Exit code != 0 if a check fails.
+
+@MainActor
+final class Backdrop: NSView {
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        let g = NSGradient(colors: [NSColor(srgbRed: 0.05, green: 0.10, blue: 0.32, alpha: 1),
+                                    NSColor(srgbRed: 0.16, green: 0.36, blue: 0.78, alpha: 1),
+                                    NSColor(srgbRed: 0.07, green: 0.14, blue: 0.42, alpha: 1)])
+        g?.draw(in: bounds, angle: -60)
+    }
+}
+
+@MainActor
+func seed(_ store: InMemoryNoteStore) -> (notes: Folder, work: Folder, ideas: Folder, empty: Folder) {
+    let notes = store.folders()[0]
+    let work = store.createFolder(name: "Work")
+    let ideas = store.createFolder(name: "Ideas")
+    let shopping = store.createFolder(name: "Shopping")
+    let empty = store.createFolder(name: "Empty")
+    var w = work; w.isPinned = true; store.updateFolder(w)
+    var s = shopping; s.color = .green; store.updateFolder(s)
+
+    func add(_ f: Folder, _ body: String, color: NoteColor = .none, folded: Bool = false, pinned: Bool = false,
+             mode: NoteMode = .standard) {
+        var n = store.createNote(in: f.id, body: body, mode: mode, position: .bottom)
+        n.color = color; n.isFolded = folded; n.isPinned = pinned
+        store.updateNote(n)
+    }
+    add(notes, "Hello!\nNoteBar is a notes panel that lives on the side of your screen.\nhttp://example.com\nIt supports a subset of Markdown, colors, tasks, pictures and file shortcuts.", color: .purple)
+    add(notes, "Colors\nHere are some colors: #ffcc00 #34c759 #ff3b30\nThey are written in #rrggbb format.", color: .yellow)
+    add(notes, "Today's Goals\n- [ ] Reply to e-mails\n- [ ] Review calendar\n- [x] Pay the bills\n- [ ] Do shopping", color: .purple, folded: true)
+    add(notes, "Tasks\n- [x] first task\n- [ ] second task\n- [ ] third task")
+    add(notes, "Breakfast Shopping List\n- [ ] Eggs\n- [ ] Avocado\n- [ ] Bacon", color: .cream, pinned: true)
+    add(notes, "snippet.swift\nlet answer = 42\nprint(answer)", mode: .code)
+    add(notes, "Green note\nA short one.", color: .green)
+    add(notes, "Pink note\nAnother color.", color: .pink)
+    add(notes, "Blue note\nBlue as the sky.", color: .blue)
+    add(work, "# Meeting notes\n> Remember the agenda\n==important== `code`", color: .blue)
+    add(work, "Quarterly plan\nShip the panel.\nPolish the editor.", color: .green)
+    add(ideas, "Ideas\nA notes bar that slides in from the edge.")
+    add(shopping, "Groceries\nMilk\nBread")
+    return (notes, work, ideas, empty)
+}
+
 MainActor.assumeIsolated {
-    _ = NSApplication.shared
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    NoteBarUIOptions.useGlass = false
+    NoteBarUIOptions.animations = false
+
     let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "/tmp/nb-snap")
     try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-    let store = InMemoryNoteStore(seed: true)
-    let settings = AppSettings(defaults: UserDefaults(suiteName: "NoteBarSnapshot")!)
-    let env = AppEnvironment(store: store, backups: nil, settings: settings,
-                             themes: ThemeManager(settings: settings, store: store), editorFactory: PlainNoteEditorFactory())
+
+    let suite = "NoteBarUISnapshot"
+    UserDefaults().removePersistentDomain(forName: suite)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
+    let store = InMemoryNoteStore(seed: false)
+    let folders = seed(store)
+    let themes = ThemeManager(settings: settings, store: store)
+    let env = AppEnvironment(store: store, backups: nil, settings: settings, themes: themes,
+                             editorFactory: PlainNoteEditorFactory())
+
     let vc = NotesRootViewController(env: env)
-    vc.view.frame = NSRect(x: 0, y: 0, width: 300, height: 700)
-    func render(_ name: String, appearance: NSAppearance.Name) {
-        vc.view.appearance = NSAppearance(named: appearance)
-        vc.view.layoutSubtreeIfNeeded()
-        guard let rep = vc.view.bitmapImageRepForCachingDisplay(in: vc.view.bounds) else { return }
-        vc.view.cacheDisplay(in: vc.view.bounds, to: rep)
+    env.presenter = vc
+    let probe = vc.probe
+    let panelSize = NSSize(width: 290, height: 720)
+    let backdrop = Backdrop(frame: NSRect(x: 0, y: 0, width: panelSize.width + 30, height: panelSize.height + 20))
+    vc.view.frame = NSRect(x: 15, y: 10, width: panelSize.width, height: panelSize.height)
+    backdrop.addSubview(vc.view)
+    // Never ordered on screen: it only provides a responder chain for focus checks.
+    let window = NSWindow(contentRect: backdrop.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+    window.contentView = backdrop
+    window.isReleasedWhenClosed = false
+
+    @MainActor func spin() { RunLoop.current.run(until: Date().addingTimeInterval(0.03)) }
+
+    var written: [String] = []
+    @MainActor func render(_ name: String, dark: Bool = false) {
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+        window.appearance = appearance
+        backdrop.appearance = appearance
+        spin()
+        probe.layoutNow()
+        spin()
+        probe.layoutNow()
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.display()
+        guard let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds) else { return }
+        backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
         try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent(name + ".png"))
+        written.append(name)
     }
-    render("folders-light", appearance: .aqua)
-    vc.showFolder(store.folders()[0].id)
-    render("notes-light", appearance: .aqua)
-    render("notes-dark", appearance: .darkAqua)
-    print("Wrote snapshots to \(out.path)")
+
+    // MARK: Folder list
+    vc.showFolderList()
+    render("01-folders-light")
+    render("02-folders-dark", dark: true)
+    Check.expect(probe.folderRowsVisible, "folder list visible at root")
+    Check.equal(probe.folderRowIDs.first, folders.work.id, "pinned folder first")
+    Check.equal(probe.headerTitle, "NoteBar", "root title")
+
+    // MARK: Notes list
+    vc.showFolder(folders.notes.id)
+    Check.equal(settings.lastFolderId, folders.notes.id, "lastFolderId remembered")
+    Check.equal(probe.headerTitle, "Notes", "folder title")
+    let ids = store.notes(in: folders.notes.id).map(\.id)
+    Check.equal(probe.displayedNoteIDs, ids, "cards follow store order")
+    render("03-notes-light")
+    render("04-notes-dark", dark: true)
+
+    // Hovered footer + keyboard selection.
+    let hello = ids[1]
+    probe.setHovered(hello, true)
+    render("05-hover-footer-light")
+    probe.setHovered(hello, false)
+
+    // Left-bar color style.
+    settings.colorStyle = .leftBar
+    render("06-leftbar-light")
+    render("07-leftbar-dark", dark: true)
+    settings.colorStyle = .background
+
+    // Folded card.
+    let goalsID = store.notes(in: folders.notes.id).first { $0.title == "Today's Goals" }!.id
+    Check.equal(probe.isCardFolded(goalsID), true, "folded card")
+    Check.expect(probe.editor(of: goalsID) == nil, "folded card has no editor")
+    probe.setHovered(goalsID, true)
+    render("08-folded-hover-light")
+    probe.setHovered(goalsID, false)
+    probe.clickCard(goalsID)
+    Check.equal(store.note(id: goalsID)?.isFolded, false, "click unfolds")
+    var g = store.note(id: goalsID)!; g.isFolded = true; store.updateNote(g)
+
+    // Selection ring.
+    probe.select(hello)
+    render("09-selected-light")
+
+    // Editor identity survives body + metadata changes.
+    probe.layoutNow()
+    let editorBefore = probe.editorIdentity(of: hello)
+    Check.expect(editorBefore != nil, "visible card has a live editor")
+    store.updateNoteBody(id: hello, body: (store.note(id: hello)?.body ?? "") + "\nmore text")
+    var hn = store.note(id: hello)!; hn.color = .green; store.updateNote(hn)
+    Check.equal(probe.editorIdentity(of: hello), editorBefore, "editor kept across .noteBody/.note")
+    hn = store.note(id: hello)!; hn.color = .purple; store.updateNote(hn)
+
+    // Reorder keeps card views.
+    let cardBefore = probe.cardIdentity(of: hello)
+    probe.moveByKeyboard(hello, up: false)
+    Check.equal(probe.cardIdentity(of: hello), cardBefore, "card kept across reorder")
+    Check.equal(probe.displayedNoteIDs, store.notes(in: folders.notes.id).map(\.id), "order after move down")
+    probe.moveNote(hello, toGap: 1)
+    Check.equal(store.notes(in: folders.notes.id).map(\.id)[1], hello, "drag to gap 1 (after pinned)")
+    // Unpinned notes cannot be dragged above pinned ones.
+    probe.moveNote(hello, toGap: 0)
+    Check.equal(store.notes(in: folders.notes.id).map(\.id)[1], hello, "pinned zone respected")
+
+    // New note: top of the unpinned zone, focused.
+    let beforeCount = store.notes(in: folders.notes.id).count
+    probe.press(keyCode: 45, characters: "n", modifiers: [.command])
+    let afterNotes = store.notes(in: folders.notes.id)
+    Check.equal(afterNotes.count, beforeCount + 1, "⌘N creates a note")
+    let newID = afterNotes.first { $0.body.isEmpty }?.id
+    Check.expect(newID != nil, "new empty note exists")
+    if let newID {
+        Check.equal(probe.focusedNoteID, newID, "new note focused")
+        Check.expect(probe.editor(of: newID)?.isEditingFocused == true, "new note editor is first responder")
+        // Esc from editor -> list focus, note selected.
+        probe.pressEscape()
+        Check.equal(probe.selectedNoteID, newID, "Esc selects the edited note")
+        Check.expect(probe.focusedNoteID == nil, "Esc ends editing")
+        // Delete with undo.
+        probe.deleteWithUndo(newID)
+        Check.expect(!probe.displayedNoteIDs.contains(newID), "deleted card hidden")
+        Check.expect(store.note(id: newID) != nil, "delete is pending")
+        Check.expect(probe.isToastVisible, "undo toast visible")
+        render("10-toast-light")
+        probe.undoDelete()
+        Check.expect(probe.displayedNoteIDs.contains(newID), "undo restores card")
+        probe.deleteWithUndo(newID)
+        probe.commitDelete()
+        Check.expect(store.note(id: newID) == nil, "commit deletes")
+    }
+
+    // Deleting the same note twice (undo in between) keeps the second deletion pending.
+    let victim = store.createNote(in: folders.notes.id, body: "Victim", mode: .standard, position: .top).id
+    probe.deleteWithUndo(victim)
+    probe.undoDelete()
+    Check.expect(!probe.isToastVisible, "undo hides the toast")
+    probe.deleteWithUndo(victim)
+    Check.expect(store.note(id: victim) != nil, "second delete still pending")
+    probe.commitDelete()
+    Check.expect(store.note(id: victim) == nil, "second delete committed")
+    Check.expect(!probe.isToastVisible, "commit hides the toast")
+
+    // Move to top / bottom stay inside the unpinned zone.
+    let order0 = store.notes(in: folders.notes.id)
+    let last = order0[order0.count - 1].id
+    probe.moveToTop(last)
+    Check.equal(store.notes(in: folders.notes.id)[1].id, last, "Move to Top lands below pinned notes")
+    probe.moveToBottom(last)
+    Check.equal(store.notes(in: folders.notes.id).last?.id, last, "Move to Bottom")
+
+    // Arrow navigation from the list.
+    probe.focusList()
+    probe.select(nil)
+    probe.press(keyCode: 125, characters: "\u{F701}")
+    Check.equal(probe.selectedNoteID, probe.displayedNoteIDs.first, "↓ selects first card")
+    probe.press(keyCode: 125, characters: "\u{F701}")
+    Check.equal(probe.selectedNoteID, probe.displayedNoteIDs[1], "↓ selects next card")
+
+    // Menus.
+    let moveItems = probe.showMoveMenuItems(for: hello)
+    Check.expect(moveItems.contains("Move to a New Folder…") && moveItems.contains("Move Up") && moveItems.contains("Folder"),
+                 "move menu items: \(moveItems)")
+    let gear = probe.gearMenuItems(for: hello)
+    Check.expect(gear.contains("<colors>") && gear.contains("Standard (Markdown) ✓") && gear.contains("Code"), "gear menu: \(gear)")
+    Check.expect(probe.cardMenuItems(for: hello).contains("Move"), "card menu has Move")
+
+    // Drops.
+    let before = store.notes(in: folders.notes.id).count
+    probe.dropOnBackground(text: "Dropped text\nfrom another app")
+    Check.equal(store.notes(in: folders.notes.id).count, before + 1, "text drop creates a note")
+    let tmpFile = FileManager.default.temporaryDirectory.appendingPathComponent("nb-snap-file.txt")
+    try? "hello".write(to: tmpFile, atomically: true, encoding: .utf8)
+    let target = probe.displayedNoteIDs[2]
+    let ok = probe.dropFiles([tmpFile], onCard: target)
+    Check.expect(ok, "file drop on card")
+    Check.expect(store.note(id: target)?.body.contains("(attachment:") == true, "attachment token added to card body")
+    probe.dropFiles([tmpFile])
+    Check.expect(store.notes(in: folders.notes.id).contains { $0.body.hasPrefix("[nb-snap-file.txt](attachment:") }, "file drop creates note")
+
+    // Export image.
+    if let rep = probe.exportImage(hello) {
+        try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("11-export-card.png"))
+        written.append("11-export-card")
+        Check.expect(rep.pixelsWide >= 500, "export at 2x")
+    } else {
+        Check.expect(false, "export image")
+    }
+
+    // Search.
+    probe.setSearchQuery("note", allFolders: true)
+    Check.expect(probe.isSearching, "search active")
+    Check.expect(probe.cardCount >= 3, "search results across folders (\(probe.cardCount))")
+    render("12-search-light")
+    render("13-search-dark", dark: true)
+    probe.setSearchQuery("note", allFolders: false)
+    let scoped = probe.displayedNoteIDs
+    Check.expect(scoped.allSatisfy { store.note(id: $0)?.folderId == folders.notes.id }, "scoped search")
+    probe.setSearchQuery("zzzz-nothing")
+    render("14-search-empty-light")
+    probe.pressEscape()
+    Check.equal(probe.searchQuery, "", "Esc in the field clears the query first")
+    Check.expect(probe.isSearching, "search still open after clearing")
+    probe.pressEscape()
+    Check.expect(!probe.isSearching, "Esc closes search")
+    Check.equal(probe.headerTitle, "Notes", "back in origin folder")
+
+    // Another theme.
+    settings.themeId = "graphite"
+    render("18-graphite-light")
+    render("19-graphite-dark", dark: true)
+    settings.themeId = "default"
+
+    // Revealing a note of the origin folder from search reloads that folder.
+    probe.setSearchQuery("Hello", allFolders: false)
+    vc.reveal(noteId: hello, edit: false)
+    Check.expect(!probe.isSearching, "reveal ends search")
+    Check.equal(probe.displayedNoteIDs, store.notes(in: folders.notes.id).map(\.id), "origin folder reloaded after reveal")
+    Check.equal(probe.selectedNoteID, hello, "revealed note selected")
+
+    // Empty folder.
+    vc.showFolder(folders.empty.id)
+    Check.equal(probe.cardCount, 0, "empty folder")
+    render("15-empty-light")
+
+    // Reveal switches folder.
+    let workNote = store.notes(in: folders.work.id)[0].id
+    vc.reveal(noteId: workNote, edit: false)
+    Check.equal(vc.currentFolderId, folders.work.id, "reveal switches folder")
+    Check.equal(probe.selectedNoteID, workNote, "reveal selects")
+
+    // Esc chain: list -> back to folders.
+    probe.focusList()
+    probe.pressEscape()
+    Check.expect(probe.folderRowsVisible, "Esc goes back to the folder list")
+    Check.expect(settings.lastFolderId == nil, "folder list remembered")
+
+    // ⌘1 opens the first folder.
+    probe.press(keyCode: 18, characters: "1", modifiers: [.command])
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "⌘1 opens folder 1")
+    vc.showFolderList()
+
+    // Folder reorder across the pinned boundary: Ideas to the top of the unpinned zone.
+    probe.moveFolder(folders.ideas.id, toGap: 1)
+    Check.equal(store.folders().map(\.id)[1], folders.ideas.id, "folder drag below pinned folder")
+    probe.moveFolder(folders.ideas.id, toGap: 0)
+    Check.equal(store.folders().map(\.id)[0], folders.work.id, "pinned folder stays first")
+
+    // Inline rename.
+    probe.beginRename(folders.ideas.id)
+    render("16-rename-light")
+    probe.endRename()
+
+    // New folder via + at root.
+    let folderCount = store.folders().count
+    probe.plus()
+    Check.equal(store.folders().count, folderCount + 1, "+ at root creates a folder")
+    probe.endRename()
+
+    // Deleting the open folder returns to the list.
+    let tmpFolder = store.createFolder(name: "Temp")
+    vc.showFolder(tmpFolder.id)
+    store.deleteFolder(id: tmpFolder.id)
+    Check.expect(probe.folderRowsVisible, "deleted open folder -> folder list")
+
+    // Performance: 200 notes.
+    let big = store.createFolder(name: "Big")
+    for i in 0..<200 {
+        let lines = (0..<(i % 7 + 1)).map { "Line \($0) of note \(i) with some words to wrap around the card width." }
+        _ = store.createNote(in: big.id, body: "Note \(i)\n" + lines.joined(separator: "\n"), mode: .standard, position: .bottom)
+    }
+    let t0 = Date()
+    vc.showFolder(big.id)
+    probe.layoutNow()
+    let dt = Date().timeIntervalSince(t0)
+    print(String(format: "200 notes: shown in %.0f ms, %d live editors", dt * 1000, probe.liveEditorCount))
+    Check.equal(probe.cardCount, 200, "200 cards")
+    Check.expect(probe.liveEditorCount < 60, "editors created lazily (\(probe.liveEditorCount))")
+    Check.expect(dt < 1.5, "200 notes show fast (\(dt)s)")
+    let t1 = Date()
+    let firstBig = store.notes(in: big.id)[0].id
+    for k in 0..<30 { store.updateNoteBody(id: firstBig, body: "Note 0 edited \(k)\nmore") }
+    print(String(format: "30 body updates: %.0f ms", Date().timeIntervalSince(t1) * 1000))
+    render("17-big-light")
+    // Reveal deep in the list: scrolls there, creates editors around it, cards never overlap.
+    let bigIDs = store.notes(in: big.id).map(\.id)
+    vc.reveal(noteId: bigIDs[120], edit: false)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    if let f = probe.cardFrame(of: bigIDs[120]) {
+        Check.expect(f.minY >= 56 && f.maxY <= panelSize.height, "revealed card visible: \(f)")
+    } else { Check.expect(false, "revealed card frame") }
+    Check.expect(probe.editor(of: bigIDs[120]) != nil, "editor created near the viewport")
+    Check.expect(probe.editor(of: bigIDs[199]) == nil || probe.liveEditorCount < 60, "far cards stay previews")
+    var overlaps = 0
+    for k in 0..<(bigIDs.count - 1) {
+        if let a = probe.cardFrame(of: bigIDs[k]), let b = probe.cardFrame(of: bigIDs[k + 1]), a.maxY + 9 > b.minY { overlaps += 1 }
+    }
+    Check.equal(overlaps, 0, "cards keep their gaps")
+    render("20-big-scrolled-light")
+
+    print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
+    Check.finish()
 }

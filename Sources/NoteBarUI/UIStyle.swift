@@ -32,6 +32,10 @@ enum Metrics {
     static let leftBarWidth: CGFloat = 4
     static let folderRowHeight: CGFloat = 34
     static let folderListPadding: CGFloat = 6
+    static let folderGroupRadius: CGFloat = 14
+    /// Room around each card for its drawn shadow (card views are this much larger than the card).
+    static let cardShadowPad: CGFloat = 8
+    static let pinButtonSize: CGFloat = 22
     static let minEditorHeight: CGFloat = 18
     /// Editors are created for cards within this distance of the visible area.
     static let editorPrefetchDistance: CGFloat = 900
@@ -160,6 +164,26 @@ extension NSView {
         while let cur = v { if cur === self { return true }; v = cur.superview }
         return false
     }
+}
+
+/// Fades the top / bottom edges of a scroll view (cards dissolve under the header instead of being cut).
+@MainActor
+func applyEdgeFade(to scrollView: NSScrollView, top: CGFloat, bottom: CGFloat) {
+    scrollView.wantsLayer = true
+    guard let layer = scrollView.layer else { return }
+    let h = max(1, scrollView.bounds.height)
+    let mask = (layer.mask as? CAGradientLayer) ?? CAGradientLayer()
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
+    mask.frame = layer.bounds
+    let clear = NSColor.clear.cgColor, solid = NSColor.black.cgColor
+    mask.colors = [clear, solid, solid, clear]
+    // Layer coordinates are not flipped: y = 1 is the top edge.
+    mask.startPoint = CGPoint(x: 0.5, y: scrollView.layer?.isGeometryFlipped == true ? 0 : 1)
+    mask.endPoint = CGPoint(x: 0.5, y: scrollView.layer?.isGeometryFlipped == true ? 1 : 0)
+    mask.locations = [0, NSNumber(value: Double(min(0.4, top / h))), NSNumber(value: Double(max(0.6, 1 - bottom / h))), 1]
+    if layer.mask !== mask { layer.mask = mask }
+    CATransaction.commit()
 }
 
 /// A plain flipped container.

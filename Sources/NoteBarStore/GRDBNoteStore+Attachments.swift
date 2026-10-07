@@ -64,6 +64,7 @@ extension GRDBNoteStore {
 
     private func insertAttachment(_ attachment: Attachment, cleanupOnFailure file: URL?) throws -> Attachment {
         var a = attachment
+        a.createdAt = a.createdAt.storeNormalized
         guard let pool else {
             if let file { try? FileManager.default.removeItem(at: file) }
             throw NoteStoreError.io("The database is closed.")

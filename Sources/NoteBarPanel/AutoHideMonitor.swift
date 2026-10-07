@@ -70,7 +70,7 @@ final class AutoHideMonitor {
         })
         // Clicks delivered to other apps (the panel may not be key, e.g. after a drop).
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            MainActor.assumeIsolated { self?.scheduleCheck(after: 0.05) }
+            MainActor.assumeIsolated { self?.scheduleCheck(after: 0.05, outsideClick: true) }
         }
     }
 
@@ -89,33 +89,51 @@ final class AutoHideMonitor {
     // MARK: Decision
 
     /// The short delay lets focus settle (a sheet or our Settings window becoming key right after the
-    /// panel resigns key) before deciding.
-    func scheduleCheck(after delay: TimeInterval = 0.15) {
+    /// panel resigns key) before deciding. `outsideClick`: a global monitor saw a click that went to
+    /// another app. Then the panel hides even if it still reports key status (a non-activating panel can
+    /// stay key when the user clicks a window of the app that is already active).
+    func scheduleCheck(after delay: TimeInterval = 0.15, outsideClick: Bool = false) {
         guard isActive else { return }
+        pendingOutsideClick = pendingOutsideClick || outsideClick
         pendingCheck?.cancel()
         let item = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.evaluate() } }
         pendingCheck = item
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
     }
 
+    private var pendingOutsideClick = false
+
     private func evaluate() {
         pendingCheck = nil
-        guard isActive, isPanelVisible(), isEnabled, let panel else { return }
+        guard isActive, isPanelVisible(), isEnabled, let panel else { pendingOutsideClick = false; return }
 
         // Still pressing: maybe a drag from another app toward the panel. Decide on release.
         if NSEvent.pressedMouseButtons != 0 { scheduleCheck(after: 0.1); return }
+        let outsideClick = pendingOutsideClick
+        pendingOutsideClick = false
 
-        if panel.isKeyWindow { return }
         if NSApp.modalWindow != nil || panel.attachedSheet != nil { return }
-        if let key = NSApp.keyWindow, key.isVisible { return }   // one of our own windows has focus
-
         let mouse = NSEvent.mouseLocation
-        let inside = ([panel] + auxiliaryWindows()).contains { $0.isVisible && $0.frame.insetBy(dx: -2, dy: -2).contains(mouse) }
-        if inside {
-            // Dropped onto the panel or clicked a transparent gap: keep it and take focus back.
-            panel.makeKey()
+        let inside = ([panel] + auxiliaryWindows() + (panel.childWindows ?? [])).contains {
+            $0.isVisible && $0.frame.insetBy(dx: -2, dy: -2).contains(mouse)
+        }
+        if outsideClick {
+            if inside {
+                // Clicked a transparent gap between cards, or dropped onto the panel: keep it, take focus back.
+                panel.makeKey()
+                return
+            }
+            // A click in another app while one of our own windows (Settings, Quick Look) is key and
+            // NoteBar is active: that click deactivates NoteBar, so hiding is right. If NoteBar is not
+            // active, the click went elsewhere: hide as well.
+            hide()
             return
         }
+
+        if panel.isKeyWindow { return }
+        if let key = NSApp.keyWindow, key.isVisible { return }   // one of our own windows has focus
+        // Focus went to another app without a click (⌘-Tab, Mission Control, an app activating itself).
+        // The cursor position does not matter here: taking focus back would fight the user.
         hide()
     }
 }

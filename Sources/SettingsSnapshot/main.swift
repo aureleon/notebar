@@ -147,8 +147,7 @@ func renderAll(_ models: SettingsModels, outDir: URL, tall: Bool, suffix: String
     let light = NSAppearance(named: .aqua)!, dark = NSAppearance(named: .darkAqua)!
     for tab in tabs {
         for (name, ap) in [("light", light), ("dark", dark)] {
-            let v = SettingsViews.makeHostingView(for: tab, models: models)
-            if tall { v.frame.size.height = 1500 }
+            let v = SettingsViews.makeHostingView(for: tab, models: models, height: tall ? 1300 : nil)
             render(v, appearance: ap, to: outDir.appendingPathComponent("\(tab.rawValue)\(suffix)-\(name).png"))
         }
     }

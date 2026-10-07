@@ -189,7 +189,8 @@ public final class GRDBNoteStore: NoteStore {
 
     @discardableResult
     public func createFolder(name: String) -> Folder {
-        var f = Folder(id: 0, name: name, sortIndex: SortIndex.between(folders().last?.sortIndex, nil))
+        var f = Folder(id: 0, name: name, sortIndex: SortIndex.between(folders().last?.sortIndex, nil),
+                       createdAt: .storeNow)
         let id = write("create folder") { db -> Int64 in
             try db.execute(sql: SQL.insertFolder, arguments: SQL.folderInsertArgs(f))
             return db.lastInsertedRowID
@@ -290,7 +291,7 @@ public final class GRDBNoteStore: NoteStore {
         let list = notes(in: fid).filter { !$0.isPinned }
         let idx = position == .top ? SortIndex.between(nil, list.first?.sortIndex)
                                    : SortIndex.between(list.last?.sortIndex, nil)
-        let now = Date()
+        let now = Date.storeNow
         var n = Note(id: 0, folderId: fid, body: body, sortIndex: idx, mode: mode, createdAt: now, updatedAt: now)
         let id = write("create note") { db -> Int64 in
             try db.execute(sql: SQL.insertNote, arguments: SQL.noteInsertArgs(n))
@@ -307,7 +308,7 @@ public final class GRDBNoteStore: NoteStore {
     public func updateNoteBody(id: NoteID, body: String) {
         guard var n = noteMap[id], n.body != body else { return }
         n.body = body
-        n.updatedAt = Date()
+        n.updatedAt = .storeNow
         noteMap[id] = n
         replaceInSortedCache(n)
         pendingBodyIDs.insert(id)
@@ -319,7 +320,8 @@ public final class GRDBNoteStore: NoteStore {
         guard let old = noteMap[note.id] else { return }
         var n = note
         if folderMap[n.folderId] == nil { n.folderId = old.folderId }
-        n.updatedAt = Date()
+        n.createdAt = n.createdAt.storeNormalized
+        n.updatedAt = .storeNow
         write("update note") { db in try db.execute(sql: SQL.updateNote, arguments: SQL.noteUpdateArgs(n)) }
         // The full record (incl. body) is now persisted.
         pendingBodyIDs.remove(n.id)

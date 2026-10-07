@@ -51,7 +51,7 @@ struct ShortcutsPane: View {
         ("Move to a New Folder", "⌥⌘M"),
         ("Move Note Up", "⌥⇧⌘↑"),
         ("Move Note Down", "⌥⇧⌘↓"),
-        ("Stop editing", "⎋"),
+        ("Stop Editing", "Esc"),
     ]
 
     var body: some View {
@@ -72,6 +72,8 @@ struct ShortcutsPane: View {
                             }
                             .frame(width: 160, height: 24)
                         }
+                        // The NSView has no text baseline; align the field with the label's first line.
+                        .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + 4 }
                     } label: {
                         Text(action.displayName)
                         if let warning { Text(warning).foregroundStyle(.orange) }
@@ -81,7 +83,7 @@ struct ShortcutsPane: View {
                 Text("Global Shortcuts")
             } footer: {
                 FootnoteText("These work in every app, also when the panel is hidden. Click a field and type the new shortcut. "
-                             + "A shortcut needs ⌘, ⌃ or ⌥. Press ⎋ to cancel and ⌫ to remove a shortcut.")
+                             + "A shortcut needs ⌘, ⌃ or ⌥. Press Esc to cancel and Delete to remove a shortcut.")
             }
 
             Section {
@@ -95,7 +97,7 @@ struct ShortcutsPane: View {
             Section("In the Panel") {
                 ForEach(Self.panelShortcuts, id: \.0) { item in
                     LabeledContent(item.0) {
-                        Text(item.1).monospaced().foregroundStyle(.secondary)
+                        Text(item.1).foregroundStyle(.secondary)
                     }
                 }
             }
