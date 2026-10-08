@@ -169,6 +169,9 @@ extension NotesRootViewController {
             case "e":
                 guard !isEditingText, let id = activeNoteID else { return false }
                 toggleExpand(id); return true
+            case "z":
+                guard !isEditingText else { return false }
+                performPanelUndo(redo: false); return true
             case "1", "2", "3", "4", "5", "6", "7", "8", "9":
                 // The root runs before its subviews. While text is being edited, the editor gets ⌘digit
                 // first (⌘1–⌘3 = headings in Standard mode). Only keys it does not use switch folders.
@@ -190,6 +193,9 @@ extension NotesRootViewController {
                 showMoveMenu(for: id); return true
             case "n":
                 actions.newFolder(); return true
+            case "z":
+                guard !isEditingText else { return false }
+                performPanelUndo(redo: true); return true
             default: return false
             }
         case [.control]:

@@ -13,18 +13,64 @@ final class NoteActions {
 
     var store: NoteStore { env.store }
 
+    // MARK: Undo
+    // Every action registers its reverse in the panel's undo history (⌘Z / ⇧⌘Z on the list). The
+    // reverse is an action too, so it registers the redo. Text edits keep their own per-note undo.
+
+    var undoManager: UndoManager? { root?.panelUndo }
+
+    func registerUndo(_ name: String, _ reverse: @escaping @MainActor (NoteActions) -> Void) {
+        guard let u = undoManager else { return }
+        u.registerUndo(withTarget: self) { target in MainActor.assumeIsolated { reverse(target) } }
+        u.setActionName(name)
+    }
+
+    /// Trash / restore pairs used by undo (new note, new folder, delete).
+    func trashNoteUndoably(_ id: NoteID, name: String) {
+        guard store.note(id: id) != nil else { return }
+        store.trashNote(id: id)
+        registerUndo(name) { $0.restoreNoteUndoably(id, name: name) }
+    }
+
+    func restoreNoteUndoably(_ id: NoteID, name: String) {
+        guard store.restoreNote(id: id) else { return }
+        registerUndo(name) { $0.trashNoteUndoably(id, name: name) }
+        root?.noteRestored(id)
+    }
+
+    func trashFolderUndoably(_ id: FolderID, name: String) {
+        guard store.folder(id: id) != nil, store.folders().count > 1 else { return }
+        store.trashFolder(id: id)
+        if env.settings.lastFolderId == id { env.settings.lastFolderId = nil }
+        registerUndo(name) { $0.restoreFolderUndoably(id, name: name) }
+    }
+
+    func restoreFolderUndoably(_ id: FolderID, name: String) {
+        guard store.restoreFolder(id: id) else { return }
+        registerUndo(name) { $0.trashFolderUndoably(id, name: name) }
+    }
+
+    /// A note created in the panel (⌘N, +, paste, drop): ⌘Z on the list removes it again.
+    func noteCreated(_ id: NoteID, name: String = "New Note") {
+        registerUndo(name) { $0.trashNoteUndoably(id, name: name) }
+    }
+
     // MARK: Note metadata
 
     func setColor(_ color: NoteColor, for id: NoteID) {
         guard var n = store.note(id: id), n.color != color else { return }
+        let old = n.color
         n.color = color
         store.updateNote(n)
+        registerUndo("Color") { $0.setColor(old, for: id) }
     }
 
     func setMode(_ mode: NoteMode, for id: NoteID) {
         guard var n = store.note(id: id), n.mode != mode else { return }
+        let old = n.mode
         n.mode = mode
         store.updateNote(n)
+        registerUndo("Change Mode") { $0.setMode(old, for: id) }
     }
 
     func toggleFold(_ id: NoteID) {
@@ -39,6 +85,7 @@ final class NoteActions {
         }
         n.isFolded = folded
         store.updateNote(n)
+        registerUndo(folded ? "Fold" : "Unfold") { $0.setFolded(!folded, id: id) }
     }
 
     func toggleExpand(_ id: NoteID) {
@@ -49,6 +96,7 @@ final class NoteActions {
         guard var n = store.note(id: id) else { return }
         n.isPinned.toggle()
         store.updateNote(n)
+        registerUndo(n.isPinned ? "Pin" : "Unpin") { $0.togglePin(id) }
     }
 
     // MARK: Ordering
@@ -82,17 +130,33 @@ final class NoteActions {
     /// Moves a note to `dest` (final index in `notes(in:)` order). The store keeps the note inside its
     /// pinned/unpinned zone and places it between same-zone neighbors.
     func reorderNote(_ id: NoteID, toIndex dest: Int) {
+        guard let n = store.note(id: id), let old = store.notes(in: n.folderId).firstIndex(where: { $0.id == id }) else { return }
         store.moveNote(id: id, toIndex: dest)
+        registerUndo("Move Note") { $0.reorderNote(id, toIndex: old) }
     }
 
     /// Folder equivalent of `reorderNote` (pinned folders sort first).
     func reorderFolder(_ id: FolderID, toIndex dest: Int) {
+        guard let old = store.folders().firstIndex(where: { $0.id == id }) else { return }
         store.moveFolder(id: id, toIndex: dest)
+        registerUndo("Move Folder") { $0.reorderFolder(id, toIndex: old) }
+    }
+
+    /// Puts a note back into `folderId` at `index` (undo of a move to another folder).
+    func place(_ id: NoteID, inFolder folderId: FolderID, at index: Int) {
+        guard let n = store.note(id: id), store.folder(id: folderId) != nil,
+              let curIndex = store.notes(in: n.folderId).firstIndex(where: { $0.id == id }) else { return }
+        let curFolder = n.folderId
+        if curFolder != folderId { store.moveNote(id: id, toFolder: folderId, position: .top) }
+        store.moveNote(id: id, toIndex: index)
+        registerUndo("Move to Folder") { $0.place(id, inFolder: curFolder, at: curIndex) }
     }
 
     func move(_ id: NoteID, toFolder folderId: FolderID) {
-        guard let note = store.note(id: id), note.folderId != folderId, store.folder(id: folderId) != nil else { return }
+        guard let note = store.note(id: id), note.folderId != folderId, store.folder(id: folderId) != nil,
+              let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         store.moveNote(id: id, toFolder: folderId, position: .top)
+        registerUndo("Move to Folder") { $0.place(id, inFolder: note.folderId, at: oldIndex) }
         let name = store.folder(id: folderId)?.name ?? "folder"
         root?.showToast("Moved to “\(name)”", actionTitle: "Show", action: { [weak self] in
             self?.root?.reveal(noteId: id, edit: false)
@@ -101,9 +165,13 @@ final class NoteActions {
 
     /// Creates a folder, moves the note there and starts renaming the new folder.
     func moveToNewFolder(_ id: NoteID) {
-        guard store.note(id: id) != nil else { return }
+        guard let note = store.note(id: id),
+              let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         let folder = store.createFolder(name: uniqueFolderName("New Folder", in: store))
         store.moveNote(id: id, toFolder: folder.id, position: .top)
+        // One undo step: the note goes back (runs first), then the new folder goes away.
+        registerUndo("Move to New Folder") { $0.trashFolderUndoably(folder.id, name: "Move to New Folder") }
+        registerUndo("Move to New Folder") { $0.place(id, inFolder: note.folderId, at: oldIndex) }
         root?.showFolderList()
         root?.beginRenameFolder(folder.id)
     }
@@ -151,6 +219,7 @@ final class NoteActions {
 
     func newFolder() {
         let f = store.createFolder(name: uniqueFolderName("New Folder", in: store))
+        registerUndo("New Folder") { $0.trashFolderUndoably(f.id, name: "New Folder") }
         root?.showFolderList()
         root?.beginRenameFolder(f.id)
     }
@@ -158,20 +227,25 @@ final class NoteActions {
     func renameFolder(_ id: FolderID, to name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, var f = store.folder(id: id), f.name != trimmed else { return }
+        let old = f.name
         f.name = trimmed
         store.updateFolder(f)
+        registerUndo("Rename Folder") { $0.renameFolder(id, to: old) }
     }
 
     func togglePinFolder(_ id: FolderID) {
         guard var f = store.folder(id: id) else { return }
         f.isPinned.toggle()
         store.updateFolder(f)
+        registerUndo(f.isPinned ? "Pin Folder" : "Unpin Folder") { $0.togglePinFolder(id) }
     }
 
     func setFolderColor(_ color: NoteColor, _ id: FolderID) {
         guard var f = store.folder(id: id), f.color != color else { return }
+        let old = f.color
         f.color = color
         store.updateFolder(f)
+        registerUndo("Folder Color") { $0.setFolderColor(old, id) }
     }
 
     func deleteFolder(_ id: FolderID) {

@@ -555,6 +555,9 @@ MainActor.assumeIsolated {
     // MARK: Vim keys
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
 
+    // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
+    undoChecks(vc: vc, probe: probe, store: store, folders: folders, spin: spin)
+
     // MARK: Cursor over card buttons: arrow, not the text I-beam
     vc.showFolder(folders.notes.id)
     probe.layoutNow(); spin(); probe.layoutNow()
@@ -673,4 +676,99 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     probe.vimCommand(.navigateUp, on: a.id)
     Check.expect(probe.folderRowsVisible, "⌃[ in Normal mode goes up")
     settings.vimKeybinds = false
+}
+
+@MainActor
+func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore,
+                folders: (notes: Folder, work: Folder, ideas: Folder, empty: Folder), spin: () -> Void) {
+    func cmdZ(shift: Bool = false) {
+        spin()  // each key is its own event in the app (undo groups by event)
+        probe.press(keyCode: 6, characters: "z", modifiers: shift ? [.command, .shift] : [.command])
+        spin()
+    }
+    let uf = store.createFolder(name: "Undo Test")
+    let n1 = store.createNote(in: uf.id, body: "First\nnote", mode: .standard, position: .bottom)
+    let n2 = store.createNote(in: uf.id, body: "Second\nnote", mode: .standard, position: .bottom)
+    vc.showFolder(uf.id)
+    probe.layoutNow(); spin()
+    probe.focusList()
+
+    probe.setColor(.green, of: n1.id)
+    Check.equal(probe.undoActionName, "Color", "undo name")
+    cmdZ()
+    Check.equal(store.note(id: n1.id)?.color, NoteColor.none, "⌘Z undoes a color change")
+    cmdZ(shift: true)
+    Check.equal(store.note(id: n1.id)?.color, .green, "⇧⌘Z redoes it")
+    Check.expect(probe.isToastVisible, "undo / redo show a short toast")
+
+    probe.togglePin(n2.id)
+    cmdZ()
+    Check.equal(store.note(id: n2.id)?.isPinned, false, "⌘Z undoes pin")
+
+    probe.setFolded(true, n1.id)
+    cmdZ()
+    Check.equal(store.note(id: n1.id)?.isFolded, false, "⌘Z undoes fold")
+
+    probe.moveByKeyboard(n2.id, up: true)
+    Check.equal(store.notes(in: uf.id).map(\.id), [n2.id, n1.id], "moved up")
+    cmdZ()
+    Check.equal(store.notes(in: uf.id).map(\.id), [n1.id, n2.id], "⌘Z undoes a reorder")
+
+    probe.moveToFolder(n2.id, folders.ideas.id)
+    Check.equal(store.note(id: n2.id)?.folderId, folders.ideas.id, "moved to Ideas")
+    cmdZ()
+    Check.equal(store.note(id: n2.id)?.folderId, uf.id, "⌘Z moves the note back")
+    Check.equal(store.notes(in: uf.id).map(\.id), [n1.id, n2.id], "back at its old place")
+    cmdZ(shift: true)
+    Check.equal(store.note(id: n2.id)?.folderId, folders.ideas.id, "⇧⌘Z moves it again")
+    cmdZ()
+
+    // Move to a new folder: one step undoes the move and the new folder.
+    let before = store.folders().count
+    probe.moveToNewFolder(n1.id)
+    probe.endRename()
+    vc.showFolder(uf.id)
+    probe.focusList()
+    Check.equal(store.folders().count, before + 1, "new folder created")
+    cmdZ()
+    Check.equal(store.note(id: n1.id)?.folderId, uf.id, "⌘Z: note back from the new folder")
+    Check.equal(store.folders().count, before, "⌘Z: the new folder is gone")
+
+    // Folders.
+    probe.renameFolder(uf.id, "Renamed")
+    cmdZ()
+    Check.equal(store.folder(id: uf.id)?.name, "Undo Test", "⌘Z undoes a folder rename")
+    vc.showFolderList()
+    probe.focusList()
+    probe.newFolder()
+    probe.endRename()
+    probe.focusList()
+    Check.equal(store.folders().count, before + 1, "New Folder")
+    cmdZ()
+    Check.equal(store.folders().count, before, "⌘Z removes the new folder")
+    cmdZ(shift: true)
+    Check.equal(store.folders().count, before + 1, "⇧⌘Z brings it back")
+    cmdZ()
+
+    // New note.
+    vc.showFolder(uf.id)
+    probe.createNewNote()
+    let created = probe.focusedNoteID
+    probe.focusList()
+    cmdZ()
+    Check.expect(created != nil && store.note(id: created!) == nil, "⌘Z on the list removes a new note")
+
+    // While text is edited, ⌘Z belongs to the text.
+    probe.setColor(.blue, of: n1.id)
+    vc.reveal(noteId: n1.id, edit: true)
+    probe.press(keyCode: 6, characters: "z", modifiers: [.command])
+    Check.equal(store.note(id: n1.id)?.color, .blue, "⌘Z in a note does not undo panel actions")
+    probe.focusList()
+
+    // Changes from outside the panel clear the history.
+    Check.expect(probe.canUndo, "history before an external change")
+    NotificationCenter.default.post(name: .notesChangedExternally, object: nil)
+    Check.expect(!probe.canUndo && !probe.canRedo, "external change clears the history")
+    probe.press(keyCode: 6, characters: "z", modifiers: [.command])
+    Check.equal(store.note(id: n1.id)?.color, .blue, "nothing to undo after an external change")
 }

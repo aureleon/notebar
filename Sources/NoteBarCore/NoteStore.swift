@@ -21,6 +21,9 @@ public enum StoreChange: Sendable, Hashable {
 
 public extension Notification.Name {
     static let noteStoreDidChange = Notification.Name("NoteBar.noteStoreDidChange")
+    /// Posted after notes or folders were changed from outside the panel (URL scheme, AppleScript,
+    /// Services). The panel clears its undo history then.
+    static let notesChangedExternally = Notification.Name("NoteBar.notesChangedExternally")
 }
 
 public extension Notification {

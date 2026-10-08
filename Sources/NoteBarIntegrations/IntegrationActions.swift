@@ -105,6 +105,7 @@ public final class IntegrationActions {
             if show { env.controller?.revealNote(note.id) }
         }
         integrationsLog.info("Created note \(note.id) in folder \(note.folderId)")
+        NotificationCenter.default.post(name: .notesChangedExternally, object: nil)
         return note
     }
 
@@ -129,6 +130,7 @@ public final class IntegrationActions {
         updated.body = links.joined(separator: "\n")
         store.updateNote(updated)
         if show { env.controller?.revealNote(note.id) }
+        NotificationCenter.default.post(name: .notesChangedExternally, object: nil)
         return store.note(id: note.id) ?? updated
     }
 

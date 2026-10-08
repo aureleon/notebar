@@ -22,6 +22,13 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     let env: AppEnvironment
     let actions: NoteActions
+    /// Undo history of note and folder actions (⌘Z / ⇧⌘Z while no text is being edited).
+    /// Cleared when the data changes from outside the panel (restore, URL scheme, AppleScript).
+    let panelUndo: UndoManager = {
+        let u = UndoManager()
+        u.levelsOfUndo = 100
+        return u
+    }()
     var store: NoteStore { env.store }
 
     private(set) var screen: Screen = .folders
@@ -169,6 +176,9 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             MainActor.assumeIsolated { self?.updateBackdrop() }
             MainActor.assumeIsolated { self?.restyleAll() }
         })
+        observers.append(nc.addObserver(forName: .notesChangedExternally, object: nil, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.panelUndo.removeAllActions() }
+        })
         observers.append(nc.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.commitPendingDeletion() }
         })
@@ -199,6 +209,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         case .attachments:
             break
         case .all:
+            panelUndo.removeAllActions()
             if let p = pendingDeletion, store.note(id: p) == nil { pendingDeletion = nil }
             clearNotesList()
             if case .folder(let id) = screen, store.folder(id: id) == nil {
@@ -474,6 +485,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func createNewNote() {
         let fid = targetFolderForNewNote()
         let note = store.createNote(in: fid, body: "", mode: env.settings.defaultNoteMode, position: .top)
+        actions.noteCreated(note.id)
         revealNote(note.id, edit: true, insert: true)
     }
 
@@ -483,6 +495,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             showToast("Could not add that item")
             return
         }
+        actions.noteCreated(note.id, name: "Add Note")
         revealNote(note.id, edit: true, insert: true)
     }
 
@@ -502,6 +515,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             showToast("Could not add that item")
             return nil
         }
+        actions.noteCreated(note.id, name: "Paste as New Note")
         revealNote(note.id, edit: true, insert: true)
         return note.id
     }
@@ -648,6 +662,26 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     private func refreshAfterPendingChange(animated: Bool) {
         if search != nil { runSearch(animated: animated) } else if case .folder = screen { reloadNotes(animated: animated) }
         reloadFolderList()
+    }
+
+    // MARK: Undo
+
+    /// ⌘Z / ⇧⌘Z on the list (not while text is edited: the text keeps its own undo).
+    func performPanelUndo(redo: Bool) {
+        let u = panelUndo
+        guard redo ? u.canRedo : u.canUndo else { NSSound.beep(); return }
+        let name = redo ? u.redoActionName : u.undoActionName
+        if redo { u.redo() } else { u.undo() }
+        if !name.isEmpty { showToast("\(redo ? "Redo" : "Undo") \(name)") }
+    }
+
+    /// A note came back (undo of a delete or of a new-note removal): show it if its folder is open.
+    func noteRestored(_ id: NoteID) {
+        guard let note = store.note(id: id) else { return }
+        if search == nil, case .folder(let fid) = screen, fid == note.folderId {
+            rootView.layoutSubtreeIfNeeded()
+            select(id)
+        }
     }
 
     // MARK: Toast

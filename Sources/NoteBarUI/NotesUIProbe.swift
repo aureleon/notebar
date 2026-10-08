@@ -135,6 +135,17 @@ public final class NotesUIProbe {
             .map { $0.isSeparatorItem ? "-" : $0.title }
     }
     public func moveByKeyboard(_ id: NoteID, up: Bool) { root.actions.move(id, up ? .up : .down) }
+    // Panel actions (undoable) and the panel undo history.
+    public func setColor(_ c: NoteColor, of id: NoteID) { root.actions.setColor(c, for: id) }
+    public func togglePin(_ id: NoteID) { root.actions.togglePin(id) }
+    public func setFolded(_ f: Bool, _ id: NoteID) { root.actions.setFolded(f, id: id) }
+    public func moveToFolder(_ id: NoteID, _ fid: FolderID) { root.actions.move(id, toFolder: fid) }
+    public func moveToNewFolder(_ id: NoteID) { root.actions.moveToNewFolder(id) }
+    public func newFolder() { root.actions.newFolder() }
+    public func renameFolder(_ id: FolderID, _ name: String) { root.actions.renameFolder(id, to: name) }
+    public var canUndo: Bool { root.panelUndo.canUndo }
+    public var canRedo: Bool { root.panelUndo.canRedo }
+    public var undoActionName: String { root.panelUndo.undoActionName }
     public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }
     public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
     public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }
