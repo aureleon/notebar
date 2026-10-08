@@ -244,7 +244,7 @@ enum VimChecks {
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.
         let keys: [(String, VimCardCommand)] = [
             ("gp", .togglePin), ("gc", .showColorMenu), ("gm", .showMoveMenu), ("gy", .copyNote),
-            ("gf", .showFormatMenu), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)), ("<Tab>", .toggleFold),
+            ("gf", .showFormatMenu), ("ge", .toggleExpand), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)), ("<Tab>", .toggleFold),
             ("<C-w>j", .focusNextCard), ("<C-w>k", .focusPreviousCard), ("<C-w><C-j>", .focusNextCard),
             ("<C-[>", .navigateUp),
         ]

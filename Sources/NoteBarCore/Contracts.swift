@@ -48,6 +48,8 @@ public enum VimCardCommand: Equatable, Sendable {
     case copyNote
     /// `gf`: the formatting menu.
     case showFormatMenu
+    /// `ge`: expand the card to the panel height / collapse it again (like ⇧⌘E).
+    case toggleExpand
     /// `gx`, `:delete`: delete with the undo toast.
     case delete
     /// `:q`, `:wq`, `:x`: stop editing, keep the card selected.

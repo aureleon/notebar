@@ -89,7 +89,7 @@ Vim keys are off by default. To turn them on, go to Settings › Shortcuts › U
 - These standard vim keys work: motions, counts, operators (`d` `c` `y`), `p` `P` `u` `⌃R` `r` `.`,
   Visual mode (`v` `V`), search (`/` `?` `n` `N`) and `:` commands.
 - ⌃W J and ⌃W K edit the next and the previous note. A folded note unfolds.
-- On a selected note that you are not editing, `gp` `gc` `gm` `gy` `gx` `dd` `za` `zc` `zo` work
+- On a selected note that you are not editing, `gp` `gc` `gm` `gy` `ge` `gx` `dd` `za` `zc` `zo` work
   too, and `gg` `G` select the first and the last note.
 
 NoteBar adds these keys:
@@ -101,6 +101,7 @@ NoteBar adds these keys:
 | Color and mode | `gc`, `:color [name]`, `:mode [standard\|code\|plain]` |
 | Move to a folder | `gm`, `:move [folder]` |
 | Copy the note | `gy`, `:copy` |
+| Expand or collapse the card | `ge` (like ⇧⌘E) |
 | Formatting menu | `gf` |
 | Delete the note (with undo) | `gx`, `:delete` (`dd` on a selected note) |
 | Stop editing | `:q` |
