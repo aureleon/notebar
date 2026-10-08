@@ -64,6 +64,11 @@ func seed(_ store: InMemoryNoteStore) -> (notes: Folder, work: Folder, ideas: Fo
 }
 
 MainActor.assumeIsolated {
+    // Never put a dialog on the screen: an unexpected one is a failed check, answered Cancel.
+    ModalSupport.testResponder = { title in
+        Check.expect(false, "unexpected dialog: \(title)")
+        return .cancel
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     NoteBarUIOptions.useGlass = false
@@ -95,7 +100,7 @@ MainActor.assumeIsolated {
     window.contentView = backdrop
     window.isReleasedWhenClosed = false
 
-    @MainActor func spin() { RunLoop.current.run(until: Date().addingTimeInterval(0.03)) }
+    @MainActor func spin() { RunLoop.current.run(until: Date().addingTimeInterval(0.002)) }
 
     var written: [String] = []
     @MainActor func render(_ name: String, dark: Bool = false) {
@@ -367,12 +372,11 @@ MainActor.assumeIsolated {
     Check.expect(UserDefaults(suiteName: suite)!.bool(forKey: "NoteBarUI.showsFolderList"), "folder list remembered")
     Check.equal(settings.lastFolderId, folders.work.id, "lastFolderId keeps the last opened folder at the folder list")
 
-    // ⌘1 opens the first folder.
-    probe.press(keyCode: 18, characters: "1", modifiers: [.command])
-    Check.equal(vc.currentFolderId, store.folders()[0].id, "⌘1 opens folder 1")
-
-    // ⌘digits while editing: the editor gets them first (⌘1–⌘3 = headings in the real editor).
+    // ⌘digits never switch folders (⌘1–⌘3 are headings while editing).
     vc.showFolder(folders.ideas.id)
+    probe.focusList()
+    probe.press(keyCode: 18, characters: "1", modifiers: [.command])
+    Check.equal(vc.currentFolderId, folders.ideas.id, "⌘1 in the list does not switch folders")
     let headingProbe = HeadingKeyTextView(frame: NSRect(x: 0, y: 0, width: 50, height: 20))
     vc.view.addSubview(headingProbe)
     window.makeFirstResponder(headingProbe)
@@ -380,12 +384,9 @@ MainActor.assumeIsolated {
     Check.equal(vc.currentFolderId, folders.ideas.id, "⌘2 while editing does not switch folders")
     Check.equal(headingProbe.receivedHeading, 2, "⌘2 while editing reaches the text view")
     Check.expect(window.firstResponder === headingProbe, "⌘2 while editing keeps focus")
-    // A key the editor does not use still switches folders.
-    probe.press(keyCode: 21, characters: "4", modifiers: [.command])
-    Check.equal(vc.currentFolderId, store.folders()[3].id, "unused ⌘4 while editing opens folder 4")
     headingProbe.removeFromSuperview()
     vc.showFolderList()
-    Check.equal(settings.lastFolderId, store.folders()[3].id, "folder list keeps lastFolderId for new-note hotkeys")
+    Check.equal(settings.lastFolderId, folders.ideas.id, "folder list keeps lastFolderId for new-note hotkeys")
 
     // Folder reorder across the pinned boundary: Ideas to the top of the unpinned zone.
     probe.moveFolder(folders.ideas.id, toGap: 1)
@@ -681,6 +682,17 @@ MainActor.assumeIsolated {
         probe.setHovered(tall.id, true)
         probe.layoutNow()
         Check.expect(probe.foldButtonFrame(of: tall.id) != nil, "fold button on hover")
+        probe.select(tall.id)
+        _ = probe.press(keyCode: 49, characters: " ")
+        Check.equal(store.note(id: tall.id)?.isFolded, false, "Space does not fold the selected note")
+        _ = probe.press(keyCode: 49, characters: " ", modifiers: [.shift])
+        Check.equal(store.note(id: tall.id)?.isFolded, false, "⇧Space does not fold the selected note")
+        _ = probe.press(keyCode: 14, characters: "e", modifiers: [.command])
+        Check.equal(probe.isExpanded(tall.id), false, "⌘E in the list does not expand (⇧⌘E does)")
+        probe.layoutNow(); spin(); probe.layoutNow()
+        probe.mouseMoved()
+        probe.setHovered(tall.id, true)
+        probe.layoutNow()
         probe.clickFoldButton(tall.id)
         Check.equal(store.note(id: tall.id)?.isFolded, true, "the fold button folds the note")
         probe.layoutNow()
@@ -784,9 +796,16 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     Check.expect(probe.isToastVisible, ":move to an unknown folder shows a message")
     probe.vimCommand(.moveToFolder("ide"), on: b.id)
     Check.equal(store.note(id: b.id)?.folderId, folders.ideas.id, ":move ide → Ideas (prefix match)")
+    var deleteAlerts = 0
+    probe.onDestructiveAlert { _ in deleteAlerts += 1; return false }
     probe.vimCommand(.delete, on: c.id)
-    Check.equal(probe.pendingDeletion, c.id, "gx / :delete deletes with undo")
+    Check.equal(deleteAlerts, 1, "gx / :delete asks first")
+    Check.expect(store.note(id: c.id) != nil, "Cancel in the alert keeps the note")
+    probe.confirmDestructiveAlerts(true)
+    probe.vimCommand(.delete, on: c.id)
+    Check.equal(probe.pendingDeletion, c.id, "gx / :delete deletes with undo after the alert")
     probe.undoDelete()
+    probe.confirmDestructiveAlerts(nil)
     probe.vimCommand(.navigateUp, on: a.id)
     Check.expect(probe.folderRowsVisible, "⌃[ in Normal mode goes up")
 
@@ -846,7 +865,9 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     menus = []
     key("g"); key("c"); Check.equal(menus.count, 1, "vim: gc pops up the note color menu")
     key("g"); key("m"); Check.equal(menus.count, 2, "vim: gm pops up the move menu")
-    key("d"); key("d"); Check.equal(probe.pendingDeletion, c.id, "vim: dd deletes the selected note (with undo)")
+    probe.confirmDestructiveAlerts(true)
+    key("d"); key("d"); Check.equal(probe.pendingDeletion, c.id, "vim: dd deletes the selected note (after the alert, with undo)")
+    probe.confirmDestructiveAlerts(nil)
     probe.undoDelete()
     probe.focusList()
     probe.select(a.id)

@@ -4,7 +4,7 @@ import NoteBarCore
 /// Keyboard-first navigation and panel shortcuts.
 extension NotesRootViewController {
     private enum Key {
-        static let returnKey: UInt16 = 36, enter: UInt16 = 76, tab: UInt16 = 48, space: UInt16 = 49
+        static let returnKey: UInt16 = 36, enter: UInt16 = 76, tab: UInt16 = 48
         static let delete: UInt16 = 51, forwardDelete: UInt16 = 117, escape: UInt16 = 53
         static let left: UInt16 = 123, right: UInt16 = 124, down: UInt16 = 125, up: UInt16 = 126
         static let leftBracket: UInt16 = 33
@@ -44,14 +44,8 @@ extension NotesRootViewController {
         case Key.left:
             if notesVisible && search == nil { goBack(); return true }
             return false
-        case Key.space:
-            if notesVisible, let id = notesList.selectedNoteID {
-                actions.toggleFold(id)
-                return true
-            }
-            return false
         case Key.delete, Key.forwardDelete:
-            if notesVisible, let id = notesList.selectedNoteID { actions.delete(id, confirm: true); return true }
+            if mods.isEmpty, notesVisible, let id = notesList.selectedNoteID { actions.delete(id, confirm: true); return true }
             return false
         case Key.tab:
             if search != nil { searchTab(backward: mods == [.shift]); return true }
@@ -167,20 +161,9 @@ extension NotesRootViewController {
             case "v":
                 guard !isEditingText else { return false }
                 pasteAsNewNote(); return true
-            case "e":
-                guard !isEditingText, let id = activeNoteID else { return false }
-                toggleExpand(id); return true
             case "z":
                 guard !isEditingText else { return false }
                 performPanelUndo(redo: false); return true
-            case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-                // The root runs before its subviews. While text is being edited, the editor gets ⌘digit
-                // first (⌘1–⌘3 = headings in Standard mode). Only keys it does not use switch folders.
-                if isEditingText, let editor = view.window?.firstResponder as? NSView,
-                   editor.performKeyEquivalent(with: event) {
-                    return true
-                }
-                openFolder(atShortcutIndex: Int(key)! - 1); return true
             default: return false
             }
         case [.command, .shift]:

@@ -59,7 +59,7 @@ NoteBar can run at a time.
 | Go through the search results | Tab and ⇧Tab (from the search field, through the results, back to the field) |
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
-| Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), Space on a selected note, or the fold button |
+| Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), or the fold button |
 | Settings | ⌘, |
 
 You can change the global hotkeys in Settings › Shortcuts. You can move the panel to the left or right
@@ -99,13 +99,13 @@ NoteBar adds these keys:
 | Action | Keys |
 |---|---|
 | Pin the note | `gp`, `:pin` |
-| Fold the note | `za` `zc` `zo`, Tab, `:fold`, `:unfold` |
+| Fold the note | `za` `zc` `zo`, `:fold`, `:unfold` |
 | Color and mode | `gc`, `:color [name]`, `:mode [standard\|code\|plain]` |
 | Move to a folder | `gm`, `:move [folder]` |
 | Copy the note | `gy`, `:copy` |
 | Expand or collapse the card | `ge` (like ⇧⌘E) |
 | Formatting menu | `gf` |
-| Delete the note (with undo) | `gx`, `:delete` (`dd` on a selected note) |
+| Delete the note (with the usual alert, undoable) | `gx`, `:delete` (`dd` on a selected note) |
 | Stop editing | `:q` |
 | Go up to the folder list | ⌃[ (in Insert mode, ⌃[ is Esc) |
 | Folder list | `j` `k` select, `gg` `G` first and last, `l` or Return opens, `o` new folder |

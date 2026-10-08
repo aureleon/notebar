@@ -9,7 +9,7 @@ import NoteBarCore
 ///   gp pin, gc color menu, gx / dd delete (with the usual alert, undoable). Letters no longer type
 ///   into search.
 /// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←), gg / G, and the
-///   card keys on the selected note without editing it: gp gc gm gy ge gx dd za zc zo.
+///   card keys on the selected note without editing it: gp gc gm gy ge gx dd za zc zo. Deletes ask first.
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 extension NotesRootViewController {
     static let vimWindowChordTimeout: TimeInterval = 1.5
@@ -97,7 +97,7 @@ extension NotesRootViewController {
             case "gm": showMoveMenu(for: id)
             case "gy": actions.copyText(id)
             case "ge": toggleExpand(id)
-            case "gx", "dd": actions.delete(id, confirm: false)
+            case "gx", "dd": actions.delete(id, confirm: true)
             case "za": actions.toggleFold(id)
             case "zc": actions.setFolded(true, id: id)
             case "zo": actions.setFolded(false, id: id)
@@ -185,7 +185,7 @@ extension NotesRootViewController {
         case .showFormatMenu:
             popUpCardMenu(MenuBuilder.formatMenu { [weak card] a in card?.performFormat(a) }, for: id)
         case .delete:
-            actions.delete(id, confirm: false)
+            actions.delete(id, confirm: true)
         case .quit:
             notesList.selectedNoteID = id
             focusRoot()

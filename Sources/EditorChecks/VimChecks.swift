@@ -307,7 +307,7 @@ enum VimChecks {
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.
         let keys: [(String, VimCardCommand)] = [
             ("gp", .togglePin), ("gc", .showColorMenu), ("gm", .showMoveMenu), ("gy", .copyNote),
-            ("gf", .showFormatMenu), ("ge", .toggleExpand), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)), ("<Tab>", .toggleFold),
+            ("gf", .showFormatMenu), ("ge", .toggleExpand), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)),
             ("<C-w>j", .focusNextCard), ("<C-w>k", .focusPreviousCard), ("<C-w><C-j>", .focusNextCard),
             ("<C-[>", .navigateUp),
         ]
@@ -316,6 +316,11 @@ enum VimChecks {
             h.editor.vimKeysForTesting(k)
             Check.equal(lastVim(), cmd, "\(k) sends \(cmd)")
         }
+        h.events.removeAll()
+        let tabBody = h.body
+        h.editor.vimKeysForTesting("<Tab>")
+        Check.equal(lastVim(), nil, "Tab in Normal mode does not fold")
+        Check.equal(h.body, tabBody, "Tab in Normal mode does not type")
         Check.equal(h.body, "note", "card keys do not change the text")
         // Uppercase keys keep their vim meaning.
         h = harness("first\nsecond")

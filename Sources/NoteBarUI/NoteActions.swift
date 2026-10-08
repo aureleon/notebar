@@ -193,7 +193,7 @@ final class NoteActions {
             alert.informativeText = "You can undo this."
             alert.addButton(withTitle: "Delete").hasDestructiveAction = true
             alert.addButton(withTitle: "Cancel")
-            guard ModalSupport.run(alert) == .alertFirstButtonReturn else { return }
+            guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
         }
         root?.softDelete(id)
     }

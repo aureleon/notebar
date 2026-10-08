@@ -415,8 +415,8 @@ extension MarkdownNoteEditor {
             vim.resetPending()
             return true
         case .tab:
+            // Not a fold key (za / zc / zo are); Tab must not type a tab in Normal mode either.
             vim.resetPending()
-            send(.toggleFold)
             return true
         case .enter:
             runMotion(.nextLineStart)

@@ -7,7 +7,10 @@ import NoteBarCore
 public final class NotesUIProbe {
     private unowned let root: NotesRootViewController
 
-    init(root: NotesRootViewController) { self.root = root }
+    init(root: NotesRootViewController) {
+        self.root = root
+        confirmDestructiveAlerts(nil)
+    }
 
     private var list: NotesListView { root.notesList }
 
@@ -121,7 +124,8 @@ public final class NotesUIProbe {
                                         windowNumber: root.view.window?.windowNumber ?? 0, context: nil,
                                         characters: characters, charactersIgnoringModifiers: characters,
                                         isARepeat: false, keyCode: keyCode) else { return false }
-        if !modifiers.intersection([.command]).isEmpty { return root.handleKeyEquivalent(ev) }
+        // Same path as the window: the root view first, then its subviews (a focused editor).
+        if !modifiers.intersection([.command]).isEmpty { return root.view.performKeyEquivalent(with: ev) }
         return root.handleKeyDown(ev)
     }
 
@@ -194,7 +198,20 @@ public final class NotesUIProbe {
         menu.performActionForItem(at: i)
     }
     /// Answers the folder delete alert (nil = show it).
-    public func confirmDestructiveAlerts(_ answer: Bool?) { root.actions.confirmDestructiveAlert = answer.map { a in { _ in a } } }
+    /// Answers destructive alerts with `f(messageText)` instead of showing them (nil: show them).
+    public func onDestructiveAlert(_ f: ((String) -> Bool)?) { root.actions.confirmDestructiveAlert = f.map { f in { f($0.messageText) } } }
+    /// Answers destructive alerts with `answer`. nil: an alert is a failed check and is cancelled; the
+    /// probe never puts a real modal alert on the screen.
+    public func confirmDestructiveAlerts(_ answer: Bool?) {
+        if let answer {
+            root.actions.confirmDestructiveAlert = { _ in answer }
+        } else {
+            root.actions.confirmDestructiveAlert = { alert in
+                Check.expect(false, "unexpected alert: \(alert.messageText)")
+                return false
+            }
+        }
+    }
     public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }
     public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
     public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }

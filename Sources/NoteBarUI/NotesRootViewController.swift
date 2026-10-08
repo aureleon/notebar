@@ -450,13 +450,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if case .folder = screen { showFolderList() }
     }
 
-    func openFolder(atShortcutIndex i: Int) {
-        let folders = store.folders()
-        guard i >= 0, i < folders.count else { NSSound.beep(); return }
-        showFolder(folders[i].id)
-        focusRoot()
-    }
-
     var isFocusInsideNotes: Bool {
         guard let fr = view.window?.firstResponder as? NSView else { return false }
         return notesList.containsDescendant(fr)
