@@ -34,6 +34,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var focusedNoteID: NoteID?
     /// Focus requested before the view was in a window.
     var pendingFocus: (id: NoteID, edit: Bool)?
+    var isPanelFocused = true
     private var searchWork: DispatchWorkItem?
     /// Folder whose notes the list currently shows (nil: empty, or search results).
     private var displayedFolder: FolderID?
@@ -335,6 +336,11 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         }
     }
 
+    func toggleExpand(_ id: NoteID) {
+        guard notesVisible else { return }
+        notesList.toggleExpand(noteID: id)
+    }
+
     func applyPendingFocus() {
         guard let p = pendingFocus, view.window != nil else { return }
         pendingFocus = nil
@@ -372,15 +378,29 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     public func panelDidShow() {
+        panelDidShow(focused: true)
+    }
+
+    public func panelDidShow(focused: Bool) {
         _ = view
-        applyPendingFocus()
-        guard let window = view.window else { return }
-        let fr = window.firstResponder
-        if fr == nil || fr === window || !(fr is NSView) || !(view.containsDescendant(fr as? NSView)) {
-            if search != nil && (search?.query.isEmpty ?? true) { header.focusSearchField() } else { focusRoot() }
+        isPanelFocused = focused
+        if focused {
+            applyPendingFocus()
+            guard let window = view.window else { return }
+            let fr = window.firstResponder
+            if fr == nil || fr === window || !(fr is NSView) || !(view.containsDescendant(fr as? NSView)) {
+                if search != nil && (search?.query.isEmpty ?? true) { header.focusSearchField() } else { focusRoot() }
+            }
+        } else {
+            rootFocusChanged(false)
         }
         // Dates and counts may be stale if the store changed while hidden.
         if screen == .folders && search == nil { reloadFolderList() }
+    }
+
+    public func panelFocusChanged(_ focused: Bool) {
+        isPanelFocused = focused
+        rootFocusChanged(focused)
     }
 
     public func panelWillHide() {
@@ -634,14 +654,20 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         notesList.scrollToCard(card, animated: true)
     }
 
-    /// The note the keyboard commands act on: the one being edited, else the selected card.
+    /// The note the keyboard commands act on: the expanded note, the one being edited, else the selected card,
+    /// or the single/first card in the folder.
     var activeNoteID: NoteID? {
-        if let f = focusedNoteID, notesList.card(for: f) != nil { return f }
-        if let s = notesList.selectedNoteID, notesList.card(for: s) != nil, !notesList.isHidden { return s }
+        if let exp = notesList?.expandedNoteID, notesList?.card(for: exp) != nil { return exp }
+        if let f = focusedNoteID, notesList?.card(for: f) != nil { return f }
+        if let s = notesList?.selectedNoteID, notesList?.card(for: s) != nil, !notesList.isHidden { return s }
+        if notesVisible, let cards = notesList?.cards, !cards.isEmpty {
+            return cards.first?.note.id
+        }
         return nil
     }
 
     var isEditingText: Bool { view.window?.firstResponder is NSText }
+    var backdropFrame: NSRect { backdrop.frame }
 
     public var contentHeight: CGFloat {
         guard let v = rootView else { return 0 }
@@ -674,7 +700,17 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             bottom = m + Metrics.headerHeight
         }
         let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
-        if backdrop.frame != f { backdrop.frame = f }
+        if backdrop.frame != f {
+            if NoteBarUIOptions.animations && v.window != nil {
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.22
+                    ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    backdrop.animator().frame = f
+                }
+            } else {
+                backdrop.frame = f
+            }
+        }
     }
 
     /// A click anywhere in the panel outside the card being edited (header, search bar, gaps, another

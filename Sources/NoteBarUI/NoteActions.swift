@@ -34,8 +34,15 @@ final class NoteActions {
 
     func setFolded(_ folded: Bool, id: NoteID) {
         guard var n = store.note(id: id), n.isFolded != folded else { return }
+        if folded, root?.notesList.expandedNoteID == id {
+            root?.notesList.setExpandedNoteID(nil, animated: false)
+        }
         n.isFolded = folded
         store.updateNote(n)
+    }
+
+    func toggleExpand(_ id: NoteID) {
+        root?.toggleExpand(id)
     }
 
     func togglePin(_ id: NoteID) {

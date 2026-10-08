@@ -31,6 +31,7 @@ final class NotesListView: NSView, NoteCardDelegate {
     private var lastSize: NSSize = .zero
     private var isLayingOut = false
     private var liveEditorsScheduled = false
+    private var lastTargetBottom: CGFloat?
 
     /// Pinned at the top of the document (search scope bar). Scrolls with the cards.
     var topAccessory: NSView? {
@@ -53,6 +54,7 @@ final class NotesListView: NSView, NoteCardDelegate {
     /// Reordering by drag (off in search results).
     var allowsReorder = true
     var selectedNoteID: NoteID? { didSet { if oldValue != selectedNoteID { updateSelection() } } }
+    private(set) var expandedNoteID: NoteID?
     /// The keyboard selection ring is shown only while the list has keyboard focus.
     var showsSelection = false { didSet { if oldValue != showsSelection { updateSelection() } } }
 
@@ -101,6 +103,8 @@ final class NotesListView: NSView, NoteCardDelegate {
         cards = []
         cardsByID = [:]
         selectedNoteID = nil
+        expandedNoteID = nil
+        lastTargetBottom = nil
         layoutCards(animated: false)
         scrollToTop()
     }
@@ -138,6 +142,8 @@ final class NotesListView: NSView, NoteCardDelegate {
         cardsByID = Dictionary(uniqueKeysWithValues: cards.map { ($0.note.id, $0) })
         for c in inserted { doc.addSubview(c) }
         if let sel = selectedNoteID, cardsByID[sel] == nil { selectedNoteID = nil }
+        if let exp = expandedNoteID, cardsByID[exp] == nil { expandedNoteID = nil }
+        for card in cards { card.isExpanded = (card.note.id == expandedNoteID) }
         updateSelection()
         let animate = animated && NoteBarUIOptions.animations && window != nil
         layoutCards(animated: animate, fadeIn: Set(inserted.map { ObjectIdentifier($0) }))
@@ -222,20 +228,24 @@ final class NotesListView: NSView, NoteCardDelegate {
             acc.frame = NSRect(x: m, y: y, width: cw, height: h)
             y += h + Metrics.gap
         }
+        let visibleH = max(0, scrollView.contentSize.height - topInset)
+        let availableViewportH = max(NoteCardView.minUnfoldedHeight, visibleH - m * 2)
+
         var targets: [(NoteCardView, NSRect)] = []
         for card in cards {
-            let h = card.cardHeight(forWidth: cw)
+            let isExp = card.note.id == expandedNoteID
+            let h = card.cardHeight(forWidth: cw, minHeight: isExp ? availableViewportH : 0)
             let r = NSRect(x: m - pad, y: y - pad, width: cw + 2 * pad, height: h + 2 * pad)
             targets.append((card, r))
             y += h + Metrics.gap
         }
         let contentH = (cards.isEmpty ? y : y - Metrics.gap) + Metrics.gap + m
         lastContentHeight = contentH
-        let visibleH = max(0, scrollView.contentSize.height - topInset)
+        lastTargetBottom = targets.last.map { $0.1.maxY - pad }
         doc.frame = NSRect(x: 0, y: 0, width: width, height: max(contentH, visibleH))
 
         if animated {
-            NSAnimationContext.runAnimationGroup { ctx in
+            NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.22
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 ctx.allowsImplicitAnimation = true
@@ -248,7 +258,11 @@ final class NotesListView: NSView, NoteCardDelegate {
                         card.animator().frame = r
                     }
                 }
-            }
+            }, completionHandler: { [weak self] in
+                MainActor.assumeIsolated {
+                    self?.onContentExtentChange?()
+                }
+            })
         } else {
             for (card, r) in targets where card.frame != r { card.frame = r }
         }
@@ -287,7 +301,11 @@ final class NotesListView: NSView, NoteCardDelegate {
     var contentBottom: CGFloat {
         var docBottom: CGFloat?
         if let acc = topAccessory { docBottom = acc.frame.maxY }
-        if let last = cards.last { docBottom = max(docBottom ?? 0, last.frame.maxY - Metrics.cardShadowPad) }
+        if let target = lastTargetBottom {
+            docBottom = max(docBottom ?? 0, target)
+        } else if let last = cards.last {
+            docBottom = max(docBottom ?? 0, last.frame.maxY - Metrics.cardShadowPad)
+        }
         var y = docBottom.map { convert(NSPoint(x: 0, y: $0), from: doc).y } ?? topInset
         if !emptyView.isHidden { y = max(y, emptyView.frame.maxY) }
         return min(max(y, 0), bounds.height)
@@ -359,6 +377,56 @@ final class NotesListView: NSView, NoteCardDelegate {
         for c in cards { c.isSelected = showsSelection && c.note.id == selectedNoteID }
     }
 
+    // MARK: Expansion
+
+    func toggleExpand(noteID: NoteID) {
+        if expandedNoteID == noteID {
+            setExpandedNoteID(nil, animated: true)
+        } else {
+            setExpandedNoteID(noteID, animated: true)
+        }
+    }
+
+    func setExpandedNoteID(_ newID: NoteID?, animated: Bool) {
+        guard expandedNoteID != newID else { return }
+        let oldID = expandedNoteID
+        expandedNoteID = newID
+        if let oldID, let oldCard = cardsByID[oldID] {
+            oldCard.isExpanded = false
+        }
+        if let newID, let newCard = cardsByID[newID] {
+            if newCard.isFolded {
+                actions.setFolded(false, id: newID)
+            }
+            newCard.isExpanded = true
+        }
+        let animate = animated && NoteBarUIOptions.animations && window != nil
+        layoutCards(animated: animate)
+        if let newID, let newCard = cardsByID[newID] {
+            scrollToCardTop(newCard, animated: animate)
+        } else if let oldID, let oldCard = cardsByID[oldID] {
+            scrollToCard(oldCard, animated: animate)
+        }
+    }
+
+    func scrollToCardTop(_ card: NoteCardView, animated: Bool = true) {
+        let clip = scrollView.contentView
+        let pad = Metrics.cardShadowPad
+        let targetY = card.frame.minY + pad - topInset
+        let maxY = max(-topInset, doc.frame.height - clip.bounds.height)
+        let clamped = max(-topInset, min(targetY, maxY))
+        if animated && NoteBarUIOptions.animations {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.22
+                clip.animator().setBoundsOrigin(NSPoint(x: 0, y: clamped))
+            }
+            scrollView.reflectScrolledClipView(clip)
+        } else {
+            scrollClip(to: clamped)
+        }
+        updateLiveEditors()
+    }
+
     func index(of id: NoteID) -> Int? { cards.firstIndex { $0.note.id == id } }
 
     // MARK: NoteCardDelegate
@@ -385,6 +453,10 @@ final class NotesListView: NSView, NoteCardDelegate {
     }
 
     func cardMenu(_ card: NoteCardView) -> NSMenu? { delegate?.notesList(self, menuFor: card) }
+
+    func cardExpandToggled(_ card: NoteCardView) {
+        toggleExpand(noteID: card.note.id)
+    }
 
     func card(_ card: NoteCardView, drop payload: ImportPayload) -> Bool {
         delegate?.notesList(self, drop: payload, on: card) ?? false
