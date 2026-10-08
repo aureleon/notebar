@@ -65,17 +65,51 @@ public enum VimText {
         return e > a ? e - 1 : a
     }
 
-    public static func firstNonBlank(_ s: NSString, _ pos: Int) -> Int {
+    /// First non-blank character of the line. With `marker`, a line marker there (a checkbox) and the
+    /// blanks after it are skipped too, unless the marker is all the line holds.
+    public static func firstNonBlank(_ s: NSString, _ pos: Int, marker: Marker? = nil) -> Int {
         var i = lineStart(s, pos)
         let e = lineEnd(s, pos)
         while i < e, UC.isSpaceOrTab(s.character(at: i)) { i += 1 }
+        if let end = markerPrefixEnd(s, i, lineEnd: e, marker: marker) { return end }
         return i
     }
 
-    /// Normal mode: the caret never sits on a line terminator unless the line is empty.
-    public static func clampNormal(_ s: NSString, _ pos: Int) -> Int {
+    /// Says whether the character at a storage index is a line marker (a checkbox attachment). The
+    /// Normal-mode caret skips markers like hidden markup, and `0`, `^`, `I`, `cc` keep them.
+    public typealias Marker = (Int) -> Bool
+
+    /// End of the marker prefix (marker plus the blanks after it) when `fnb` is a marker followed by
+    /// more text on the line; nil otherwise.
+    static func markerPrefixEnd(_ s: NSString, _ fnb: Int, lineEnd e: Int, marker: Marker?) -> Int? {
+        guard let marker, fnb < e, marker(fnb) else { return nil }
+        var j = fnb + 1
+        while j < e, UC.isSpaceOrTab(s.character(at: j)) { j += 1 }
+        return j < e ? j : nil
+    }
+
+    /// Start of the line's text after its indent and marker prefix, when the line has a marker.
+    public static func markerContentStart(_ s: NSString, _ pos: Int, marker: Marker?) -> Int? {
+        guard marker != nil else { return nil }
+        var i = lineStart(s, pos)
+        let e = lineEnd(s, pos)
+        while i < e, UC.isSpaceOrTab(s.character(at: i)) { i += 1 }
+        return markerPrefixEnd(s, i, lineEnd: e, marker: marker)
+    }
+
+    /// Normal mode: the caret never sits on a line terminator unless the line is empty, and never on a
+    /// marker prefix (indent, checkbox) when the line has text after it.
+    public static func clampNormal(_ s: NSString, _ pos: Int, marker: Marker? = nil) -> Int {
         let p = min(max(0, pos), s.length)
-        return min(p, lastCharOfLine(s, p))
+        let q = min(p, lastCharOfLine(s, p))
+        if let cs = markerContentStart(s, q, marker: marker), q < cs { return cs }
+        return q
+    }
+
+    /// True when `pos` is inside the marker prefix of its line (there is text after the marker).
+    static func inMarkerPrefix(_ s: NSString, _ pos: Int, marker: Marker?) -> Bool {
+        guard let cs = markerContentStart(s, pos, marker: marker) else { return false }
+        return pos < cs
     }
 
     /// 0-based line index of `pos`.
@@ -172,7 +206,15 @@ public enum VimText {
     // MARK: Motions
 
     /// Where `motion` (repeated `count` times) moves a Normal-mode caret.
-    public static func target(_ motion: VimMotion, in s: NSString, from pos: Int, count: Int = 1) -> Int {
+    /// With `marker`, the caret skips line markers (see `clampNormal`); `b` and `e` step over them.
+    public static func target(_ motion: VimMotion, in s: NSString, from pos: Int, count: Int = 1,
+                              marker: Marker? = nil) -> Int {
+        let p = rawTarget(motion, in: s, from: pos, count: count, marker: marker)
+        if let cs = markerContentStart(s, p, marker: marker), p < cs { return cs }
+        return p
+    }
+
+    static func rawTarget(_ motion: VimMotion, in s: NSString, from pos: Int, count: Int, marker: Marker?) -> Int {
         let n = max(1, count)
         var p = min(max(0, pos), s.length)
         switch motion {
@@ -188,9 +230,25 @@ public enum VimText {
             for _ in 0..<n { p = wordForward(s, p, big: big) }
             p = min(p, max(0, s.length))
         case .wordBackward(let big):
-            for _ in 0..<n { p = wordBackward(s, p, big: big) }
+            for _ in 0..<n {
+                p = wordBackward(s, p, big: big)
+                // Landed on a checkbox: it is not a word; go on to the previous line (or stay on the text).
+                while inMarkerPrefix(s, p, marker: marker) {
+                    let a = lineStart(s, p)
+                    if a == 0 { break }
+                    p = wordBackward(s, a, big: big)
+                }
+            }
         case .wordEnd(let big):
-            for _ in 0..<n { p = wordEnd(s, p, big: big) }
+            for _ in 0..<n {
+                p = wordEnd(s, p, big: big)
+                // Landed on a checkbox (a one-character "word"): go on to the end of the first word after it.
+                while inMarkerPrefix(s, p, marker: marker) {
+                    let next = wordEnd(s, p, big: big)
+                    if next <= p { break }
+                    p = next
+                }
+            }
         case .lineStart:
             p = lineStart(s, p)
         case .firstNonBlank:
@@ -220,10 +278,10 @@ public enum VimText {
 
     /// The range an operator (`d`, `c`, `y`) acts on for `motion`. `change` applies the `cw` = `ce` rule.
     public static func operatorRange(_ motion: VimMotion, in s: NSString, from pos: Int, count: Int = 1,
-                                     change: Bool = false) -> VimOperatorRange? {
+                                     change: Bool = false, marker: Marker? = nil) -> VimOperatorRange? {
         let p = min(max(0, pos), s.length)
         if isLinewise(motion) {
-            let t = target(motion, in: s, from: p, count: count)
+            let t = target(motion, in: s, from: p, count: count, marker: marker)
             return linesRange(s, from: p, to: t)
         }
         var m = motion
@@ -244,16 +302,16 @@ public enum VimText {
             if count > 1 { e = lineEnd(s, verticalTarget(s, p, delta: count - 1)) }
             r = NSRange(location: p, length: e - p)
         case .wordEnd:
-            let t = target(m, in: s, from: p, count: count)
+            let t = target(m, in: s, from: p, count: count, marker: marker)
             r = NSRange(location: p, length: min(s.length, t + 1) - p)
         case .wordForward:
-            var t = target(m, in: s, from: p, count: count)
+            var t = target(m, in: s, from: p, count: count, marker: marker)
             // `dw` on the last word of a line stops at the end of the line.
             let e = lineEnd(s, p)
             if t > e, e > p { t = e }
             r = NSRange(location: p, length: t - p)
         default:
-            let t = target(m, in: s, from: p, count: count)
+            let t = target(m, in: s, from: p, count: count, marker: marker)
             r = t < p ? NSRange(location: t, length: p - t) : NSRange(location: p, length: t - p)
         }
         return r.length > 0 ? VimOperatorRange(range: r, linewise: false) : nil

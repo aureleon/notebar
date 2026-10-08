@@ -104,6 +104,10 @@ struct VimState {
     var replaying = false
     /// Set by every text edit of the vim layer (tells a finished command was a change).
     var didChange = false
+    /// j / k keep this x (text container coordinates) while the caret stays where the last j / k put it,
+    /// as vim keeps its wanted column across short lines and checkboxes.
+    var goalX: CGFloat?
+    var goalCaret: Int?
 
     var hasPending: Bool { count != nil || pendingOperator != nil || pendingG || pendingZ || pendingReplace || windowArmedAt != nil }
 
@@ -156,7 +160,7 @@ extension MarkdownNoteEditor {
         vim.resetPending()
         if m == .normal, textStorage.length > 0 {
             let r = textView.selectedRange()
-            if r.length == 0 { setCaret(VimText.clampNormal(storageString, r.location)) }
+            if r.length == 0 { setCaret(VimText.clampNormal(storageString, r.location, marker: vimMarker)) }
         }
         updateCaretStyle()
     }
@@ -298,7 +302,7 @@ extension MarkdownNoteEditor {
             FormattingToolbar.shared.hide(for: self)
             let p = caret
             setVimMode(.normal)
-            if p > VimText.lineStart(storageString, p) { setCaret(VimText.clampNormal(storageString, p - 1)) }
+            if p > VimText.lineStart(storageString, p) { setCaret(VimText.clampNormal(storageString, p - 1, marker: vimMarker)) }
             return true
         case .ctrl("w"):
             textView.deleteWordBackward(nil)
@@ -444,7 +448,7 @@ extension MarkdownNoteEditor {
             }
             if let m = motion(for: c) {
                 let n = takeCount()
-                if let r = VimText.operatorRange(m, in: storageString, from: caret, count: n, change: op == "c") {
+                if let r = VimText.operatorRange(m, in: storageString, from: caret, count: n, change: op == "c", marker: vimMarker) {
                     applyOperator(op, r)
                 } else {
                     vim.resetPending()
@@ -473,7 +477,7 @@ extension MarkdownNoteEditor {
         case "r": vim.pendingReplace = true
         case "i": enterInsert(at: p)
         case "a": enterInsert(at: p < VimText.lineEnd(s, p) ? p + 1 : p)
-        case "I": enterInsert(at: VimText.firstNonBlank(s, p))
+        case "I": enterInsert(at: VimText.firstNonBlank(s, p, marker: vimMarker))
         case "A": enterInsert(at: VimText.lineEnd(s, p))
         case "o":
             vim.resetPending()
@@ -492,7 +496,7 @@ extension MarkdownNoteEditor {
                 return
             }
             let m: VimMotion = c == "X" ? .left : .right
-            if let r = VimText.operatorRange(m, in: s, from: p, count: n) {
+            if let r = VimText.operatorRange(m, in: s, from: p, count: n, marker: vimMarker) {
                 applyOperator(c == "s" ? "c" : "d", r)
             } else if c == "s" {
                 setVimMode(.insert)
@@ -506,7 +510,7 @@ extension MarkdownNoteEditor {
             }
         case "S":
             let n = takeCount()
-            applyOperator("c", VimText.linesRange(s, from: p, to: VimText.target(.down, in: s, from: p, count: n - 1)))
+            applyOperator("c", VimText.linesRange(s, from: p, to: n > 1 ? VimText.target(.down, in: s, from: p, count: n - 1) : p))
         case "Y":
             let n = takeCount()
             applyOperator("y", VimText.linesRange(s, from: p, to: n > 1 ? VimText.target(.down, in: s, from: p, count: n - 1) : p))
@@ -565,7 +569,7 @@ extension MarkdownNoteEditor {
     private func runMotion(_ m: VimMotion) {
         if let op = vim.pendingOperator {
             let n = takeCount()
-            if let r = VimText.operatorRange(m, in: storageString, from: caret, count: n, change: op == "c") {
+            if let r = VimText.operatorRange(m, in: storageString, from: caret, count: n, change: op == "c", marker: vimMarker) {
                 applyOperator(op, r)
             } else {
                 vim.resetPending()
@@ -577,16 +581,47 @@ extension MarkdownNoteEditor {
         switch m {
         case .down, .up:
             // Plain j / k move by visual line (notes wrap a lot in the narrow panel).
+            let goal = vim.goalCaret == caret ? (vim.goalX ?? caretX()) : caretX()
             for _ in 0..<n {
-                if m == .down { if caretOnLastLine() { break }; textView.moveDown(nil) } else { if caretOnFirstLine() { break }; textView.moveUp(nil) }
+                if m == .down { if caretOnLastLine() { break } } else if caretOnFirstLine() { break }
+                guard let p = visualLineTarget(down: m == .down, x: goal) else { break }
+                // The caret never sits on a line break (unless the line is empty) or on a checkbox.
+                setCaret(VimText.clampNormal(storageString, p, marker: vimMarker))
             }
-            let p = caret
-            let s = storageString
-            if p < s.length, isNL(s.character(at: p)), p > VimText.lineStart(s, p) { setCaret(p - 1, scroll: true) }
+            vim.goalX = goal
+            vim.goalCaret = caret
             textView.scrollRangeToVisible(textView.selectedRange())
         default:
-            setCaret(VimText.target(m, in: storageString, from: caret, count: n), scroll: true)
+            setCaret(VimText.target(m, in: storageString, from: caret, count: n, marker: vimMarker), scroll: true)
         }
+    }
+
+    /// x of the Normal-mode caret (left edge of the character under the block caret), container coordinates.
+    private func caretX() -> CGFloat {
+        let lm = layoutManagerNB
+        lm.ensureLayout(for: container)
+        let s = storageString
+        let p = caret
+        guard p < s.length, lm.numberOfGlyphs > 0 else { return lineRect(forCharacter: p).minX }
+        let g = lm.glyphIndexForCharacter(at: p)
+        if isNL(s.character(at: p)) {
+            return lm.lineFragmentRect(forGlyphAt: g, effectiveRange: nil).minX + lm.location(forGlyphAt: g).x
+        }
+        return lm.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: container).minX
+    }
+
+    /// The character under `x` on the visual line below / above the caret (nil at the first / last line).
+    private func visualLineTarget(down: Bool, x: CGFloat) -> Int? {
+        let lm = layoutManagerNB
+        lm.ensureLayout(for: container)
+        let len = textStorage.length
+        let cur = lineRect(forCharacter: caret)
+        let y = down ? cur.maxY + 1 : cur.minY - 1
+        guard y >= 0 else { return nil }
+        if lm.extraLineFragmentTextContainer != nil, y >= lm.extraLineFragmentRect.minY { return len }
+        guard lm.numberOfGlyphs > 0 else { return nil }
+        let g = lm.glyphIndex(for: NSPoint(x: max(0, x), y: y), in: container, fractionOfDistanceThroughGlyph: nil)
+        return min(lm.characterIndexForGlyph(at: g), len)
     }
 
     private func enterInsert(at p: Int) {
@@ -594,6 +629,9 @@ extension MarkdownNoteEditor {
         setVimMode(.insert)
         setCaret(p)
     }
+
+    /// Checkbox attachments are line markers: the Normal-mode caret skips them (see `VimText.Marker`).
+    var vimMarker: VimText.Marker { { [unowned self] in self.checkboxState(at: $0) != nil } }
 
     func setCaret(_ p: Int, scroll: Bool = false) {
         let loc = min(max(0, p), textStorage.length)
@@ -605,7 +643,7 @@ extension MarkdownNoteEditor {
     private func clampCaret() {
         guard isVimNormal else { return }
         let r = textView.selectedRange()
-        setCaret(VimText.clampNormal(storageString, r.location))
+        setCaret(VimText.clampNormal(storageString, r.location, marker: vimMarker))
     }
 
     // MARK: Edits
@@ -622,14 +660,14 @@ extension MarkdownNoteEditor {
             if !r.linewise {
                 setCaret(r.range.location)
             } else if r.range.location < VimText.lineStart(s, caret) {
-                setCaret(VimText.firstNonBlank(s, r.range.location))
+                setCaret(VimText.firstNonBlank(s, r.range.location, marker: vimMarker))
             }
             clampCaret()
         case "d":
             VimRegister.store(r.linewise ? VimText.linewiseRegister(text) : text, linewise: r.linewise, toPasteboard: false)
             let del = r.linewise ? VimText.linewiseDeleteRange(s, r.range) : r.range
             applyEdit(VimEdit(range: del, text: "", caret: del.location), actionName: "Delete")
-            if r.linewise { setCaret(VimText.firstNonBlank(storageString, min(del.location, storageString.length))) }
+            if r.linewise { setCaret(VimText.firstNonBlank(storageString, min(del.location, storageString.length), marker: vimMarker)) }
             clampCaret()
         case "c":
             VimRegister.store(r.linewise ? VimText.linewiseRegister(text) : text, linewise: r.linewise, toPasteboard: false)
@@ -637,7 +675,10 @@ extension MarkdownNoteEditor {
             if r.linewise {
                 // Keep the (last) line break: the caret stays on an empty line.
                 let e = VimText.lineEnd(s, max(r.range.location, r.range.end - 1))
-                range = NSRange(location: r.range.location, length: max(0, e - r.range.location))
+                // A checklist line keeps its checkbox (like autoindent keeps the indent).
+                let fnb = VimText.firstNonBlank(s, r.range.location)
+                let start = fnb < e && vimMarker(fnb) ? fnb + 1 : r.range.location
+                range = NSRange(location: start, length: max(0, e - start))
             }
             setVimMode(.insert)
             applyEdit(VimEdit(range: range, text: "", caret: range.location), actionName: "Change")
@@ -782,7 +823,7 @@ extension MarkdownNoteEditor {
             if c == .quit { reportBody() }
             send(c)
         case .goToLine(let n):
-            setCaret(VimText.firstNonBlank(storageString, VimText.startOfLine(storageString, n - 1)), scroll: true)
+            setCaret(VimText.firstNonBlank(storageString, VimText.startOfLine(storageString, n - 1), marker: vimMarker), scroll: true)
         case .noHighlight: clearSearchHighlight()
         case .error(let msg): send(.message(msg))
         }
@@ -836,7 +877,7 @@ extension MarkdownNoteEditor {
     func exitVisual(at p: Int? = nil) {
         vim.resetPending()
         vim.mode = .normal
-        setCaret(VimText.clampNormal(storageString, p ?? vim.visualCursor))
+        setCaret(VimText.clampNormal(storageString, p ?? vim.visualCursor, marker: vimMarker))
         updateCaretStyle()
     }
 
@@ -938,7 +979,7 @@ extension MarkdownNoteEditor {
     private func moveVisual(_ m: VimMotion) {
         let n = max(1, vim.count ?? 1)
         vim.resetPending()
-        var t = VimText.target(m, in: storageString, from: vim.visualCursor, count: n)
+        var t = VimText.target(m, in: storageString, from: vim.visualCursor, count: n, marker: vimMarker)
         // `w` may land after the last character; the selection end stays on a character.
         if t >= storageString.length { t = max(0, storageString.length - 1) }
         vim.visualCursor = t
@@ -1030,7 +1071,7 @@ extension MarkdownNoteEditor {
     }
 
     private func clampCaretAfterVisual() {
-        setCaret(VimText.clampNormal(storageString, caret))
+        setCaret(VimText.clampNormal(storageString, caret, marker: vimMarker))
     }
 }
 

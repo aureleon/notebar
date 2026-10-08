@@ -262,7 +262,7 @@ extension MarkdownNoteEditor {
 
     // MARK: Caret position
 
-    private func lineRect(forCharacter loc: Int) -> NSRect {
+    func lineRect(forCharacter loc: Int) -> NSRect {
         let lm = layoutManagerNB
         lm.ensureLayout(for: container)
         if textStorage.length == 0 { return lm.extraLineFragmentRect }

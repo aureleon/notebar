@@ -10,6 +10,69 @@ enum VimChecks {
         textChecks()
         exChecks()
         editorChecks()
+        checkboxChecks()
+    }
+
+    /// Checkboxes are line markers: the Normal-mode caret skips them and line edits keep them.
+    static func checkboxChecks() {
+        // Storage: "Title⏎☐first task⏎☐second⏎plain line⏎☐third" (☐ = one attachment character).
+        let body = "Title\n- [ ] first task\n- [x] second\nplain line\n- [ ] third"
+        func run(_ keys: String) -> BehaviorChecks.Harness {
+            let h = harness(body)
+            h.focus(at: 0)
+            h.editor.vimKeysForTesting(keys)
+            return h
+        }
+        func at(_ keys: String) -> Int { run(keys).editor.selectedRangeForTesting.location }
+
+        // Traversal.
+        Check.equal(at("j"), 7, "checkbox: j lands on the text, not on the checkbox")
+        Check.equal(at("jj"), 19, "checkbox: j onto the next checklist line")
+        Check.equal(at("jjj"), 26, "checkbox: j keeps the wanted column (start of a plain line)")
+        Check.equal(at("jjjk"), 19, "checkbox: k back onto a checklist line")
+        Check.equal(at("jjjjkkkk"), 0, "checkbox: j / k there and back keep the column")
+        Check.equal(at("$jk"), 4, "checkbox: k after j returns to the same column")
+        Check.equal(at("jw0"), 7, "checkbox: 0 stops after the checkbox")
+        Check.equal(at("jw^"), 7, "checkbox: ^ stops after the checkbox")
+        Check.equal(at("jh"), 7, "checkbox: h stops after the checkbox")
+        Check.equal(at("jwb"), 7, "checkbox: b stops at the first word")
+        Check.equal(at("jbb"), 0, "checkbox: b skips the checkbox to the previous line")
+        Check.equal(at("w"), 7, "checkbox: w from the line above lands on the text")
+        Check.equal(at("e"), 4, "e: end of the title")
+        Check.equal(at("ee"), 11, "checkbox: e skips the checkbox")
+        Check.equal(at("G"), 38, "checkbox: G lands on the text")
+        Check.equal(at("Ggg"), 0, "gg")
+
+        // Edits keep the checkbox.
+        Check.equal(run("jI!<Esc>").body, "Title\n- [ ] !first task\n- [x] second\nplain line\n- [ ] third", "checkbox: I inserts after the checkbox")
+        Check.equal(run("j0x").body, "Title\n- [ ] irst task\n- [x] second\nplain line\n- [ ] third", "checkbox: 0x deletes text, not the checkbox")
+        Check.equal(run("jX").body, body, "checkbox: X at the text start does not delete the checkbox")
+        Check.equal(run("j$d0").body, "Title\n- [ ] k\n- [x] second\nplain line\n- [ ] third", "checkbox: d0 keeps the checkbox")
+        Check.equal(run("j$d^").body, "Title\n- [ ] k\n- [x] second\nplain line\n- [ ] third", "checkbox: d^ keeps the checkbox")
+        Check.equal(run("jcc!<Esc>").body, "Title\n- [ ] !\n- [x] second\nplain line\n- [ ] third", "checkbox: cc keeps the checkbox")
+        Check.equal(run("jS!<Esc>").body, "Title\n- [ ] !\n- [x] second\nplain line\n- [ ] third", "checkbox: S keeps the checkbox")
+        Check.equal(run("jdd").body, "Title\n- [x] second\nplain line\n- [ ] third", "checkbox: dd still deletes the whole line")
+        Check.equal(run("jI<Esc>").editor.selectedRangeForTesting.location, 7, "checkbox: Esc after I stays off the checkbox")
+
+        // j / k move by visual line in a wrapped paragraph, and k comes back to the same character.
+        let long = String(repeating: "word ", count: 40) + "end\nnext"
+        let w = harness(long)
+        w.focus(at: 0)
+        w.editor.vimKeysForTesting("ll")
+        w.editor.vimKeysForTesting("j")
+        let down = w.editor.selectedRangeForTesting.location
+        Check.expect(down > 2 && down < 200, "j moves one visual line down inside a wrapped line (got \(down))")
+        w.editor.vimKeysForTesting("k")
+        Check.equal(w.editor.selectedRangeForTesting.location, 2, "k returns to the same character")
+
+        // Pure VimText with a marker.
+        let s = "\u{FFFC}task\n  \u{FFFC} x\n\u{FFFC}" as NSString
+        let marker: VimText.Marker = { s.character(at: $0) == 0xFFFC }
+        Check.equal(VimText.clampNormal(s, 0, marker: marker), 1, "clampNormal skips a checkbox")
+        Check.equal(VimText.clampNormal(s, 6, marker: marker), 10, "clampNormal skips indent + checkbox + blank")
+        Check.equal(VimText.clampNormal(s, 12, marker: marker), 12, "an empty checklist line keeps the caret on its checkbox")
+        Check.equal(VimText.firstNonBlank(s, 7, marker: marker), 10, "firstNonBlank skips the marker prefix")
+        Check.equal(VimText.firstNonBlank(s, 7), 8, "firstNonBlank without a marker is unchanged")
     }
 
     // MARK: VimText
