@@ -275,6 +275,8 @@ MainActor.assumeIsolated {
                  "move menu items: \(moveItems)")
     let gear = probe.gearMenuItems(for: hello)
     Check.expect(gear.contains("<colors>") && gear.contains("Standard (Markdown) ✓") && gear.contains("Code"), "gear menu: \(gear)")
+    Check.expect(!gear.contains { $0.hasPrefix("Pin") || $0.hasPrefix("Unpin") || $0.hasPrefix("Fold") || $0.hasPrefix("Unfold") },
+                 "gear menu has no Pin / Fold (they are card buttons)")
     Check.expect(probe.cardMenuItems(for: hello).contains("Move"), "card menu has Move")
 
     // Drops.

@@ -151,13 +151,7 @@ enum MenuBuilder {
         m.addItem(.separator())
         m.addItem(.sectionHeader(title: "Mode"))
         for item in modeItems(current: note.mode, onPick: { actions.setMode($0, for: note.id) }) { m.addItem(item) }
-        m.addItem(.separator())
-        m.addItem(ClosureMenuItem(note.isFolded ? "Unfold" : "Fold", key: "", symbol: note.isFolded ? "rectangle.expand.vertical" : "rectangle.compress.vertical") {
-            actions.toggleFold(note.id)
-        })
-        m.addItem(ClosureMenuItem(note.isPinned ? "Unpin" : "Pin", key: "", symbol: note.isPinned ? "pin.slash" : "pin") {
-            actions.togglePin(note.id)
-        })
+        // Pin and fold have their own buttons on the card (and stay in the right-click menu).
         return m
     }
 
