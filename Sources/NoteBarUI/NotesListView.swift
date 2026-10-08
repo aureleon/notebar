@@ -14,6 +14,8 @@ protocol NotesListDelegate: AnyObject {
     func notesList(_ list: NotesListView, drop payload: ImportPayload, on card: NoteCardView) -> Bool
     /// A card was dragged to `gap` (0 = before the first displayed card, count = after the last).
     func notesList(_ list: NotesListView, moveNote id: NoteID, toGap gap: Int)
+    /// The card's fold button.
+    func notesList(_ list: NotesListView, setFolded folded: Bool, note id: NoteID)
 }
 
 /// The scrolling stack of note cards. Frame-based layout (fast with a few hundred cards); live editors
@@ -459,6 +461,10 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     func cardExpandToggled(_ card: NoteCardView) {
         toggleExpand(noteID: card.note.id)
+    }
+
+    func cardFoldClicked(_ card: NoteCardView) {
+        delegate?.notesList(self, setFolded: true, note: card.note.id)
     }
 
     func card(_ card: NoteCardView, drop payload: ImportPayload) -> Bool {

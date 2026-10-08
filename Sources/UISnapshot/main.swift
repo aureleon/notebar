@@ -137,12 +137,19 @@ MainActor.assumeIsolated {
     let hello = ids[1]
     probe.setHovered(hello, true)
     render("05-hover-footer-light")
-    Check.equal(probe.hiddenActionCount(hello), 2, "medium card shows top actions with rest in … menu")
+    Check.equal(probe.hiddenActionCount(hello), 3, "medium card shows top actions with rest in … menu")
+    // Fold button below the pin, on hover only.
+    if let fold = probe.foldButtonFrame(of: hello), let pin = probe.pinFrame(of: hello) {
+        Check.expect(abs(fold.midX - pin.midX) < 0.5 && fold.minY > pin.minY, "fold button sits below the pin")
+    } else { Check.expect(false, "fold button shown on hover") }
     probe.setHovered(hello, false)
+    probe.layoutNow()
+    Check.equal(probe.foldButtonFrame(of: hello), nil, "fold button hidden without hover")
     // One-line card: only the pin and "…" fit; every action is in the menu.
     let short = store.createNote(in: folders.notes.id, body: "One line", mode: .standard, position: .top)
     probe.setHovered(short.id, true)
     render("05b-hover-short-light")
+    Check.equal(probe.foldButtonFrame(of: short.id), nil, "one-line card: no room for the fold button (Fold is in the … menu)")
     Check.equal(probe.hiddenActionCount(short.id), 4, "one-line card puts actions in the … menu")
     probe.setHovered(short.id, false)
     store.deleteNote(id: short.id)
@@ -627,6 +634,33 @@ MainActor.assumeIsolated {
         probe.mouseMoved()
         Check.equal(probe.folderRowShowsHover(fids[0]), true, "hover: mouse move shows the folder hover again")
         probe.setFolderRowHovered(fids[0], false)
+    }
+
+    // MARK: Fold: ⌥⌘← / ⌥⌘→ and the fold button
+    do {
+        let ff = store.createFolder(name: "Fold Test")
+        let tall = store.createNote(in: ff.id, body: "Fold me\n1\n2\n3\n4\n5\n6", mode: .standard, position: .bottom)
+        vc.showFolder(ff.id)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        probe.ensureEditor(of: tall.id)
+        probe.clickCard(tall.id)
+        probe.layoutNow(); spin()
+        Check.equal(probe.isEditorFocused(tall.id), true, "fold: editing the note")
+        _ = probe.press(keyCode: 123, characters: "\u{F702}", modifiers: [.command, .option])
+        Check.equal(store.note(id: tall.id)?.isFolded, true, "⌥⌘← folds the note being edited")
+        Check.equal(probe.selectedNoteID, tall.id, "the folded note stays selected")
+        _ = probe.press(keyCode: 124, characters: "\u{F703}", modifiers: [.command, .option])
+        Check.equal(store.note(id: tall.id)?.isFolded, false, "⌥⌘→ unfolds the selected note")
+        probe.layoutNow(); spin(); probe.layoutNow()
+        probe.mouseMoved()
+        probe.setHovered(tall.id, true)
+        probe.layoutNow()
+        Check.expect(probe.foldButtonFrame(of: tall.id) != nil, "fold button on hover")
+        probe.clickFoldButton(tall.id)
+        Check.equal(store.note(id: tall.id)?.isFolded, true, "the fold button folds the note")
+        probe.layoutNow()
+        Check.equal(probe.foldButtonFrame(of: tall.id), nil, "no fold button on a folded card")
+        probe.setHovered(tall.id, false)
     }
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")

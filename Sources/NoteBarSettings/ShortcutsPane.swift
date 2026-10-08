@@ -59,6 +59,7 @@ struct ShortcutsPane: View {
     private static let panelShortcuts: [(String, String)] = [
         ("Move to Folder…", "⇧⌘M"),
         ("Move to a New Folder", "⌥⌘M"),
+        ("Fold / Unfold Note", "⌥⌘← · ⌥⌘→"),
         ("Move Note Up", "⌥⇧⌘↑"),
         ("Move Note Down", "⌥⇧⌘↓"),
         ("Search All Folders", "⌘/"),

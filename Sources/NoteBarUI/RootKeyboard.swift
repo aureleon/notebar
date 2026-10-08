@@ -207,6 +207,12 @@ extension NotesRootViewController {
             if key == "w", !isEditingText { vimWindowArmedAt = Date(); return true }
             return false
         case [.command, .option]:
+            // ⌥⌘← folds and ⌥⌘→ unfolds the edited / selected note (also while typing in it).
+            if code == Key.left || code == Key.right {
+                guard notesVisible, let id = activeNoteID else { return false }
+                setFoldedKeepingSelection(code == Key.left, id: id)
+                return true
+            }
             if key == "m" || code == 46 {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.moveToNewFolder(id); return true

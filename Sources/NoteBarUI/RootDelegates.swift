@@ -88,6 +88,10 @@ extension NotesRootViewController: NotesListDelegate {
         return ok
     }
 
+    func notesList(_ list: NotesListView, setFolded folded: Bool, note id: NoteID) {
+        setFoldedKeepingSelection(folded, id: id)
+    }
+
     func notesList(_ list: NotesListView, moveNote id: NoteID, toGap gap: Int) {
         guard let note = store.note(id: id) else { return }
         let displayed = list.noteIDs

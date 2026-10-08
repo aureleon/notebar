@@ -65,6 +65,13 @@ public final class NotesUIProbe {
                                 doCommandBy: backward ? #selector(NSResponder.insertBacktab(_:)) : #selector(NSResponder.insertTab(_:)))
     }
     public var isSearchFieldFocused: Bool { root.header.isSearchFieldFocused }
+    /// The fold button (root view coordinates), nil while hidden.
+    public func foldButtonFrame(of id: NoteID) -> NSRect? {
+        guard let card = list.card(for: id) else { return nil }
+        card.layoutSubtreeIfNeeded()
+        return card.foldButtonFrame.map { card.convert($0, to: root.view) }
+    }
+    public func clickFoldButton(_ id: NoteID) { list.card(for: id)?.clickFoldForTesting() }
     public func mouseMoved() { root.setMouseHoverSuppressed(false) }
     /// Number of card actions in the "…" menu (nil if the card has no action column yet).
     public func hiddenActionCount(_ id: NoteID) -> Int? {

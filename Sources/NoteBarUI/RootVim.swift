@@ -164,9 +164,9 @@ extension NotesRootViewController {
         case .togglePin:
             actions.togglePin(id)
         case .toggleFold:
-            vimSetFolded(!(store.note(id: id)?.isFolded ?? false), id: id)
+            setFoldedKeepingSelection(!(store.note(id: id)?.isFolded ?? false), id: id)
         case .setFolded(let folded):
-            vimSetFolded(folded, id: id)
+            setFoldedKeepingSelection(folded, id: id)
         case .showColorMenu:
             popUpCardMenu(MenuBuilder.gearMenu(for: card.currentNote, actions: actions), for: id)
         case .setColor(let c):
@@ -197,8 +197,8 @@ extension NotesRootViewController {
         }
     }
 
-    /// Folding the edited card ends editing; the card stays selected so j / k / ⌃W keep working.
-    private func vimSetFolded(_ folded: Bool, id: NoteID) {
+    /// Folding the edited card ends editing; the card stays selected so j / k / ⌃W / ⌥⌘→ keep working.
+    func setFoldedKeepingSelection(_ folded: Bool, id: NoteID) {
         actions.setFolded(folded, id: id)
         if folded, search == nil { select(id) }
     }

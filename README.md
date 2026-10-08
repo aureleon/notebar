@@ -59,6 +59,7 @@ NoteBar can run at a time.
 | Go through the search results | Tab and ⇧Tab (from the search field, through the results, back to the field) |
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
+| Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), Space on a selected note, or the fold button |
 | Settings | ⌘, |
 
 You can change the global hotkeys in Settings › Shortcuts. You can move the panel to the left or right
@@ -66,7 +67,8 @@ side from the menu bar icon or in Settings › General.
 
 When the pointer is on a card, the card shows these controls:
 
-- The date and the pin button, in the top-right corner.
+- The date, the expand button, the pin button and the fold button, in the top-right corner. A folded
+  note shows a `+ N lines` button: click it to unfold the note.
 - A column of actions, in the bottom-right corner: format (`Aa`), copy the text, color and mode (gear),
   and delete. On a short card, the actions that do not fit go into a `…` menu.
 

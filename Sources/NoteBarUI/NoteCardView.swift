@@ -14,6 +14,7 @@ protocol NoteCardDelegate: AnyObject {
     func cardMenu(_ card: NoteCardView) -> NSMenu?
     func card(_ card: NoteCardView, drop payload: ImportPayload) -> Bool
     func cardExpandToggled(_ card: NoteCardView)
+    func cardFoldClicked(_ card: NoteCardView)
 }
 
 /// One note card: rounded background with a soft shadow, the hosted editor (or a preview), a pin
@@ -34,6 +35,12 @@ final class NoteCardView: NSView {
     /// For checks: the pin button frame, expand button frame, and the preview (when there is no live editor).
     var pinButtonFrame: NSRect { pinButton.frame }
     var expandButtonFrame: NSRect { expandButton.frame }
+    /// Fold button below the pin (unfolded cards, on hover), when the card is tall enough to keep a
+    /// slot for the action column under it. Otherwise Fold stays in the gear / "…" menu only.
+    private let foldButton = IconButton(symbol: "chevron.up", size: 10.5, toolTip: "Fold (⌥⌘←)")
+    private var foldFits = false
+    var foldButtonFrame: NSRect? { foldButton.isHidden ? nil : foldButton.frame }
+    func clickFoldForTesting() { foldButton.onClick?(foldButton) }
     var previewForChecks: NotePreviewView? { preview }
     /// Created on first hover / focus (keeps long lists light).
     private(set) var footer: CardActionsView?
@@ -99,6 +106,14 @@ final class NoteCardView: NSView {
             self.delegate?.cardExpandToggled(self)
         }
         addSubview(expandButton)
+        foldButton.symbolWeight = .semibold
+        foldButton.isHidden = true
+        foldButton.setAccessibilityLabel("Fold note")
+        foldButton.onClick = { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.cardFoldClicked(self)
+        }
+        addSubview(foldButton)
         registerForDraggedTypes(PasteboardImport.attachmentTypes)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -432,6 +447,8 @@ final class NoteCardView: NSView {
                 if footerVisible { right = dateLabel.frame.minX - 6 }
             }
             footer?.frame = .zero
+            foldFits = false
+            updateFoldButton()
             let th = ceil(titleLabel.intrinsicContentSize.height)
             titleLabel.frame = NSRect(x: cr.minX + px, y: y + (rowH - th) / 2, width: max(0, right - cr.minX - px), height: th)
             y += Metrics.cardTitleRowHeight
@@ -450,7 +467,12 @@ final class NoteCardView: NSView {
             pinButton.frame = NSRect(x: expandButton.frame.minX, y: expandButton.frame.maxY + 2,
                                      width: pin, height: pin)
             let pf = pinButton.frame
-            let top = pf.maxY + 2
+            let foldFrame = NSRect(x: pf.minX, y: pf.maxY + 2, width: pin, height: pin)
+            foldFits = !forceUnfolded
+                && cr.maxY - Metrics.actionColumnInsetBottom - (foldFrame.maxY + 2) >= CardActionsView.minHeight
+            foldButton.frame = foldFrame
+            updateFoldButton()
+            let top = (foldFits ? foldFrame.maxY : pf.maxY) + 2
             let cw = CardActionsView.width
             footer?.frame = NSRect(x: pf.midX - cw / 2, y: top, width: cw,
                                    height: max(0, cr.maxY - Metrics.actionColumnInsetBottom - top))
@@ -500,6 +522,10 @@ final class NoteCardView: NSView {
         expandButton.restingFill = isExpanded ? nil : pillFill
         expandButton.hoverFill = c.hoverFill
         expandButton.pressedFill = c.pressedFill
+        foldButton.tint = tint
+        foldButton.restingFill = pillFill
+        foldButton.hoverFill = c.hoverFill
+        foldButton.pressedFill = c.pressedFill
         folderLabel?.textColor = c.secondaryText
         folderIcon?.contentTintColor = c.secondaryText
         if let preview { preview.configure(note: note, env: env, appearance: a) }
@@ -591,6 +617,11 @@ final class NoteCardView: NSView {
         expandButton.isHidden = isFolded && !(hovering || isExpanded || menuOpen)
         badge.isHidden = !isFolded || note.linesAfterTitle == 0
         if pinWasHidden != pinButton.isHidden, isFolded { needsLayout = true }
+        updateFoldButton()
+    }
+
+    private func updateFoldButton() {
+        foldButton.isHidden = !(foldFits && !isFolded && footerVisible)
     }
 
     /// Forces the hover chrome on/off (snapshots).
