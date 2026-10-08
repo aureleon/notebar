@@ -1,5 +1,6 @@
 import AppKit
 import NoteBarCore
+import UniformTypeIdentifiers
 
 /// Shared state for one editor's attachment cells (style, store access, invalidation callback).
 @MainActor
@@ -224,7 +225,7 @@ final class ImageAttachmentCell: EmbedCell {
         let para = NSMutableParagraphStyle()
         para.alignment = .center
         para.lineBreakMode = .byTruncatingMiddle
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10.5), .foregroundColor: st.secondary, .paragraphStyle: para]
+        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: st.captionSize), .foregroundColor: st.secondary, .paragraphStyle: para]
         (label as NSString).draw(with: NSRect(x: rect.minX + 8, y: rect.midY + 6, width: rect.width - 16, height: 14),
                                  options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attrs)
     }
@@ -242,6 +243,15 @@ final class FileAttachmentCell: EmbedCell {
 
     static let size = NSSize(width: 84, height: 96)
     static let iconSize: CGFloat = 46
+
+    /// Text-like files (plain text, source code, Markdown, JSON) show the file icon, not a Quick Look thumbnail
+    /// (the thumbnail of a text file is a nearly blank page).
+    static func usesFileIcon(name: String) -> Bool {
+        let ext = (name as NSString).pathExtension
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else { return false }
+        return type.conforms(to: .plainText) || type.conforms(to: .sourceCode) || type.conforms(to: .json)
+            || type.conforms(to: UTType("net.daringfireball.markdown") ?? .plainText)
+    }
 
     init(id: AttachmentID, name: String, context: EditorContext) {
         self.attachmentID = id
@@ -262,6 +272,7 @@ final class FileAttachmentCell: EmbedCell {
                 return
             }
             icon = AttachmentResources.shared.icon(for: url)
+            guard !Self.usesFileIcon(name: name) else { return }
             if let t = AttachmentResources.shared.cachedThumbnail(url) { thumbnail = t; return }
             let px = Self.iconSize
             AttachmentResources.shared.loadThumbnail(url, size: NSSize(width: px, height: px)) { [weak self] img in
@@ -272,10 +283,14 @@ final class FileAttachmentCell: EmbedCell {
         }
     }
 
+    /// A file tile is a block, like an image: it spans the rest of the line, so text after it
+    /// starts on the next line. Its frame is the tile height, so the tile sits on its own line box.
     override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect,
                             glyphPosition position: NSPoint, characterIndex charIndex: Int) -> NSRect {
         ensureLoaded()
-        return NSRect(x: 0, y: -6, width: Self.size.width + 4, height: Self.size.height)
+        let available = lineFrag.width - position.x - textContainer.lineFragmentPadding * 2 - 1
+        let width = max(Self.size.width + 4, floor(available))
+        return NSRect(x: 0, y: -6, width: width, height: Self.size.height)
     }
 
     override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
@@ -299,13 +314,13 @@ final class FileAttachmentCell: EmbedCell {
                 t.draw(in: NSRect(x: iconRect.midX - sz.width / 2, y: iconRect.midY - sz.height / 2, width: sz.width, height: sz.height),
                        from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
-        } else if let img = thumbnail ?? icon {
+        } else if let img = (Self.usesFileIcon(name: name) ? icon : thumbnail ?? icon) {
             // Aspect-fit inside the icon square.
             let isz = img.size
             let scale = min(s / max(isz.width, 1), s / max(isz.height, 1))
             let w = isz.width * scale, h = isz.height * scale
             let r = NSRect(x: iconRect.midX - w / 2, y: iconRect.midY - h / 2, width: w, height: h)
-            if thumbnail != nil {
+            if thumbnail != nil, !Self.usesFileIcon(name: name) {
                 NSGraphicsContext.saveGraphicsState()
                 NSBezierPath(roundedRect: r, xRadius: 3, yRadius: 3).addClip()
                 img.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
@@ -319,7 +334,7 @@ final class FileAttachmentCell: EmbedCell {
         para.alignment = .center
         para.lineBreakMode = .byWordWrapping
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .font: NSFont.systemFont(ofSize: st.captionSize, weight: .medium),
             .foregroundColor: isMissing ? st.secondary : st.text,
             .paragraphStyle: para,
         ]

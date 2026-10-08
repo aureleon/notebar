@@ -80,6 +80,8 @@ final class MarkdownStyler {
             mono = true
             size = st.monoSize
             para.tab = st.width(of: "    ", font: st.monoFont)
+            para.charWrap = true
+            para.head = st.codeContinuationIndent
             if line.isTitle { bold = true; color = st.title; para.spacingAfter = 3 }
         case .standard:
             switch line.kind {
@@ -92,7 +94,8 @@ final class MarkdownStyler {
                 mark(line.markerRange, .marker)
             case .fence, .code:
                 mono = true; size = st.monoSize; color = st.inlineCode
-                para.head = 8; para.first = 8; para.tail = -8; para.lineSpacing = 1
+                para.head = 8 + st.codeContinuationIndent; para.first = 8; para.tail = -8; para.lineSpacing = 1
+                para.charWrap = true
                 para.tab = st.width(of: "    ", font: st.monoFont)
                 lineAttrs[.nbCodeBlock] = (line.codeBlock % 2) + 1
                 if line.kind == .fence {

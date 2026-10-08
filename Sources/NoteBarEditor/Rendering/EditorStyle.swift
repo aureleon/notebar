@@ -30,6 +30,10 @@ final class EditorStyle {
 
     let lineSpacing: CGFloat = 2
     let tabInterval: CGFloat = 24
+    /// Size of small captions (file tile names, image placeholder labels). Relative to the theme size.
+    var captionSize: CGFloat { round(fontSize * 0.75 * 10) / 10 }
+    /// Extra indent of the continuation rows of a wrapped code line (code lines wrap by character).
+    var codeContinuationIndent: CGFloat { round(fontSize * 0.9) }
     var swatchDiameter: CGFloat { round(fontSize * 0.72) }
     var swatchGap: CGFloat { 3 }
     var swatchReserve: CGFloat { swatchDiameter + swatchGap }
@@ -61,8 +65,8 @@ final class EditorStyle {
         ruleColor = secondary.withAlphaComponent(0.35)
     }
 
-    /// Test / fallback initializer with explicit values.
-    init(fontSize: CGFloat = 13, isDark: Bool = false, mode: NoteMode = .standard, hideMarkup: Bool = false) {
+    /// Test / fallback initializer with explicit values (`fontSize` default = theme default, 14 pt).
+    init(fontSize: CGFloat = 14, isDark: Bool = false, mode: NoteMode = .standard, hideMarkup: Bool = false) {
         self.fontSize = fontSize; self.isDark = isDark; self.mode = mode; self.hideMarkup = hideMarkup
         text = .labelColor; secondary = .secondaryLabelColor; link = .linkColor; inlineCode = .systemBlue
         codeBackground = .quaternaryLabelColor; highlight = .systemYellow; quote = .systemBrown
@@ -117,10 +121,12 @@ final class EditorStyle {
         var spacingBefore: CGFloat = 0
         var tab: CGFloat = 24
         var lineSpacing: CGFloat = 2
+        /// Code lines: break by character (no word wrap). Wrapped rows start at `head`, a visible continuation indent.
+        var charWrap = false
     }
 
     func paragraphStyle(_ k: ParagraphKey) -> NSParagraphStyle {
-        let key = "\(k.head)|\(k.first)|\(k.tail)|\(k.spacingAfter)|\(k.spacingBefore)|\(k.tab)|\(k.lineSpacing)"
+        let key = "\(k.head)|\(k.first)|\(k.tail)|\(k.spacingAfter)|\(k.spacingBefore)|\(k.tab)|\(k.lineSpacing)|\(k.charWrap)"
         if let p = paragraphCache[key] { return p }
         let p = NSMutableParagraphStyle()
         p.headIndent = k.head
@@ -131,7 +137,9 @@ final class EditorStyle {
         p.lineSpacing = k.lineSpacing
         p.tabStops = []
         p.defaultTabInterval = k.tab
-        p.lineBreakMode = .byWordWrapping
+        // Code lines never break at words: they wrap by character, so a long token cannot
+        // push the code box taller at a word boundary. See `ParagraphKey.charWrap`.
+        p.lineBreakMode = k.charWrap ? .byCharWrapping : .byWordWrapping
         paragraphCache[key] = p
         return p
     }

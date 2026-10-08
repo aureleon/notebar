@@ -197,13 +197,17 @@ enum BehaviorChecks {
         try? "hello".write(to: url, atomically: true, encoding: .utf8)
         if let a = try? h9.env.store.addAttachment(to: h9.note.id, fileURL: url) {
             h9.editor.insertAttachments([a])
-            Check.equal(h9.body, "note [nb-editor-check.txt](attachment:\(a.id))", "insert file attachment at end")
+            Check.equal(h9.body, "note\n[nb-editor-check.txt](attachment:\(a.id))", "insert file attachment at end (own line)")
         }
 
         // Search highlight selects the first match.
         let h10 = Harness("alpha beta Beta")
+        h10.tv.setSelectedRange(NSRange(location: 0, length: 0))
         h10.editor.highlightSearch("beta")
-        Check.equal(h10.tv.selectedRange(), NSRange(location: 6, length: 4), "search selects first match")
+        Check.equal(h10.tv.selectedRange(), NSRange(location: 0, length: 0), "search does not move the selection")
+        Check.equal(h10.editor.searchMatchCount, 2, "search marks every match")
+        h10.editor.clearSearchHighlight()
+        Check.equal(h10.editor.searchMatchCount, 0, "clear removes search marks")
         h10.editor.highlightSearch("")
 
         // Copy writes markdown.

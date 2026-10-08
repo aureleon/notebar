@@ -1,9 +1,10 @@
 import Foundation
 
-/// Where attachment tokens go when files / images are inserted: images on their own line,
-/// file shortcuts inline (several tiles can share a line), separated from surrounding text.
+/// Where attachment tokens go when files / images are inserted. Images and file tiles are blocks:
+/// each one sits on its own line, separated from surrounding text.
 public enum AttachmentInsertion {
-    /// `items` = (token markdown, isImage). Replaces the selection; the caret ends after the inserted tokens.
+    /// `items` = (token markdown, isBlock). Blocks (images, file tiles) get their own line. Replaces the selection;
+    /// the caret ends after the inserted tokens.
     public static func insert(_ items: [(String, Bool)], into text: String, selection sel: NSRange) -> TextEditResult {
         let ns = text as NSString
         let before: unichar? = sel.location > 0 ? ns.character(at: sel.location - 1) : nil

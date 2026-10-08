@@ -276,7 +276,8 @@ extension MarkdownNoteEditor {
         guard let range else { insertAttachments(attachments); return }
         let md = markdown
         let mdRange = MarkdownCodec.markdownRange(forStorageRange: range, embeds: MarkdownCodec.embeds(in: textStorage))
-        let items = attachments.map { (AttachmentLink.markdown(for: $0), $0.kind == .image) }
+        // Every attachment is a block (image or file tile), so each one gets its own line.
+        let items = attachments.map { (AttachmentLink.markdown(for: $0), true) }
         let r = AttachmentInsertion.insert(items, into: md, selection: mdRange)
         replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Insert Attachment")
         textView.scrollRangeToVisible(textView.selectedRange())

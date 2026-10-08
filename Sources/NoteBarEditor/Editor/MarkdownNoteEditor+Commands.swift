@@ -315,6 +315,10 @@ extension MarkdownNoteEditor {
 extension MarkdownNoteEditor {
     /// The underlying text view (for checks and snapshot tooling).
     public var textViewForTesting: NSTextView { textView }
+    /// Whether spell checking is on for this editor's text view (on only while focused, never for code notes).
+    public var spellCheckingEnabledForTesting: Bool { textView.isContinuousSpellCheckingEnabled }
+    /// Whether spell checking skips this storage range (code, URLs, hex colors, tags, attachments, markers).
+    public func spellSkippedForTesting(_ r: NSRange) -> Bool { isSpellSkipped(r) }
     public var undoManagerForTesting: UndoManager { undo }
     /// Character ranges whose markers are currently revealed.
     public var revealedRangesForTesting: [NSRange] { layoutManagerNB.revealed }

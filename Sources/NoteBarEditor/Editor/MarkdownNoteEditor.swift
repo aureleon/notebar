@@ -47,7 +47,10 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     private var scrollObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var toolbarWork: DispatchWorkItem?
-    var searchRanges: [NSRange] = []
+    /// Ranges marked by the current search (temporary highlight, see `highlightSearch`).
+    private(set) var searchRanges: [NSRange] = []
+    /// True while this editor has keyboard focus. Spell-check dots are shown only then.
+    private var isSpellActive = false
 
     var style: EditorStyle { styler.style }
     var codecOptions: CodecOptions { .forMode(mode) }
@@ -137,7 +140,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             tv.isAutomaticSpellingCorrectionEnabled = NSSpellChecker.isAutomaticSpellingCorrectionEnabled
             tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
             tv.isAutomaticTextCompletionEnabled = false
-            tv.isContinuousSpellCheckingEnabled = true
+            tv.isContinuousSpellCheckingEnabled = isSpellActive
             tv.smartInsertDeleteEnabled = true
         case .plain:
             tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
@@ -145,8 +148,18 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             tv.isAutomaticSpellingCorrectionEnabled = NSSpellChecker.isAutomaticSpellingCorrectionEnabled
             tv.isAutomaticTextReplacementEnabled = NSSpellChecker.isAutomaticTextReplacementEnabled
             tv.isAutomaticTextCompletionEnabled = false
-            tv.isContinuousSpellCheckingEnabled = true
+            tv.isContinuousSpellCheckingEnabled = isSpellActive
             tv.smartInsertDeleteEnabled = true
+        }
+    }
+
+    /// Turns spell checking on (focused editor) or off (unfocused editor, `.code` notes).
+    /// Turning it off also removes the dots that are already drawn.
+    private func setSpellCheckingActive(_ active: Bool) {
+        isSpellActive = active
+        textView.isContinuousSpellCheckingEnabled = active && mode != .code
+        if !textView.isContinuousSpellCheckingEnabled {
+            textView.setSpellingState(0, range: NSRange(location: 0, length: textStorage.length))
         }
     }
 
@@ -475,6 +488,40 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         return a
     }
 
+    /// Spell check skips markup: code spans and blocks, URLs, hex colors, `<u>` / `<span>` tags,
+    /// markers, rules and attachment tokens. Words in plain text stay checked.
+    public func textView(_ textView: NSTextView, shouldSetSpellingState value: Int, range affectedCharRange: NSRange) -> Int {
+        isSpellSkipped(affectedCharRange) ? 0 : value
+    }
+
+    /// True when `r` touches a code line, a rule, a markup marker, a URL, a hex color or an attachment token.
+    func isSpellSkipped(_ r: NSRange) -> Bool {
+        let len = textStorage.length
+        let rr = NSIntersectionRange(r, NSRange(location: 0, length: len))
+        guard rr.length > 0 else { return false }
+        let s = textStorage.string as NSString
+        if mode == .code { return true }
+        let all = currentLines()
+        guard !all.isEmpty else { return false }
+        let i0 = BlockScanner.lineIndex(in: all, containing: rr.location)
+        let i1 = BlockScanner.lineIndex(in: all, containing: rr.end - 1)
+        for i in i0...max(i0, i1) where i < all.count {
+            let line = all[i]
+            if line.isCode || line.codeBlock >= 0 || line.kind == .rule { return true }
+            if line.markerRange.length > 0, NSIntersectionRange(line.markerRange, rr).length > 0 { return true }
+            guard line.contentRange.length > 0 else { continue }
+            for span in InlineParser.parse(s, in: line.contentRange) {
+                var zones = span.markers
+                switch span.kind {
+                case .code, .hex, .autolink: zones.append(span.range)
+                default: break
+                }
+                if zones.contains(where: { NSIntersectionRange($0, rr).length > 0 }) { return true }
+            }
+        }
+        return false
+    }
+
     public func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         var url: URL?
         if let u = link as? URL { url = u } else if let s = link as? String { url = styler.linkURL(s) }
@@ -493,6 +540,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     }
 
     func focusDidChange(_ focused: Bool) {
+        setSpellCheckingActive(focused)
         if !focused { FormattingToolbar.shared.hide(for: self) }
         // Defer: the window's first responder is updated after become/resign returns.
         DispatchQueue.main.async { [weak self] in
@@ -678,11 +726,16 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !attachments.isEmpty else { return }
         let md = markdown
         let sel = isEditingFocused ? markdownSelection : NSRange(location: (md as NSString).length, length: 0)
-        let items = attachments.map { (AttachmentLink.markdown(for: $0), $0.kind == .image) }
+        // Every attachment is a block (image or file tile), so each one gets its own line.
+        let items = attachments.map { (AttachmentLink.markdown(for: $0), true) }
         let r = AttachmentInsertion.insert(items, into: md, selection: sel)
         replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Insert Attachment")
     }
 
+    /// Marks every match of `query` with a temporary highlight (theme `highlight` color).
+    /// Does not change the selection or scroll. Empty query = clear. Safe to call on any editor at any time,
+    /// including an editor created after the search started. Call `revealFirstSearchMatch()` on one editor
+    /// to scroll to the first match and show the find indicator.
     public func highlightSearch(_ query: String) {
         clearSearchHighlight()
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -696,16 +749,24 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             found.append(m)
             r = NSRange(location: m.end, length: s.length - m.end)
         }
-        guard let first = found.first else { return }
+        guard !found.isEmpty else { return }
         searchRanges = found
-        let color = NSColor.findHighlightColor.withAlphaComponent(0.55)
+        let color = style.highlight
         for m in found { layoutManagerNB.addTemporaryAttribute(.backgroundColor, value: color, forCharacterRange: m) }
-        textView.setSelectedRange(first)
+    }
+
+    /// Number of matches marked by the current search.
+    public var searchMatchCount: Int { searchRanges.count }
+
+    /// Scrolls to the first match of the current search and shows the find indicator (if visible).
+    public func revealFirstSearchMatch() {
+        guard let first = searchRanges.first, first.end <= textStorage.length else { return }
         textView.scrollRangeToVisible(first)
         if window?.isVisible == true { textView.showFindIndicator(for: first) }
     }
 
-    func clearSearchHighlight() {
+    /// Removes the search marks. Also runs on every edit.
+    public func clearSearchHighlight() {
         guard !searchRanges.isEmpty else { return }
         searchRanges = []
         layoutManagerNB.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: textStorage.length))

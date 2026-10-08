@@ -138,7 +138,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         storage.enumerateAttribute(.nbHighlight, in: charRange, options: []) { value, range, _ in
             guard let color = value as? NSColor else { return }
             let gr = glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: 13)
+            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: NSFont.systemFontSize)
             color.setFill()
             enumerateLineFragments(forGlyphRange: gr) { lineRect, _, tc, lineGlyphs, _ in
                 var r = NSIntersectionRange(gr, lineGlyphs)
@@ -182,7 +182,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
             guard g < numberOfGlyphs, propertyForGlyph(at: g) != .null else { return }
             let lf = lineFragmentRect(forGlyphAt: g, effectiveRange: nil)
             let loc = location(forGlyphAt: g)
-            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: 13)
+            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: NSFont.systemFontSize)
             let textColor = storage.attribute(.nbSwatchText, at: range.location, effectiveRange: nil) as? NSColor ?? .labelColor
             let d = swatchDiameter
             let x = origin.x + lf.minX + loc.x + 0.5

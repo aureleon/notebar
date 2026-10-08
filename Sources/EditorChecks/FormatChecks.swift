@@ -147,12 +147,13 @@ enum ListChecks {
         Check.expect(ListEditing.newlineKeepingIndent(text: "x", selection: sel(1)) == nil, "no indent to keep")
 
         // Attachment placement.
-        let img = ("![i](attachment:1)", true), file = ("[f](attachment:2)", false)
+        // Images and file tiles are both blocks (own line).
+        let img = ("![i](attachment:1)", true), file = ("[f](attachment:2)", true)
         Check.equal(AttachmentInsertion.insert([img], into: "abc", selection: sel(3)).text, "abc\n![i](attachment:1)", "image on own line")
-        Check.equal(AttachmentInsertion.insert([file], into: "abc", selection: sel(3)).text, "abc [f](attachment:2)", "file inline")
+        Check.equal(AttachmentInsertion.insert([file], into: "abc", selection: sel(3)).text, "abc\n[f](attachment:2)", "file tile on own line")
         Check.equal(AttachmentInsertion.insert([img], into: "ab", selection: sel(1)).text, "a\n![i](attachment:1)\nb", "image splits line")
         Check.equal(AttachmentInsertion.insert([img, file], into: "", selection: sel(0)).text, "![i](attachment:1)\n[f](attachment:2)", "image then file")
-        Check.equal(AttachmentInsertion.insert([file, file], into: "x\n", selection: sel(2)).text, "x\n[f](attachment:2) [f](attachment:2)", "two files")
+        Check.equal(AttachmentInsertion.insert([file, file], into: "x\n", selection: sel(2)).text, "x\n[f](attachment:2)\n[f](attachment:2)", "two files, one per line")
         let ins = AttachmentInsertion.insert([img], into: "a\n", selection: sel(2))
         Check.equal(ins.selection, sel(20), "caret after inserted image")
     }
