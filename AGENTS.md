@@ -31,7 +31,7 @@ swift run StoreChecks                        # SQLite/GRDB storage, backups, mig
 swift run EditorChecks                       # Markdown parser, codec, text styling
 swift run SettingsSnapshot /tmp/nb-settings  # Settings UI checks & offscreen PNGs
 swift run UISnapshot /tmp/nb-ui              # Notes UI checks & offscreen PNGs
-scripts/smoke-integrations.sh                # End-to-end URL scheme & AppleScript
+scripts/check-integrations.sh                # URL scheme & AppleScript, offline (no app launch)
 ```
 
 ### Safe Manual Execution

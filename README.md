@@ -155,11 +155,8 @@ swift run StoreChecks
 swift run EditorChecks
 swift run UISnapshot "$(mktemp -d)"         # renders PNGs offscreen and runs UI checks
 swift run SettingsSnapshot "$(mktemp -d)"
-scripts/smoke-integrations.sh                # URL scheme and AppleScript, with a temporary data folder
+scripts/check-integrations.sh                # URL scheme and AppleScript, offline (does not launch NoteBar)
 ```
-
-Before you run `scripts/smoke-integrations.sh`, quit NoteBar. Otherwise, the URLs go to the running
-copy and its real data.
 
 The offscreen snapshots cannot show these items. Test them by hand on the real screen:
 
