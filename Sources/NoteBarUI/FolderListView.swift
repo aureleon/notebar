@@ -10,6 +10,8 @@ protocol FolderListDelegate: AnyObject {
     func folderList(_ list: FolderListView, drop payload: ImportPayload, on folderId: FolderID)
     /// Inline rename finished (committed or cancelled). `hadFocus`: the field had keyboard focus.
     func folderListDidEndRename(_ list: FolderListView, hadFocus: Bool)
+    /// Click on the Recently Deleted row.
+    func folderListOpenTrash(_ list: FolderListView, from row: NSView)
 }
 
 /// Root view: the folder list (icon, name, pin mark, note count) inside one rounded group.
@@ -26,6 +28,9 @@ final class FolderListView: NSView {
     var showsSelection = false { didSet { if oldValue != showsSelection { updateRowStates() } } }
     private(set) var renamingFolderID: FolderID?
     private var pendingReload = false
+    /// Number of items in Recently Deleted; nil hides the row (only shown with that setting).
+    var trashCount: Int? { didSet { if oldValue != trashCount { updateTrashRow() } } }
+    private(set) var trashRow: TrashRowView?
 
     var topInset: CGFloat = 0 { didSet { scrollView.contentInsets.top = topInset; needsLayout = true } }
 
@@ -147,8 +152,29 @@ final class FolderListView: NSView {
 
     // MARK: Style / layout
 
+    private func updateTrashRow() {
+        if let n = trashCount {
+            let row = trashRow ?? {
+                let r = TrashRowView(env: env)
+                r.onClick = { [weak self] v in
+                    guard let self else { return }
+                    self.delegate?.folderListOpenTrash(self, from: v)
+                }
+                doc.addSubview(r)
+                trashRow = r
+                return r
+            }()
+            row.count = n
+        } else {
+            trashRow?.removeFromSuperview()
+            trashRow = nil
+        }
+        needsLayout = true
+    }
+
     func restyle() {
         for r in rows { r.restyle() }
+        trashRow?.restyle()
         doc.updateGlass()
         doc.needsDisplay = true
     }
@@ -168,6 +194,10 @@ final class FolderListView: NSView {
         var y = pad
         for r in rows {
             r.frame = NSRect(x: m + pad, y: y, width: max(0, w - 2 * (m + pad)), height: Metrics.folderRowHeight)
+            y += Metrics.folderRowHeight
+        }
+        if let trashRow {
+            trashRow.frame = NSRect(x: m + pad, y: y, width: max(0, w - 2 * (m + pad)), height: Metrics.folderRowHeight)
             y += Metrics.folderRowHeight
         }
         let groupHeight = y + pad
@@ -586,4 +616,90 @@ final class DropIndicatorView: NSView {
         NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
     }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// "Recently Deleted" at the end of the folder list (Keep deleted items = Recently Deleted). A click
+/// opens the trash menu (Restore / Delete Now per item, Empty).
+@MainActor
+final class TrashRowView: NSView {
+    private let env: AppEnvironment
+    private let icon = NSImageView()
+    private let nameLabel = PassthroughLabel()
+    private let countLabel = PassthroughLabel()
+    private var hovering = false { didSet { if oldValue != hovering { needsDisplay = true } } }
+    private var tracking: NSTrackingArea?
+    var onClick: ((NSView) -> Void)?
+    var count = 0 {
+        didSet {
+            countLabel.stringValue = "\(count)"
+            setAccessibilityLabel("Recently Deleted, \(count) \(count == 1 ? "item" : "items")")
+            needsLayout = true
+        }
+    }
+
+    init(env: AppEnvironment) {
+        self.env = env
+        super.init(frame: .zero)
+        icon.imageScaling = .scaleProportionallyDown
+        icon.unregisterDraggedTypes()
+        nameLabel.stringValue = "Recently Deleted"
+        countLabel.alignment = .right
+        for v in [icon, nameLabel, countLabel] as [NSView] { addSubview(v) }
+        setAccessibilityRole(.button)
+        toolTip = "Deleted notes and folders"
+        restyle()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func restyle() {
+        let c = env.themes.ui(effectiveAppearance)
+        nameLabel.font = UIFonts.folderName(env.themes.fontSize)
+        countLabel.font = UIFonts.folderCount(env.themes.fontSize)
+        icon.image = Symbols.image("trash", size: 13, weight: .regular)
+        icon.contentTintColor = c.secondaryText
+        nameLabel.textColor = c.secondaryText
+        countLabel.textColor = c.secondaryText
+        needsDisplay = true
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    override func layout() {
+        super.layout()
+        let h = bounds.height
+        icon.frame = NSRect(x: 8, y: (h - 18) / 2, width: 20, height: 18)
+        let cw = max(18, ceil((countLabel.stringValue as NSString).size(withAttributes: [.font: countLabel.font as Any]).width) + 6)
+        countLabel.frame = NSRect(x: bounds.width - 8 - cw, y: (h - 15) / 2, width: cw, height: 15)
+        let nh = ceil(nameLabel.intrinsicContentSize.height)
+        nameLabel.frame = NSRect(x: 34, y: (h - nh) / 2, width: max(0, countLabel.frame.minX - 40), height: nh)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard hovering else { return }
+        env.themes.ui(effectiveAppearance).hoverFill.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 8, yRadius: 8).fill()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        addTrackingArea(t)
+        tracking = t
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseDown(with event: NSEvent) {}
+    override func mouseUp(with event: NSEvent) {
+        if bounds.contains(convert(event.locationInWindow, from: nil)) { onClick?(self) }
+    }
+    override func accessibilityPerformPress() -> Bool { onClick?(self); return true }
 }

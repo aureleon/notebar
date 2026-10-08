@@ -558,6 +558,7 @@ MainActor.assumeIsolated {
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
 
     // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
+    renderHook = { render($0) }
     undoChecks(vc: vc, probe: probe, store: store, folders: folders, spin: spin)
 
     // MARK: Cursor over card buttons: arrow, not the text I-beam
@@ -680,6 +681,8 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     settings.vimKeybinds = false
 }
 
+@MainActor var renderHook: ((String) -> Void)?
+
 @MainActor
 func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore,
                 folders: (notes: Folder, work: Folder, ideas: Folder, empty: Folder), spin: () -> Void) {
@@ -801,7 +804,7 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     // Folder delete: undoable, restores its notes.
     vc.showFolderList()
     probe.focusList()
-    probe.confirmFolderDeletes(true)
+    probe.confirmDestructiveAlerts(true)
     probe.deleteFolder(uf.id)
     Check.equal(store.folder(id: uf.id), nil, "folder deleted (trash)")
     Check.equal(store.note(id: n1.id), nil, "its notes are hidden")
@@ -811,5 +814,43 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     probe.deleteFolder(uf.id)
     probe.undoDelete()
     Check.expect(store.folder(id: uf.id) != nil, "folder toast Undo restores")
-    probe.confirmFolderDeletes(nil)
+
+    // Recently Deleted row and menu (Keep deleted items = Recently Deleted).
+    let settings = probe.settings
+    store.purgeTrash(deletedBefore: .distantFuture)
+    vc.showFolderList()
+    Check.equal(probe.trashRowCount, nil, "no Recently Deleted row by default (1 hour)")
+    settings.deletedItemsRetention = .recentlyDeleted
+    Check.equal(probe.trashRowCount, nil, "no row while the trash is empty")
+    let gone = store.createNote(in: uf.id, body: "Gone note\nbody", mode: .standard, position: .top)
+    vc.showFolder(uf.id)
+    probe.deleteWithUndo(gone.id)
+    vc.showFolderList()
+    probe.layoutNow(); spin()
+    Check.equal(probe.trashRowCount, 1, "Recently Deleted row shows the count")
+    let titles = probe.trashMenuTitles
+    Check.expect(titles.contains("Gone note"), "trash menu lists the note (\(titles))")
+    Check.expect(titles.contains("Empty Recently Deleted…"), "trash menu has Empty")
+    probe.trashMenuRun("Gone note", "Restore")
+    Check.expect(store.note(id: gone.id) != nil, "Restore from the menu")
+    Check.equal(probe.trashRowCount, nil, "row hidden when the trash is empty again")
+    probe.deleteWithUndo(gone.id)
+    probe.trashMenuRun("Gone note", "Delete Now")
+    Check.expect(store.trashedNotes().isEmpty && store.note(id: gone.id) == nil, "Delete Now removes it for good")
+    let g2 = store.createNote(in: uf.id, body: "Another\nx", mode: .standard, position: .top)
+    probe.deleteWithUndo(g2.id)
+    probe.confirmDestructiveAlerts(true)
+    probe.trashMenuRun("Empty Recently Deleted…")
+    Check.expect(store.trashedNotes().isEmpty, "Empty Recently Deleted")
+    probe.confirmDestructiveAlerts(nil)
+    let g3 = store.createNote(in: uf.id, body: "Shown in the row\nx", mode: .standard, position: .top)
+    probe.deleteWithUndo(g3.id)
+    probe.dismissToast()
+    vc.showFolderList()
+    probe.layoutNow(); spin()
+    renderHook?("23-recently-deleted-light")
+    settings.deletedItemsRetention = .oneHour
+    Check.equal(probe.trashRowCount, nil, "changing the setting hides the row")
+    Check.expect(store.trashedNotes().count == 1, "changing the setting deletes nothing at once")
+    store.purgeTrash(deletedBefore: .distantFuture)
 }

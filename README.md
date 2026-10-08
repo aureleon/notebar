@@ -69,6 +69,15 @@ When the pointer is on a card, the card shows these controls:
 - A column of actions, in the bottom-right corner: format (`Aa`), copy the text, color and mode (gear),
   and delete. On a short card, the actions that do not fit go into a `…` menu.
 
+### Undo and deleted items
+
+- ⌘Z and ⇧⌘Z undo and redo note and folder actions: color, mode, fold, pin, order, move, rename,
+  new note, new folder and delete. While you type in a note, ⌘Z undoes the text only.
+- A deleted note or folder goes to the trash. Undo on the toast, or ⌘Z, brings it back.
+- Settings › Data › Keep deleted items sets how long deleted items stay: until NoteBar quits, for
+  1 hour (the default), or 30 days in Recently Deleted. Recently Deleted is a row at the end of the
+  folder list. Click it to restore an item, delete it now, or empty the list.
+
 ### Vim keys
 
 Vim keys are off by default. To turn them on, go to Settings › Shortcuts › Use Vim keys.

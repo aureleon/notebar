@@ -12,7 +12,7 @@ final class NoteActions {
     init(env: AppEnvironment) { self.env = env }
 
     /// Checks answer the folder delete alert with this (nil = show the alert).
-    var confirmFolderDelete: ((NSAlert) -> Bool)?
+    var confirmDestructiveAlert: ((NSAlert) -> Bool)?
 
     var store: NoteStore { env.store }
 
@@ -267,9 +267,35 @@ final class NoteActions {
             : "Its \(count == 1 ? "note" : "\(count) notes") will be deleted too.") + " You can undo this."
         alert.addButton(withTitle: "Delete").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
-        guard confirmFolderDelete?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
+        guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
         trashFolderUndoably(id, name: "Delete Folder")
         root?.folderTrashed(id)
+    }
+}
+
+extension NoteActions {
+    // MARK: Recently Deleted
+
+    /// Delete Now (Recently Deleted menu): gone for good, no undo.
+    func deleteForGood(note id: NoteID) {
+        store.deleteNote(id: id)
+    }
+
+    func deleteForGood(folder id: FolderID) {
+        store.deleteFolder(id: id)
+    }
+
+    /// Empty Recently Deleted (after a confirmation).
+    func emptyTrash() {
+        let count = store.trashedNotes().count + store.trashedFolders().count
+        guard count > 0 else { return }
+        let alert = NSAlert()
+        alert.messageText = "Delete \(count == 1 ? "1 item" : "\(count) items") for good?"
+        alert.informativeText = "This cannot be undone."
+        alert.addButton(withTitle: "Delete").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
+        store.purgeTrash(deletedBefore: .distantFuture)
     }
 }
 

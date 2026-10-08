@@ -134,6 +134,8 @@ public final class AppSettings: ObservableObject {
         vimKeybinds = get("vimKeybinds", false)
         backupsEnabled = get("backupsEnabled", true)
         backupRetention = get("backupRetention", 14)
+        deletedItemsRetention = getEnum("deletedItemsRetention", .oneHour)
+        deletedItemsRetentionChangedAt = defaults.object(forKey: "deletedItemsRetentionChangedAt") as? Date
         lastFolderId = (defaults.object(forKey: "lastFolderId") as? NSNumber)?.int64Value
         if let data = defaults.data(forKey: "hotkeys"), let h = try? JSONDecoder().decode([String: KeyCombo].self, from: data) {
             var decoded = Dictionary(uniqueKeysWithValues: h.compactMap { k, v in HotkeyAction(rawValue: k).map { ($0, v) } })
@@ -187,6 +189,18 @@ public final class AppSettings: ObservableObject {
     // MARK: Data
     @Published public var backupsEnabled: Bool { didSet { save("backupsEnabled", backupsEnabled) } }
     @Published public var backupRetention: Int { didSet { save("backupRetention", backupRetention) } }
+    /// How long deleted notes / folders stay restorable (`TrashPurger`).
+    @Published public var deletedItemsRetention: DeletedItemsRetention {
+        didSet {
+            guard oldValue != deletedItemsRetention else { return }
+            deletedItemsRetentionChangedAt = Date()
+            save("deletedItemsRetention", deletedItemsRetention.rawValue)
+        }
+    }
+    /// When `deletedItemsRetention` last changed (a change deletes nothing at once).
+    public private(set) var deletedItemsRetentionChangedAt: Date? {
+        didSet { defaults.set(deletedItemsRetentionChangedAt, forKey: "deletedItemsRetentionChangedAt") }
+    }
     /// Folder shown when the panel opens (nil = folder list).
     @Published public var lastFolderId: FolderID? { didSet { save("lastFolderId", lastFolderId.map { NSNumber(value: $0) }) } }
 

@@ -58,6 +58,21 @@ struct DataPane: View {
             }
             .disabled(!backups.isAvailable)
 
+            Section {
+                Picker(selection: $settings.deletedItemsRetention) {
+                    ForEach(DeletedItemsRetention.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                } label: {
+                    Text("Keep deleted items")
+                    Text("Until then, ⌘Z or the Undo button brings a deleted note or folder back.")
+                }
+            } header: {
+                Text("Deleted Notes")
+            } footer: {
+                FootnoteText(settings.deletedItemsRetention == .recentlyDeleted
+                             ? "Deleted notes and folders are listed in Recently Deleted at the bottom of the folder list."
+                             : "After that time, deleted notes and folders are removed for good. A change applies from now on.")
+            }
+
             Section("Files") {
                 LabeledContent {
                     Button("Open Data Folder") { backups.openDataFolder() }

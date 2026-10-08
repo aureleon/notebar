@@ -226,6 +226,47 @@ enum MenuBuilder {
         return m
     }
 
+    /// Recently Deleted row: every trashed folder and note with Restore / Delete Now, then Empty.
+    static func trashMenu(actions: NoteActions) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        let store = actions.env.store
+        let ago = RelativeDateTimeFormatter()
+        ago.unitsStyle = .full
+        func when(_ d: Date?) -> String { d.map { "Deleted " + ago.localizedString(for: $0, relativeTo: Date()) } ?? "" }
+        func item(_ title: String, symbol: String, subtitle: String, restore: @escaping () -> Void, delete: @escaping () -> Void) -> NSMenuItem {
+            let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            it.image = Symbols.image(symbol, size: 13)
+            it.subtitle = subtitle
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            sub.addItem(ClosureMenuItem("Restore", key: "", symbol: "arrow.uturn.backward", handler: restore))
+            sub.addItem(ClosureMenuItem("Delete Now", key: "", symbol: "trash", handler: delete))
+            it.submenu = sub
+            return it
+        }
+        let folders = store.trashedFolders(), notes = store.trashedNotes()
+        if !folders.isEmpty { m.addItem(.sectionHeader(title: "Folders")) }
+        for f in folders {
+            let n = store.noteCount(inTrashedFolder: f.id)
+            m.addItem(item(f.name, symbol: "folder", subtitle: "\(n) \(n == 1 ? "note" : "notes") · " + when(f.deletedAt),
+                           restore: { actions.restoreFolderUndoably(f.id, name: "Restore Folder") },
+                           delete: { actions.deleteForGood(folder: f.id) }))
+        }
+        if !notes.isEmpty { m.addItem(.sectionHeader(title: "Notes")) }
+        let names = Dictionary(uniqueKeysWithValues: store.folders().map { ($0.id, $0.name) })
+        for n in notes {
+            let title = n.title.isEmpty ? "Untitled" : String(n.title.prefix(60))
+            m.addItem(item(title, symbol: "doc.text", subtitle: (names[n.folderId].map { "In \($0) · " } ?? "") + when(n.deletedAt),
+                           restore: { actions.restoreNoteUndoably(n.id, name: "Restore Note") },
+                           delete: { actions.deleteForGood(note: n.id) }))
+        }
+        m.addItem(.separator())
+        m.addItem(ClosureMenuItem("Empty Recently Deleted…", key: "", symbol: "trash.slash",
+                                  enabled: !folders.isEmpty || !notes.isEmpty) { actions.emptyTrash() })
+        return m
+    }
+
     /// Right click on a card.
     static func cardContextMenu(for note: Note, actions: NoteActions, inSearch: Bool) -> NSMenu {
         let m = NSMenu()

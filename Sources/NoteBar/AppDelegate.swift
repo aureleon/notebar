@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
     private var env: AppEnvironment!
     private var database: GRDBNoteStore!
     private var backupService: FileBackupService?
+    private var trashPurger: TrashPurger?
     private var panel: PanelController!
     private var root: NotesRootViewController!
     private var hotkeys: HotkeyCenter!
@@ -55,6 +56,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
         let backups = FileBackupService(store: db, settings: settings)
         backupService = backups
         if isFirstLaunch { seedWelcomeNote(in: db, settings: settings) }
+
+        // Empties the trash by Settings › Data › Keep deleted items (launch, every few minutes, quit).
+        let purger = TrashPurger(store: db, settings: settings)
+        purger.start()
+        trashPurger = purger
 
         let themes = ThemeManager(settings: settings, store: db)
         env = AppEnvironment(store: db, backups: backups, settings: settings, themes: themes,
@@ -99,7 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
     /// Last chance to save: if some changes still cannot be written, say so before they are lost.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let database else { return .terminateNow }
-        env?.presenter?.panelWillHide() // commits a pending soft delete
+        env?.presenter?.panelWillHide() // ends inline renames, hides the delete toast
         database.flush()
         guard database.hasPendingChanges, database.writeFailing || database.lastError != nil else { return .terminateNow }
         NSApp.activate()
@@ -119,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        env?.presenter?.panelWillHide() // commits a pending soft delete
+        env?.presenter?.panelWillHide() // ends inline renames, hides the delete toast
         env?.store.flush()
         backupService?.stopDailySchedule()
     }

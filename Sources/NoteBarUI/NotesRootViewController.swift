@@ -178,6 +178,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         })
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: nil) { [weak self] n in
             let key = n.userInfo?["key"] as? String
+            if key == "deletedItemsRetention" { MainActor.assumeIsolated { self?.reloadFolderList() }; return }
             guard key == "colorStyle" || key == "blurBackdrop" else { return }
             MainActor.assumeIsolated { self?.updateBackdrop() }
             MainActor.assumeIsolated { self?.restyleAll() }
@@ -253,6 +254,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     func reloadFolderList() {
         folderList.reload(folders: store.folders(), counts: folderCounts())
+        let trash = store.trashedNotes().count + store.trashedFolders().count
+        folderList.trashCount = env.settings.deletedItemsRetention == .recentlyDeleted && trash > 0 ? trash : nil
     }
 
     func clearNotesList() {

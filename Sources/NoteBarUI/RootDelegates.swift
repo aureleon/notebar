@@ -130,6 +130,11 @@ extension NotesRootViewController: FolderListDelegate {
         createNote(from: payload, in: folderId)
     }
 
+    func folderListOpenTrash(_ list: FolderListView, from row: NSView) {
+        let menu = MenuBuilder.trashMenu(actions: actions)
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: row.bounds.maxY + 2), in: row)
+    }
+
     func folderListDidEndRename(_ list: FolderListView, hadFocus: Bool) {
         reloadFolderList()
         if hadFocus { focusRoot() }

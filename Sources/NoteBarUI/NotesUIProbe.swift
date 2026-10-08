@@ -147,8 +147,20 @@ public final class NotesUIProbe {
     public var canRedo: Bool { root.panelUndo.canRedo }
     public var undoActionName: String { root.panelUndo.undoActionName }
     public func deleteFolder(_ id: FolderID) { root.actions.deleteFolder(id) }
+    /// The Recently Deleted row's count (nil = hidden).
+    public var trashRowCount: Int? { root.folderList.trashRow == nil ? nil : root.folderList.trashCount }
+    /// Titles of the trash menu (top level), and running one of its item actions:
+    /// `trashMenuRun("Shopping", "Restore")`, `trashMenuRun("Empty Recently Deleted…")`.
+    public var trashMenuTitles: [String] { MenuBuilder.trashMenu(actions: root.actions).items.map(\.title) }
+    public func trashMenuRun(_ title: String, _ sub: String? = nil) {
+        let m = MenuBuilder.trashMenu(actions: root.actions)
+        guard var item = m.items.first(where: { $0.title == title }) else { return }
+        if let sub, let s = item.submenu?.items.first(where: { $0.title == sub }) { item = s }
+        guard let menu = item.menu, let i = menu.items.firstIndex(of: item) else { return }
+        menu.performActionForItem(at: i)
+    }
     /// Answers the folder delete alert (nil = show it).
-    public func confirmFolderDeletes(_ answer: Bool?) { root.actions.confirmFolderDelete = answer.map { a in { _ in a } } }
+    public func confirmDestructiveAlerts(_ answer: Bool?) { root.actions.confirmDestructiveAlert = answer.map { a in { _ in a } } }
     public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }
     public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
     public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }
@@ -209,6 +221,8 @@ public final class NotesUIProbe {
     public static func acceptsDragType(_ type: NSPasteboard.PasteboardType) -> Bool {
         PasteboardImport.externalTypes.contains(type) && PasteboardImport.attachmentTypes.contains(type)
     }
+    public var settings: AppSettings { root.env.settings }
+    public func dismissToast() { root.dismissTrashToast(); root.toast.dismiss(expired: false) }
     public func showToast(_ text: String, action: String?) { root.showToast(text, actionTitle: action, action: action == nil ? nil : {}) }
 }
 
