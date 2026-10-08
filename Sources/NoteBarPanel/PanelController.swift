@@ -1,18 +1,20 @@
 import AppKit
 import NoteBarCore
 
-/// Owns the floating side panel plus its Open Bar and Hot Side. Create once, call `setContent(_:)`
+/// Owns the floating side panel, its blurred backdrop and the Hot Side. Create once, call `setContent(_:)`
 /// with the notes view controller, then drive it with `show` / `hide` / `toggle`.
 ///
 /// Behavior summary:
 /// - The panel appears on the screen with the cursor, inset `PanelMetrics.edgeInset` from the edge, the
 ///   menu bar and the bottom of `visibleFrame` (so it never covers the menu bar or the Dock).
-/// - An explicit show (hotkey, menu bar icon, Open Bar click, reveal) orders the panel front without
+/// - An explicit show (hotkey, menu bar icon, reveal, URL) orders the panel front without
 ///   activating NoteBar and makes it key, so typing goes to it while the previous app stays frontmost.
-/// - A passive show (Hot Side dwell, file drag over the Open Bar) does not take keyboard focus. A click
+/// - A passive show (Hot Side dwell, file drag) does not take keyboard focus. A click
 ///   in the panel focuses it. If the user does not interact and the cursor leaves the panel area, it
 ///   hides again (`PassiveOpenTracker`).
-/// - Settings changes (side, width, Open Bar, Hot Side) and display changes apply immediately.
+/// - Focus changes in the first `PanelMetrics.showGrace` seconds after a show do not hide the panel.
+/// - The backdrop (`PanelBackdrop`) fades with the panel and follows its frame.
+/// - Settings changes (side, width, blur, Hot Side) and display changes apply immediately.
 @MainActor
 public final class PanelController {
     /// The NSPanel. Use it as the parent for sheets, child windows (formatting toolbar) and popovers.
@@ -28,10 +30,10 @@ public final class PanelController {
     private var contentController: NSViewController?
     private let autoHide: AutoHideMonitor
     private let hotSide: HotSideController
-    private let openBar: OpenBarController
+    private let backdrop: PanelBackdrop
     private let passive = PassiveOpenTracker()
 
-    /// Screen the panel is (or was last) shown on. The Open Bar stays on it while the panel is hidden.
+    /// Screen the panel is (or was last) shown on.
     private var screenID: CGDirectDisplayID?
     /// Incremented by every animation; completion handlers of stale animations do nothing.
     private var animationGeneration = 0
@@ -40,12 +42,12 @@ public final class PanelController {
     public init(env: AppEnvironment) {
         self.env = env
         window = NoteBarPanelWindow()
-        container = PanelContentView(frame: NSRect(x: 0, y: 0, width: 290, height: 600))
+        container = PanelContentView(frame: NSRect(x: 0, y: 0, width: PanelWidth.fallback, height: 600))
         window.contentView = container
         window.alphaValue = 0
         autoHide = AutoHideMonitor(settings: env.settings, panel: window)
         hotSide = HotSideController(settings: env.settings)
-        openBar = OpenBarController(env: env)
+        backdrop = PanelBackdrop(panelLevel: window.level)
 
         window.onEscape = { [weak self] in self?.hide() }
         window.onClose = { [weak self] in self?.hide() }
@@ -53,12 +55,13 @@ public final class PanelController {
 
         container.side = env.settings.panelSide
         container.resizeHandle.onResize = { [weak self] proposed in
-            self?.env.settings.panelWidth = Double(PanelGeometry.clampWidth(Double(proposed)))
+            // A width set by hand stops following the screen.
+            self?.env.settings.panelWidthIsAutomatic = false
+            self?.env.settings.panelWidth = Double(PanelSizing.clamp(Double(proposed)))
         }
 
         autoHide.isPanelVisible = { [weak self] in self?.isVisible ?? false }
         autoHide.hide = { [weak self] in self?.hide() }
-        autoHide.auxiliaryWindows = { [weak self] in self.map { [$0.openBar.window] } ?? [] }
 
         hotSide.isPanelShown = { [weak self] screen in
             guard let self else { return false }
@@ -66,17 +69,6 @@ public final class PanelController {
         }
         // Passive: the cursor resting on the edge must not take focus from the app the user types in.
         hotSide.onTrigger = { [weak self] screen in self?.show(on: screen, makeKey: false) }
-
-        openBar.onToggle = { [weak self] in self?.toggleFromOpenBar() }
-        openBar.onShowRequest = { [weak self] in
-            guard let self, !self.isVisible else { return }
-            self.show(on: self.currentScreen, makeKey: false)   // file drag hover: passive
-        }
-        openBar.isPanelVisible = { [weak self] in self?.isVisible ?? false }
-        openBar.currentLayout = { [weak self] in
-            guard let self, let screen = self.currentScreen else { return nil }
-            return (self.geometry(for: screen), self.isVisible)
-        }
 
         autoHide.onFocusChange = { [weak self] focused in
             if focused { self?.passive.stop() }
@@ -92,7 +84,6 @@ public final class PanelController {
 
         installObservers()
         hotSide.rebuild()
-        openBar.update(animated: false)
     }
 
     // MARK: Content
@@ -118,6 +109,7 @@ public final class PanelController {
         let g = geometry(for: target)
         let wasVisible = isVisible
         let sameScreen = screenID == target.nbDisplayID
+        autoHide.beginShowGrace()
 
         if wasVisible && sameScreen {
             // Already there: just bring it forward and focus it (e.g. revealNote / showSearch).
@@ -141,8 +133,9 @@ public final class PanelController {
             window.makeKey()
             passive.stop()
         }
-        setFrame(g.shownFrame, alpha: 1, duration: animated ? PanelMetrics.animationDuration : 0, timing: .easeOut)
-        openBar.update(animated: animated)
+        let fade = animated ? PanelMetrics.animationDuration : 0
+        setFrame(g.shownFrame, alpha: 1, duration: fade, timing: .easeOut)
+        backdrop.show(g, enabled: env.settings.blurBackdrop, duration: fade)
 
         if !wasVisible {
             env.presenter?.panelDidShow()
@@ -166,16 +159,12 @@ public final class PanelController {
     /// not stale after the user clicks a window of the already-active app.
     public var panelHasFocus: Bool { isVisible && autoHide.panelHasFocus }
 
-    /// Area that counts as "at the panel" for a passive open: the panel, the Open Bar, child windows,
+    /// Area that counts as "at the panel" for a passive open: the panel, child windows,
     /// and the band between them and the screen edge (where the Hot Side cursor rests).
     private func passiveZone() -> [CGRect] {
         guard let screen = currentScreen else { return [] }
         let g = geometry(for: screen)
-        var core = g.shownFrame
-        if env.settings.showOpenBar {
-            core = core.union(g.openBarFrame(panelShown: true, offset: openBar.offset))
-        }
-        if openBar.window.isVisible { core = core.union(openBar.window.frame) }
+        let core = g.shownFrame
         let sf = screen.frame
         let band: CGRect
         if g.side == .right {
@@ -197,10 +186,11 @@ public final class PanelController {
         let screen = currentScreen
         let slide = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         let target = screen.map { geometry(for: $0) }.map { slide ? $0.hiddenFrame : $0.shownFrame } ?? window.frame
-        setFrame(target, alpha: 0, duration: animated ? PanelMetrics.animationDuration : 0, timing: .easeIn) { [weak self] in
+        let fade = animated ? PanelMetrics.animationDuration : 0
+        setFrame(target, alpha: 0, duration: fade, timing: .easeIn) { [weak self] in
             self?.window.orderOut(nil)
         }
-        openBar.update(animated: animated)
+        backdrop.hide(duration: fade)
         notifyVisibility(false)
         yieldActivationIfIdle()
     }
@@ -233,11 +223,6 @@ public final class PanelController {
         hide()
     }
 
-    /// Clicking the Open Bar: it lives on a specific screen, so open on that screen.
-    private func toggleFromOpenBar() {
-        if isVisible { hide() } else { show(on: currentScreen) }
-    }
-
     /// The screen the panel is shown on / was last shown on (falls back to the main screen).
     public var currentScreen: NSScreen? {
         NSScreen.nbScreen(withID: screenID) ?? NSScreen.screens.first
@@ -246,7 +231,7 @@ public final class PanelController {
     // MARK: Frames
 
     private func geometry(for screen: NSScreen) -> PanelGeometry {
-        screen.nbGeometry(side: env.settings.panelSide, width: env.settings.panelWidth)
+        screen.nbGeometry(side: env.settings.panelSide, width: PanelSizing.requestedWidth(env.settings))
     }
 
     /// Animates (or sets) frame + alpha. Every call supersedes earlier animations.
@@ -282,7 +267,16 @@ public final class PanelController {
             if NSScreen.nbScreen(withID: screenID) == nil { screenID = NSScreen.nbScreenWithMouse?.nbDisplayID }
             if let screen = currentScreen { setFrame(geometry(for: screen).shownFrame, alpha: 1, duration: 0) }
         }
-        openBar.update(animated: false)
+        updateBackdrop(duration: 0)
+    }
+
+    /// Moves the backdrop to the panel's screen, side and width (or hides it while the panel is hidden).
+    private func updateBackdrop(duration: TimeInterval) {
+        guard isVisible, let screen = currentScreen else {
+            backdrop.hide(duration: duration)
+            return
+        }
+        backdrop.show(geometry(for: screen), enabled: env.settings.blurBackdrop, duration: duration)
     }
 
     private func notifyVisibility(_ visible: Bool) {
@@ -310,7 +304,7 @@ public final class PanelController {
 
     private func settingsChanged(_ key: String?) {
         switch key {
-        case "panelSide", "panelWidth", "showOpenBar":
+        case "panelSide", "panelWidth", "panelWidthIsAutomatic", "blurBackdrop":
             // HotSideController observes panelSide / hotSideEnabled itself.
             relayout()
         case "autoHide", "pinnedOpen":
@@ -329,9 +323,9 @@ public final class PanelController {
     }
 
     private func spaceChanged() {
-        guard isVisible, let screen = currentScreen else { openBar.update(animated: false); return }
+        guard isVisible, let screen = currentScreen else { return }
         let frame = geometry(for: screen).shownFrame
         if window.frame != frame { setFrame(frame, alpha: 1, duration: 0) }
-        openBar.update(animated: false)
+        updateBackdrop(duration: 0)
     }
 }

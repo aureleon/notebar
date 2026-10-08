@@ -1,13 +1,13 @@
 import AppKit
 
-/// Watches a panel that was opened passively (Hot Side dwell, file drag over the Open Bar). Such an open
+/// Watches a panel that was opened passively (Hot Side dwell, file drag onto the edge). Such an open
 /// does not take keyboard focus, so the user can keep typing in the frontmost app. If the user never
 /// interacts and the cursor stays outside the panel area for `leaveDelay`, the panel hides again, so an
 /// accidental open does not stick.
 ///
 /// Interaction ends passive mode: the panel gaining focus (a click makes the non-activating panel key),
-/// or a drag that ends with the cursor over the panel (a drop). The panel area is the panel, the Open
-/// Bar and the strip between them and the screen edge (where the Hot Side cursor rests).
+/// or a drag that ends with the cursor over the panel (a drop). The panel area is the panel and the
+/// strip between it and the screen edge (where the Hot Side cursor rests).
 @MainActor
 final class PassiveOpenTracker {
     static let leaveDelay: TimeInterval = 0.5

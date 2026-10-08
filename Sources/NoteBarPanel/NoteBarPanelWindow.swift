@@ -14,7 +14,7 @@ final class NoteBarPanelWindow: NSPanel {
     var onOpenSettings: (() -> Void)?
 
     init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 290, height: 600),
+        super.init(contentRect: NSRect(x: 0, y: 0, width: PanelWidth.fallback, height: 600),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .statusBar
         collectionBehavior = edgeWindowCollectionBehavior

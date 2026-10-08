@@ -18,14 +18,18 @@ import NoteBarCore
 ///   the formatting toolbar child panel, menus),
 /// - a mouse button is still down (the user may be dragging a file from Finder onto the panel),
 /// - the cursor is over the panel when the button comes up (a drag from another app dropped onto it),
-/// - auto-hide is off, the panel is pinned open, or a suspension is active.
+/// - auto-hide is off, the panel is pinned open, or a suspension is active,
+/// - within `PanelMetrics.showGrace` after a programmatic show (see `beginShowGrace`). Only a real click
+///   outside the panel hides it during that time. Activation and resign changes that follow the show
+///   come from the same request (the app that sent the URL or Apple Event goes to the front) and are not
+///   the user leaving.
 ///
 /// Mouse-down global monitors need no Accessibility permission (only key monitors do).
 @MainActor
 final class AutoHideMonitor {
     private let settings: AppSettings
     private weak var panel: NSPanel?
-    /// Extra windows that count as "inside" (the Open Bar).
+    /// Extra windows that count as "inside" (child windows of the panel are already counted).
     var auxiliaryWindows: () -> [NSWindow] = { [] }
     var isPanelVisible: () -> Bool = { false }
     var hide: () -> Void = {}
@@ -46,6 +50,8 @@ final class AutoHideMonitor {
     private var pendingOutsideClick = false
     private var suspendCount = 0
     private var isActive = false
+    /// Non-click focus changes before this time are ignored (see `beginShowGrace`).
+    private var graceUntil: Date?
     private let ownPID = ProcessInfo.processInfo.processIdentifier
 
     init(settings: AppSettings, panel: NSPanel) {
@@ -64,6 +70,17 @@ final class AutoHideMonitor {
     func setSuspended(_ suspended: Bool) {
         suspendCount = max(0, suspendCount + (suspended ? 1 : -1))
         if suspendCount == 0 { scheduleCheck() }
+    }
+
+    /// Called at the start of every programmatic show (URL, AppleScript, hotkey, status item, Hot Side).
+    ///
+    /// Cause of the race this fixes: `open -g notebar://show` (or a hotkey while another app is active)
+    /// shows the panel, and the sender or the previously active app then becomes active. Each activation
+    /// or resign notification ran `evaluate()`, which hid the panel because NoteBar had no key window
+    /// (the panel is non-activating). For `PanelMetrics.showGrace` such changes are ignored; a click
+    /// outside the panel still hides it.
+    func beginShowGrace() {
+        graceUntil = Date().addingTimeInterval(PanelMetrics.showGrace)
     }
 
     /// The panel was made key on purpose (hotkey, toggle, reveal).
@@ -159,11 +176,11 @@ final class AutoHideMonitor {
         return false
     }
 
-    /// Windows whose key status means "the user works in NoteBar". The status item window, the Open Bar
-    /// and the Hot Side strips never count (they cannot or should not take focus).
+    /// Windows whose key status means "the user works in NoteBar". The status item window and the Hot Side
+    /// strips never count (they cannot or should not take focus).
     private func countsAsFocus(_ window: NSWindow) -> Bool {
         if isPanelOrAttached(window) { return true }
-        if window is HotSideWindow || window is OpenBarWindow { return false }
+        if window is HotSideWindow { return false }
         if NSStringFromClass(type(of: window)).contains("StatusBar") { return false }
         return window.canBecomeKey
     }
@@ -230,6 +247,12 @@ final class AutoHideMonitor {
             return
         }
 
+        // Right after a programmatic show, focus changes are not the user leaving (see beginShowGrace).
+        // Decide again when the grace ends, so a focus loss inside it still hides the panel.
+        if let graceUntil, Date() < graceUntil {
+            scheduleCheck(after: graceUntil.timeIntervalSinceNow + 0.05)
+            return
+        }
         if panelHasFocus { return }
         if otherOwnKeyWindow != nil { return }   // one of our own windows has focus
         // Focus went to another app without a click (⌘-Tab, Mission Control, an app activating itself).

@@ -212,7 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
         let toggle = settings.hotkeys[.togglePanel]?.displayString ?? "the menu bar icon"
         let body = """
             Welcome to NoteBar
-            Show or hide this panel with **\(toggle)**, the menu bar icon, the Open Bar or by resting the pointer on the screen edge.
+            Show or hide this panel with **\(toggle)**, the menu bar icon or by resting the pointer on the screen edge.
             - [ ] Press **+** or ⌘N for a new note
             - [ ] Drop text, images or files on the panel
             - [ ] Use the gear button for colors and *Code* mode

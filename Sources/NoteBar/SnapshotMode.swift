@@ -3,6 +3,7 @@ import NoteBarCore
 import NoteBarStore
 import NoteBarEditor
 import NoteBarUI
+import NoteBarPanel
 
 /// `NoteBar --snapshot <dir>`: renders the REAL panel content (GRDB store + Markdown editors) offscreen
 /// to PNG files, then exits. No window is ever ordered on screen.
@@ -86,7 +87,10 @@ enum SnapshotMode {
             if (try? rep.representation(using: .png, properties: [:])?.write(to: url)) != nil { written.append(url.path) }
         }
 
-        let panelSize = NSSize(width: 300, height: 760)
+        // The same width rule as the panel: automatic (27 % of the main screen, 380...600) unless the user set one.
+        let panelWidth = PanelSizing.width(requested: PanelSizing.requestedWidth(settings),
+                                           visibleWidth: NSScreen.main?.visibleFrame.width ?? 0)
+        let panelSize = NSSize(width: panelWidth, height: 760)
         setSize(panelSize)
 
         root.showFolderList()
@@ -99,8 +103,11 @@ enum SnapshotMode {
         render("04-notes-dark", dark: true)
 
         // Tall render: every card of the folder, top to bottom.
-        setSize(NSSize(width: 300, height: 2400))
         probe.createAllEditors()
+        // Lay out at the panel height first to learn the content height, then size the window to it.
+        probe.layoutNow()
+        setSize(NSSize(width: panelWidth, height: max(panelSize.height, probe.contentHeight + 20)))
+        probe.layoutNow()
         render("05-notes-tall-light", dark: false, settle: 0.4)
         render("06-notes-tall-dark", dark: true)
 

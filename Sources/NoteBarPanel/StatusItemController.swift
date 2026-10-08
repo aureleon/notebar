@@ -104,9 +104,6 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(ClosureMenuItem("Keep Panel Open", state: s.pinnedOpen ? .on : .off) { s.pinnedOpen.toggle() })
         let sideTitle = s.panelSide == .right ? "Move to Left Side" : "Move to Right Side"
         menu.addItem(ClosureMenuItem(sideTitle) { s.panelSide = s.panelSide.opposite })
-        if !s.showOpenBar {
-            menu.addItem(ClosureMenuItem("Show Open Bar") { s.showOpenBar = true })
-        }
 
         if !warnings.isEmpty {
             menu.addItem(.separator())
