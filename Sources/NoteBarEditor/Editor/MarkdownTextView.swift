@@ -80,6 +80,8 @@ final class MarkdownTextView: NSTextView {
         super.mouseMoved(with: event)
         let p = convert(event.locationInWindow, from: nil)
         editor?.updateCodeCopyButton(at: p)
+        // super.mouseMoved sets the I-beam; the copy button on the text gets the arrow.
+        if let b = editor?.codeCopyButton, !b.isHidden, b.frame.contains(p) { NSCursor.arrow.set(); return }
         if editor?.clickableAttachment(at: p) == true { NSCursor.pointingHand.set() }
     }
 

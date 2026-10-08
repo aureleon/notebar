@@ -52,12 +52,18 @@ final class IconButton: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+                               owner: self, userInfo: nil)
         addTrackingArea(t)
         tracking = t
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        NSCursor.arrow.set()
+    }
     override func mouseExited(with event: NSEvent) { hovering = false }
 
     override func mouseDown(with event: NSEvent) {

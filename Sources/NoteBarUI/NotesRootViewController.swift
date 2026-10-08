@@ -748,13 +748,23 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// The panel is non-activating, so AppKit's cursor rects do not run while another app is active, and
     /// the editor's I-beam stays after the pointer leaves the text. Outside text, set the arrow.
     private func resetCursorIfNeeded(_ event: NSEvent) {
-        guard let hit = hitView(event) else { return }
+        guard let hit = hitView(event), Self.wantsArrowCursor(over: hit) else { return }
+        NSCursor.arrow.set()
+        // The note being edited is first responder and can set its I-beam again while it handles this
+        // same mouse-moved event (this monitor runs first). Set the arrow once more after that.
+        DispatchQueue.main.async { NSCursor.arrow.set() }
+    }
+
+    /// Buttons always get the arrow, also when they sit on top of text (the code copy button).
+    /// Elsewhere text views and fields keep their I-beam.
+    static func wantsArrowCursor(over hit: NSView) -> Bool {
         var v: NSView? = hit
         while let cur = v {
-            if cur is NSText || cur is NSTextField { return }
+            if cur is IconButton || cur is BadgeButton || cur is NSButton || cur is CardActionsView { return true }
+            if cur is NSText || cur is NSTextField { return false }
             v = cur.superview
         }
-        NSCursor.arrow.set()
+        return true
     }
 
     private func handleClickOff(_ event: NSEvent) {

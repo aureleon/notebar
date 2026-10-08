@@ -555,6 +555,22 @@ MainActor.assumeIsolated {
     // MARK: Vim keys
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
 
+    // MARK: Cursor over card buttons: arrow, not the text I-beam
+    vc.showFolder(folders.notes.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    if let cid = probe.displayedNoteIDs.first {
+        probe.ensureEditor(of: cid)
+        probe.setHovered(cid, true)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        if let pin = probe.pinFrame(of: cid) {
+            Check.equal(probe.wantsArrowCursor(at: NSPoint(x: pin.midX, y: pin.midY)), true, "arrow cursor over the pin button")
+        } else { Check.expect(false, "pin frame") }
+        if let line = probe.firstLineFrame(of: cid) {
+            Check.equal(probe.wantsArrowCursor(at: NSPoint(x: line.minX + 6, y: line.midY)), false, "I-beam over the note text")
+        } else { Check.expect(false, "first line frame") }
+        probe.setHovered(cid, false)
+    }
+
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
 }

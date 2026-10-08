@@ -115,6 +115,11 @@ public final class NotesUIProbe {
     public var renamingFolderID: FolderID? { root.folderList.renamingFolderID }
     public var searchAllFolders: Bool? { root.search?.allFolders }
     public func isEditorFocused(_ id: NoteID) -> Bool { list.card(for: id)?.isEditorFocused ?? false }
+    /// Whether the pointer at `p` (root view coordinates) gets the arrow cursor (else the text I-beam).
+    public func wantsArrowCursor(at p: NSPoint) -> Bool? {
+        guard let sup = root.view.superview, let hit = root.view.hitTest(root.view.convert(p, to: sup)) else { return nil }
+        return NotesRootViewController.wantsArrowCursor(over: hit)
+    }
     public func endRename() { root.folderList.endRename() }
     public func showMoveMenuItems(for id: NoteID) -> [String] {
         guard let n = root.store.note(id: id) else { return [] }
