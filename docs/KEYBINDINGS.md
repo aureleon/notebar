@@ -33,6 +33,7 @@ Contexts:
 | ⇧⌘M | Panel | Move menu for the active note | ″ |
 | ⌥⌘M | Panel | Move the active note to a new folder | ″ |
 | ⌥⌘← / ⌥⌘→ | Panel, notes visible | Fold / unfold the active note | ″ |
+| ⌥⌘A | Panel, notes visible (also while editing) | Archive / unarchive the active note | ″ |
 | ⌥⇧⌘↑ / ↓ | Panel, not in search | Move the active note up / down | ″ |
 | ⌘⌫ | List | Delete the selected note (alert) | ″ |
 | ⌘↩ | Editor | Stop editing, keep the card selected | ″, `MarkdownTextView.keyDown` |
@@ -49,9 +50,9 @@ Contexts:
 
 | Key | Folder list | Notes list / search results | Source |
 |---|---|---|---|
-| ↑ / ↓ | Select row | Select card | `RootKeyboard.handleKeyDown` |
+| ↑ / ↓ | Select row (folders, then Archive and Recently Deleted) | Select card | `RootKeyboard.handleKeyDown` |
 | Home / End | First / last row | First / last card | ″ |
-| ↩ / Enter | Open folder | Edit the card (unfolds it first) | ″ |
+| ↩ / Enter | Open folder / the archive / the Recently Deleted menu | Edit the card (unfolds it first) | ″ |
 | → | Open folder | — | ″ |
 | ← | — | Back to the folder list (not in search) | ″ |
 | ⌫ / ⌦ | — | Delete the selected card (alert) | ″ |
@@ -78,6 +79,7 @@ Contexts:
 | gm | — | Move menu |
 | gy | — | Copy the note text |
 | ge | — | Expand / collapse |
+| ga | — | Archive / unarchive |
 | za / zc / zo | — | Toggle / fold / unfold |
 | Other letters | Swallowed (do nothing) | Swallowed |
 
@@ -130,8 +132,8 @@ Contexts:
 | ⌃W J / ⌃W K / ⌃W ⌃W | Edit the next / previous / next card |
 | Tab | Nothing (swallowed) |
 | za / zc / zo | Toggle / fold / unfold the card |
-| gp gc gm gy ge gx | Pin / color menu / move menu / copy / expand / delete (alert) |
-| gf | Format menu (list has no gf) |
+| gp gc gm gy ge ga gx | Pin / color menu / move menu / copy / expand / archive / delete (alert) |
+| gf | Format menu (Standard notes only). The list has no gf. |
 | Other ⌃ keys | Swallowed |
 | Arrows, Home/End, PgUp/PgDn | Standard text-view movement; ↑ / ↓ at the first / last line go to the next card |
 
@@ -170,6 +172,7 @@ Contexts:
 | :fold :fo / :unfold :foldopen | Fold / unfold |
 | :copy :y :yank :co | Copy the note text |
 | :delete :d :del | Delete the note (alert) |
+| :archive / :unarchive | Archive / unarchive the note |
 | :format :fmt | Format menu |
 | :color [name] | Color menu, or set the color |
 | :mode [standard\|code\|plain] | Mode menu, or set the mode |

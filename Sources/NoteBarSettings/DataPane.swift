@@ -68,9 +68,7 @@ struct DataPane: View {
             } header: {
                 Text("Deleted Notes")
             } footer: {
-                FootnoteText(settings.deletedItemsRetention == .recentlyDeleted
-                             ? "Deleted notes and folders are listed in Recently Deleted at the bottom of the folder list."
-                             : "After that time, deleted notes and folders are removed for good. A change applies from now on.")
+                FootnoteText("Until then, deleted notes and folders are listed in Recently Deleted at the bottom of the folder list. After that time, they are removed for good. A change applies from now on.")
             }
 
             Section("Files") {

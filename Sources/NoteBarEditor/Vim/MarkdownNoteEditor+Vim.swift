@@ -374,7 +374,7 @@ extension MarkdownNoteEditor {
             default:
                 let cmds: [Character: VimCardCommand] = ["p": .togglePin, "c": .showColorMenu, "m": .showMoveMenu,
                                                          "y": .copyNote, "f": .showFormatMenu, "x": .delete,
-                                                         "e": .toggleExpand]
+                                                         "e": .toggleExpand, "a": .toggleArchive]
                 if vim.pendingOperator == nil, let cmd = cmds[c] {
                     send(cmd)
                 } else if vim.pendingOperator == nil, c == "j" || c == "k" {

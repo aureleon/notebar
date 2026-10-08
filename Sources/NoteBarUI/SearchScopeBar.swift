@@ -1,22 +1,30 @@
 import AppKit
 import NoteBarCore
 
-/// Row above the search results: result count + "This Folder | All Folders" toggle.
+/// Row above the search results: result count, the "Archive" chip (also find archived notes) and the
+/// "This Folder | All Folders" toggle.
 @MainActor
 final class SearchScopeBar: NSView {
     var onToggle: ((Bool) -> Void)?
+    var onArchiveToggle: ((Bool) -> Void)?
     private let env: AppEnvironment
     private let countLabel = PassthroughLabel()
     private let toggle = SegmentToggle()
+    let archiveChip = ChipToggle(title: "Archive")
 
     init(env: AppEnvironment) {
         self.env = env
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: Metrics.scopeBarHeight))
         countLabel.font = UIFonts.scope(env.themes.fontSize)
         toggle.font = UIFonts.scope(env.themes.fontSize)
+        archiveChip.font = UIFonts.scope(env.themes.fontSize)
         addSubview(countLabel)
+        addSubview(archiveChip)
         addSubview(toggle)
         toggle.onChange = { [weak self] idx in self?.onToggle?(idx == 1) }
+        archiveChip.onChange = { [weak self] on in self?.onArchiveToggle?(on) }
+        archiveChip.toolTip = "Also find archived notes"
+        archiveChip.setAccessibilityLabel("Include archived notes")
         restyle()
     }
 
@@ -26,13 +34,16 @@ final class SearchScopeBar: NSView {
     override var fittingSize: NSSize { NSSize(width: frame.width, height: Metrics.scopeBarHeight) }
 
     /// `folderName == nil` hides the toggle (searching from the folder list always covers all folders).
-    func update(resultCount: Int?, allFolders: Bool, folderName: String?) {
+    /// `inArchive`: search started in the archive (only archived notes; no toggles).
+    func update(resultCount: Int?, allFolders: Bool, folderName: String?, includeArchived: Bool = false, inArchive: Bool = false) {
         if let n = resultCount {
             countLabel.stringValue = n == 1 ? "1 result" : "\(n) results"
         } else {
-            countLabel.stringValue = allFolders ? "All folders" : "In “\(folderName ?? "")”"
+            countLabel.stringValue = inArchive ? "In the archive" : allFolders ? "All folders" : "In “\(folderName ?? "")”"
         }
-        toggle.isHidden = folderName == nil
+        archiveChip.isHidden = inArchive
+        archiveChip.isOn = includeArchived
+        toggle.isHidden = folderName == nil || inArchive
         toggle.titles = [folderName.map { Self.short($0) } ?? "Folder", "All Folders"]
         toggle.selectedIndex = allFolders ? 1 : 0
         needsLayout = true
@@ -44,8 +55,10 @@ final class SearchScopeBar: NSView {
         let c = env.themes.ui(effectiveAppearance)
         countLabel.font = UIFonts.scope(env.themes.fontSize)
         toggle.font = UIFonts.scope(env.themes.fontSize)
+        archiveChip.font = UIFonts.scope(env.themes.fontSize)
         countLabel.textColor = c.text
         toggle.colors = c
+        archiveChip.colors = c
         needsDisplay = true
     }
 
@@ -60,8 +73,12 @@ final class SearchScopeBar: NSView {
         // The chip and the toggle share one height, centered on the bar.
         let h = Metrics.scopeBarHeight
         toggle.frame = NSRect(x: bounds.width - tw, y: (bounds.height - h) / 2, width: tw, height: h)
+        let cw = archiveChip.isHidden ? 0 : archiveChip.intrinsicContentSize.width
+        let chipRight = toggle.isHidden ? bounds.width : toggle.frame.minX - 6
+        archiveChip.frame = NSRect(x: chipRight - cw, y: (bounds.height - h) / 2, width: cw, height: h)
         let lh = ceil(countLabel.intrinsicContentSize.height)
-        countLabel.frame = NSRect(x: 8, y: (bounds.height - lh) / 2, width: max(0, toggle.frame.minX - 16), height: lh)
+        let labelRight = archiveChip.isHidden ? toggle.frame.minX : archiveChip.frame.minX
+        countLabel.frame = NSRect(x: 8, y: (bounds.height - lh) / 2, width: max(0, labelRight - 16), height: lh)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -71,6 +88,63 @@ final class SearchScopeBar: NSView {
         let r = NSRect(x: 0, y: (bounds.height - Metrics.scopeBarHeight) / 2, width: min(lw, bounds.width), height: Metrics.scopeBarHeight)
         c.folderRowBackground.withAlphaComponent(0.85).setFill()
         NSBezierPath(roundedRect: r, xRadius: 12, yRadius: 12).fill()
+    }
+}
+
+/// On / off pill ("Archive" in the search scope bar), drawn like a `SegmentToggle` segment.
+@MainActor
+final class ChipToggle: NSView {
+    let title: String
+    var isOn = false { didSet { if oldValue != isOn { needsDisplay = true } } }
+    var colors: UIColors? { didSet { needsDisplay = true } }
+    var onChange: ((Bool) -> Void)?
+    var font = UIFonts.scope(14) { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
+
+    init(title: String) {
+        self.title = title
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: ceil((title as NSString).size(withAttributes: [.font: font]).width) + 24, height: Metrics.scopeBarHeight)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let c = colors else { return }
+        let bg = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
+        c.folderRowBackground.withAlphaComponent(0.9).setFill()
+        bg.fill()
+        if isOn {
+            let r = bounds.insetBy(dx: 2, dy: 2)
+            c.accent.setFill()
+            NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
+        }
+        let color: NSColor = isOn ? SegmentToggle.labelColor(on: c.accent) : c.text.withAlphaComponent(0.75)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let s = (title as NSString).size(withAttributes: attrs)
+        (title as NSString).draw(at: NSPoint(x: bounds.midX - s.width / 2, y: bounds.midY - s.height / 2), withAttributes: attrs)
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+        isOn.toggle()
+        onChange?(isOn)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .checkBox }
+    override func accessibilityValue() -> Any? { isOn ? 1 : 0 }
+    override func accessibilityPerformPress() -> Bool {
+        isOn.toggle()
+        onChange?(isOn)
+        return true
     }
 }
 

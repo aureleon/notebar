@@ -11,11 +11,14 @@ import NoteBarCore
 /// ```
 @MainActor
 public final class NotesRootViewController: NSViewController, NotesPresenting {
-    enum Screen: Equatable { case folders, folder(FolderID) }
+    /// `archive`: the archived notes of every folder (the Archive row of the folder list).
+    enum Screen: Equatable { case folders, folder(FolderID), archive }
 
     struct SearchState {
         var query: String
         var allFolders: Bool
+        /// Also find archived notes (the "Archive" chip). Searching from the archive finds only archived notes.
+        var includeArchived = false
         /// Where search was started; Esc returns there.
         var origin: Screen
     }
@@ -105,6 +108,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         header = HeaderView(env: env)
         scopeBar = SearchScopeBar(env: env)
         scopeBar.onToggle = { [weak self] all in self?.setSearchAllFolders(all) }
+        scopeBar.onArchiveToggle = { [weak self] on in self?.setSearchIncludesArchive(on) }
         toast = ToastView(frame: .zero)
         toast.fontSize = env.themes.fontSize
         for sub in [backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
@@ -133,7 +137,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             return true
         }
         header.onSpringBack = { [weak self] in
-            guard let self, self.search == nil, case .folder = self.screen else { return }
+            guard let self, self.search == nil, self.screen != .folders else { return }
             self.showFolderList()
         }
     }
@@ -206,11 +210,14 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             }
             reloadFolderList()
             updateHeader()
-            if search?.allFolders == true { runSearch(animated: false) }
+            if search?.allFolders == true || search?.origin == .archive { runSearch(animated: false) }
+            if search == nil, screen == .archive { reloadNotes(animated: true) }
         case .notes(let fid):
             if search != nil {
                 runSearch(animated: true)
             } else if case .folder(let id) = screen, id == fid {
+                reloadNotes(animated: true)
+            } else if screen == .archive {
                 reloadNotes(animated: true)
             }
             if screen == .folders { reloadFolderList() }
@@ -232,7 +239,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             }
             reloadFolderList()
             updateHeader()
-            if search != nil { runSearch(animated: false) } else if case .folder = screen { reloadNotes(animated: false) }
+            if search != nil { runSearch(animated: false) } else if screen != .folders { reloadNotes(animated: false) }
         }
     }
 
@@ -260,7 +267,15 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func reloadFolderList() {
         folderList.reload(folders: store.folders(), counts: folderCounts())
         let trash = store.trashedNotes().count + store.trashedFolders().count
-        folderList.trashCount = env.settings.deletedItemsRetention == .recentlyDeleted && trash > 0 ? trash : nil
+        // Shown whenever the trash has items, whatever Keep deleted items says (it only sets how long).
+        folderList.trashCount = trash > 0 ? trash : nil
+        let archived = store.archivedNotes().count
+        folderList.archiveCount = archived > 0 ? archived : nil
+    }
+
+    /// Folder names for cards that show their folder (archive, search across folders).
+    func folderNames() -> [FolderID: String] {
+        Dictionary(uniqueKeysWithValues: store.folders().map { ($0.id, $0.name) })
     }
 
     func clearNotesList() {
@@ -269,7 +284,20 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     func reloadNotes(animated: Bool) {
-        guard case .folder(let id) = screen, search == nil else { return }
+        guard search == nil else { return }
+        if screen == .archive {
+            displayedFolder = nil
+            let notes = store.archivedNotes()
+            notesList.setNotes(notes, animated: animated, folderNames: folderNames(), marksArchived: false)
+            notesList.allowsReorder = false
+            if notes.isEmpty {
+                notesList.setEmptyState(title: "Archive is empty", subtitle: "Archive a note with ⌥⌘A or its archive button")
+            } else {
+                notesList.setEmptyState(title: nil, subtitle: nil)
+            }
+            return
+        }
+        guard case .folder(let id) = screen else { return }
         displayedFolder = id
         let notes = displayedNotes(in: id)
         notesList.setNotes(notes, animated: animated)
@@ -287,6 +315,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder")
         case .folder(let id):
             header.setTitle(store.folder(id: id)?.name ?? "Notes", accent: true, showsBack: true, showsSettings: false, plusToolTip: "New Note (⌘N)")
+        case .archive:
+            header.setTitle("Archive", accent: true, showsBack: true, showsSettings: false, showsPlus: false, plusToolTip: "")
         }
     }
 
@@ -300,7 +330,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     public var currentFolderId: FolderID? {
         switch search?.origin ?? screen {
-        case .folders: return nil
+        case .folders, .archive: return nil
         case .folder(let id): return id
         }
     }
@@ -309,6 +339,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         _ = view
         if search != nil { endSearch(restore: false, focusRoot: false) }
         let previous: FolderID? = { if case .folder(let id) = screen { return id }; return nil }()
+        let fromArchive = screen == .archive
         let hadEditorFocus = focusedNoteID != nil
         screen = .folders
         showsFolderListAtLaunch = true
@@ -319,6 +350,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         setListVisibility()
         folderList.selectedFolderID = previous ?? folderList.selectedFolderID
         if let previous, let row = folderList.row(for: previous) { folderList.scrollToVisible(row) }
+        if fromArchive, folderList.archiveRow != nil { folderList.selectedSpecial = .archive }
         if hadEditorFocus || isFocusInsideNotes { focusRoot() }
     }
 
@@ -343,6 +375,25 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         rootView.needsLayout = true
     }
 
+    /// The archived notes of every folder.
+    public func showArchive() {
+        _ = view
+        if search != nil { endSearch(restore: false, focusRoot: false) }
+        if screen != .archive {
+            let hadFocus = isFocusInsideNotes
+            clearNotesList()
+            focusedNoteID = nil
+            screen = .archive
+            reloadNotes(animated: false)
+            notesList.scrollToTop()
+            if hadFocus { focusRoot() }
+        }
+        folderList.endRename()
+        updateHeader()
+        setListVisibility()
+        rootView.needsLayout = true
+    }
+
     public func reveal(noteId: NoteID, edit: Bool) {
         revealNote(noteId, edit: edit, insert: false)
     }
@@ -353,7 +404,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if pendingDeletion == noteId, store.note(id: noteId) == nil { undoDeletion() }
         guard var note = store.note(id: noteId) else { return }
         if search != nil { endSearch(restore: false, focusRoot: false) }
-        showFolder(note.folderId)
+        if note.isArchived { showArchive() } else { showFolder(note.folderId) }
         if edit && note.isFolded {
             actions.setFolded(false, id: noteId)
             note = store.note(id: noteId) ?? note
@@ -385,7 +436,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         _ = view
         if search == nil {
             folderList.endRename()
-            search = SearchState(query: "", allFolders: screen == .folders, origin: screen)
+            search = SearchState(query: "", allFolders: screen == .folders, includeArchived: screen == .archive,
+                                 origin: screen)
             clearNotesList()
             focusedNoteID = nil
             header.setSearching(true)
@@ -447,7 +499,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     func goBack() {
         if search != nil { endSearch(restore: true, focusRoot: true); return }
-        if case .folder = screen { showFolderList() }
+        if screen != .folders { showFolderList() }
     }
 
     var isFocusInsideNotes: Bool {
@@ -550,28 +602,39 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         runSearch(animated: false)
     }
 
+    func setSearchIncludesArchive(_ on: Bool) {
+        guard search != nil, search?.origin != .archive else { return }
+        search?.includeArchived = on
+        runSearch(animated: false)
+    }
+
     func runSearch(animated: Bool) {
         guard let s = search else { return }
         let q = s.query.trimmingCharacters(in: .whitespacesAndNewlines)
         var originFolder: FolderID?
         if case .folder(let id) = s.origin { originFolder = id }
         let originName = originFolder.flatMap { store.folder(id: $0)?.name }
-        let scope: FolderID? = s.allFolders ? nil : originFolder
+        let inArchive = s.origin == .archive
+        let scope: FolderID? = s.allFolders || inArchive ? nil : originFolder
+        func updateScopeBar(_ count: Int?) {
+            scopeBar.update(resultCount: count, allFolders: scope == nil, folderName: originName,
+                            includeArchived: s.includeArchived, inArchive: inArchive)
+        }
         guard !q.isEmpty else {
             notesList.setNotes([], animated: false)
-            scopeBar.update(resultCount: nil, allFolders: scope == nil, folderName: originName)
-            notesList.setEmptyState(title: "Search notes",
-                                    subtitle: scope == nil ? "Type to search all folders" : "Type to search in “\(originName ?? "")”")
+            updateScopeBar(nil)
+            let subtitle = inArchive ? "Type to search the archive"
+                : scope == nil ? "Type to search all folders" : "Type to search in “\(originName ?? "")”"
+            notesList.setEmptyState(title: "Search notes", subtitle: subtitle)
             notesList.layoutCards(animated: false)
             return
         }
-        let results = store.search(q, in: scope)
-        var names: [FolderID: String]?
-        if scope == nil {
-            names = Dictionary(uniqueKeysWithValues: store.folders().map { ($0.id, $0.name) })
-        }
+        var results = store.search(q, in: scope, includeArchived: s.includeArchived || inArchive)
+        if inArchive { results = results.filter(\.isArchived) }
+        // Cards show their folder when the results come from more than one folder (or the archive).
+        let names: [FolderID: String]? = scope == nil || s.includeArchived ? folderNames() : nil
         notesList.setNotes(results, animated: animated, folderNames: names, forceUnfolded: true, query: q)
-        scopeBar.update(resultCount: results.count, allFolders: scope == nil, folderName: originName)
+        updateScopeBar(results.count)
         if results.isEmpty {
             notesList.setEmptyState(title: "No results", subtitle: "Nothing matches “\(q)”")
         } else {
@@ -593,7 +656,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if restore {
             switch s.origin {
             case .folders: reloadFolderList()
-            case .folder: reloadNotes(animated: false)
+            case .folder, .archive: reloadNotes(animated: false)
             }
         }
         updateHeader()
@@ -671,6 +734,37 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         showTrashToast(.note(id), message: "Note deleted")
     }
 
+    /// Archive / unarchive from the UI: like a delete, the card leaves the list (the neighbor gets the
+    /// selection) and a toast offers Undo.
+    func setArchived(_ archived: Bool, id: NoteID) {
+        guard let note = store.note(id: id), note.isArchived != archived else { return }
+        let ids = notesList.noteIDs
+        var neighbor: NoteID?
+        if let i = ids.firstIndex(of: id) {
+            neighbor = i + 1 < ids.count ? ids[i + 1] : (i > 0 ? ids[i - 1] : nil)
+        }
+        let listHadFocus = isFocusInsideNotes || view.window?.firstResponder === rootView
+        if let card = notesList.card(for: id), card.isEditorFocused { focusRoot() }
+        if focusedNoteID == id { focusedNoteID = nil }
+        actions.setArchived(archived, id: id)
+        let mark = actions.undoRegistrations
+        if listHadFocus {
+            // Still listed (search with the Archive chip): keep it selected.
+            notesList.selectedNoteID = notesList.card(for: id) != nil ? id : neighbor
+            focusRoot()
+        }
+        let folder = store.folder(id: note.folderId)?.name ?? "its folder"
+        dismissTrashToast()
+        showToast(archived ? "Note archived" : "Moved back to “\(folder)”", actionTitle: "Undo", action: { [weak self] in
+            guard let self else { return }
+            if self.actions.undoRegistrations == mark, self.panelUndo.canUndo {
+                self.panelUndo.undo()
+            } else {
+                self.actions.setArchived(!archived, id: id)
+            }
+        })
+    }
+
     /// Folder delete (after the confirmation alert).
     func folderTrashed(_ id: FolderID) {
         showTrashToast(.folder(id), message: "Folder deleted")
@@ -718,7 +812,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func commitPendingDeletion() { dismissTrashToast() }
 
     private func refreshAfterPendingChange(animated: Bool) {
-        if search != nil { runSearch(animated: animated) } else if case .folder = screen { reloadNotes(animated: animated) }
+        if search != nil { runSearch(animated: animated) } else if screen != .folders { reloadNotes(animated: animated) }
         reloadFolderList()
     }
 
@@ -739,7 +833,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func noteRestored(_ id: NoteID) {
         if pendingDeletion == id { dismissTrashToast() }
         guard let note = store.note(id: id) else { return }
-        if search == nil, case .folder(let fid) = screen, fid == note.folderId {
+        let shown = note.isArchived ? screen == .archive : screen == .folder(note.folderId)
+        if search == nil, shown {
             rootView.layoutSubtreeIfNeeded()
             select(id)
         }

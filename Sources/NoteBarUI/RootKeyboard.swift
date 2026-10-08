@@ -45,7 +45,7 @@ extension NotesRootViewController {
             if notesVisible && search == nil { goBack(); return true }
             return false
         case Key.delete, Key.forwardDelete:
-            if mods.isEmpty, notesVisible, let id = notesList.selectedNoteID { actions.delete(id, confirm: true); return true }
+            if mods.isEmpty, notesVisible, let id = notesList.selectedNoteID { actions.delete(id); return true }
             return false
         case Key.tab:
             if search != nil { searchTab(backward: mods == [.shift]); return true }
@@ -124,7 +124,7 @@ extension NotesRootViewController {
             notesList.scrollToCard(card)
             card.focusEditor(atEnd: true)
         } else {
-            if folderList.selectedFolderID == nil { folderList.moveSelection(1) } else { folderList.openSelected() }
+            if !folderList.hasSelection { folderList.moveSelection(1) } else { folderList.openSelected() }
         }
     }
 
@@ -144,7 +144,7 @@ extension NotesRootViewController {
             case Key.delete:
                 // ⌘⌫ deletes the selected note; inside text it keeps its text meaning.
                 guard !isEditingText, notesVisible, let id = activeNoteID else { return false }
-                actions.delete(id, confirm: true); return true
+                actions.delete(id); return true
             case Key.returnKey, Key.enter:
                 guard isEditingText, let id = focusedNoteID else { return false }
                 notesList.selectedNoteID = id
@@ -200,6 +200,11 @@ extension NotesRootViewController {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.moveToNewFolder(id); return true
             }
+            // ⌥⌘A archives / unarchives the edited or selected note (also while typing in it).
+            if key == "a" || code == 0 {
+                guard notesVisible, let id = activeNoteID else { NSSound.beep(); return true }
+                actions.toggleArchive(id); return true
+            }
             return false
         case [.command, .option, .shift]:
             if key == "n" || code == 0x2D {
@@ -224,8 +229,9 @@ extension NotesRootViewController {
         createNewNote()
     }
 
+    /// Archived notes cannot be moved (unarchive first): no menu.
     func showMoveMenu(for id: NoteID) {
-        guard let note = store.note(id: id) else { return }
+        guard let note = store.note(id: id), !note.isArchived else { NSSound.beep(); return }
         popUpCardMenu(MenuBuilder.moveMenu(for: note, actions: actions), for: id)
     }
 }

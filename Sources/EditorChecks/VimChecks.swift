@@ -163,6 +163,8 @@ enum VimChecks {
         Check.equal(VimEx.parse("m ideas"), .card(.moveToFolder("ideas")), ":m <folder>")
         Check.equal(VimEx.parse("move"), .card(.showMoveMenu), "bare :move opens the menu")
         Check.equal(VimEx.parse("copy"), .card(.copyNote), ":copy")
+        Check.equal(VimEx.parse("archive"), .card(.setArchived(true)), ":archive")
+        Check.equal(VimEx.parse("unarchive"), .card(.setArchived(false)), ":unarchive")
         Check.equal(VimEx.parse("y"), .card(.copyNote), ":y")
         Check.equal(VimEx.parse("delete"), .card(.delete), ":delete")
         Check.equal(VimEx.parse("d"), .card(.delete), ":d")
@@ -307,7 +309,7 @@ enum VimChecks {
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.
         let keys: [(String, VimCardCommand)] = [
             ("gp", .togglePin), ("gc", .showColorMenu), ("gm", .showMoveMenu), ("gy", .copyNote),
-            ("gf", .showFormatMenu), ("ge", .toggleExpand), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)),
+            ("gf", .showFormatMenu), ("ge", .toggleExpand), ("ga", .toggleArchive), ("gx", .delete), ("za", .toggleFold), ("zc", .setFolded(true)), ("zo", .setFolded(false)),
             ("<C-w>j", .focusNextCard), ("<C-w>k", .focusPreviousCard), ("<C-w><C-j>", .focusNextCard),
             ("<C-[>", .navigateUp),
         ]

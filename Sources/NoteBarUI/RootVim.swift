@@ -9,7 +9,7 @@ import NoteBarCore
 ///   gp pin, gc color menu, gx / dd delete (with the usual alert, undoable). Letters no longer type
 ///   into search.
 /// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←), gg / G, and the
-///   card keys on the selected note without editing it: gp gc gm gy ge gx dd za zc zo. Deletes ask first.
+///   card keys on the selected note without editing it: gp gc gm gy ge ga gx dd za zc zo. Deletes ask first.
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 extension NotesRootViewController {
     static let vimWindowChordTimeout: TimeInterval = 1.5
@@ -97,7 +97,8 @@ extension NotesRootViewController {
             case "gm": showMoveMenu(for: id)
             case "gy": actions.copyText(id)
             case "ge": toggleExpand(id)
-            case "gx", "dd": actions.delete(id, confirm: true)
+            case "ga": actions.toggleArchive(id)
+            case "gx", "dd": actions.delete(id)
             case "za": actions.toggleFold(id)
             case "zc": actions.setFolded(true, id: id)
             case "zo": actions.setFolded(false, id: id)
@@ -182,10 +183,16 @@ extension NotesRootViewController {
             actions.copyText(id)
         case .toggleExpand:
             toggleExpand(id)
+        case .toggleArchive:
+            actions.toggleArchive(id)
+        case .setArchived(let archived):
+            if store.note(id: id)?.isArchived != archived { setArchived(archived, id: id) }
         case .showFormatMenu:
+            // Formatting exists in Standard notes only.
+            guard card.currentNote.mode == .standard else { NSSound.beep(); return }
             popUpCardMenu(MenuBuilder.formatMenu { [weak card] a in card?.performFormat(a) }, for: id)
         case .delete:
-            actions.delete(id, confirm: true)
+            actions.delete(id)
         case .quit:
             notesList.selectedNoteID = id
             focusRoot()
@@ -208,7 +215,7 @@ extension NotesRootViewController {
 
     /// `:move <name>`: exact name first (any case), then a name that starts with / contains it.
     func vimMove(_ id: NoteID, toFolderNamed raw: String) {
-        guard let note = store.note(id: id) else { return }
+        guard let note = store.note(id: id), !note.isArchived else { NSSound.beep(); return }
         let name = raw.trimmingCharacters(in: .whitespaces).lowercased()
         let folders = store.folders()
         let match = folders.first { $0.name.lowercased() == name }

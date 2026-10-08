@@ -416,6 +416,8 @@ public enum VimEx {
         case "copy", "y", "yank", "co": return .card(.copyNote)
         case "delete", "d", "del": return .card(.delete)
         case "noh", "nohl", "nohlsearch": return .noHighlight
+        case "archive", "arch": return .card(.setArchived(true))
+        case "unarchive", "unarch": return .card(.setArchived(false))
         case "format", "fmt": return .card(.showFormatMenu)
         case "color", "colour", "col":
             guard !arg.isEmpty else { return .card(.showColorMenu) }

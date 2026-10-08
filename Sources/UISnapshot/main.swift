@@ -142,12 +142,13 @@ MainActor.assumeIsolated {
     let hello = ids[1]
     probe.setHovered(hello, true)
     render("05-hover-footer-light")
-    Check.equal(probe.hiddenActionCount(hello), 0, "the bottom tray holds copy, color and delete")
+    Check.equal(probe.hiddenActionCount(hello), 0, "the bottom tray holds copy, archive and delete")
     if let aa = probe.formatButtonFrame(of: hello), let tray = probe.actionTrayFrame(of: hello),
+       let mb = probe.modeButtonFrame(of: hello),
        let line = probe.firstLineFrame(of: hello), let card = probe.cardFrame(of: hello) {
         Check.expect(abs(aa.midY - tray.midY) < 0.5, "Aa and the action tray share the bottom row")
         Check.expect(aa.minX < tray.minX && tray.maxX > card.midX, "Aa on the left, the tray on the right")
-        Check.expect(aa.minX - card.minX < 30, "Aa sits at the left edge of the text")
+        Check.expect(mb.minX - card.minX < 30, "the mode button sits at the left edge of the text")
         _ = line
     } else { Check.expect(false, "Aa and tray frames") }
     // Fold button below the pin, on hover only.
@@ -159,6 +160,26 @@ MainActor.assumeIsolated {
     Check.equal(probe.foldButtonFrame(of: hello), nil, "fold button hidden without hover")
     probe.layoutNow()
     Check.expect(probe.formatButtonFrame(of: hello) != nil, "Aa is visible without hover")
+    // Aa (Standard only) and the mode button (symbol = mode, opens Color & Mode) on the bottom-left.
+    Check.expect(probe.isFormatButtonShown(hello), "Standard: Aa is shown")
+    Check.equal(probe.modeButtonSymbol(hello), "paragraphsign", "Standard: ¶ mode button")
+    if let aa = probe.formatButtonFrame(of: hello), let mb = probe.modeButtonFrame(of: hello) {
+        Check.expect(abs(aa.midY - mb.midY) < 0.5 && aa.minX > mb.maxX && aa.minX - mb.maxX < 6, "Aa sits right of the mode button")
+    } else { Check.expect(false, "Aa and mode button frames") }
+    let modeX = probe.modeButtonFrame(of: hello)?.minX
+    probe.setMode(.code, of: hello)
+    probe.layoutNow()
+    Check.expect(!probe.isFormatButtonShown(hello), "Code: no Aa")
+    Check.equal(probe.modeButtonSymbol(hello), "curlybraces", "Code: { } mode button")
+    Check.equal(probe.modeButtonFrame(of: hello)?.minX, modeX, "Code: the mode button stays at the left edge")
+    render("05c-code-mode-button-light")
+    probe.setMode(.plain, of: hello)
+    probe.layoutNow()
+    Check.equal(probe.modeButtonSymbol(hello), "text.alignleft", "Plain: ≡ mode button")
+    render("05c-plain-mode-button-light")
+    probe.setMode(.standard, of: hello)
+    probe.layoutNow()
+    Check.expect(probe.isFormatButtonShown(hello), "back to Standard: Aa again")
     Check.equal(probe.actionTrayFrame(of: hello), nil, "the action tray is hidden without hover")
     // One-line card: the bottom row still has the whole tray; no room for the fold button.
     let short = store.createNote(in: folders.notes.id, body: "One line", mode: .standard, position: .top)
@@ -603,6 +624,9 @@ MainActor.assumeIsolated {
     renderHook = { render($0) }
     undoChecks(vc: vc, probe: probe, store: store, folders: folders, spin: spin)
 
+    // MARK: Archive
+    archiveChecks(vc: vc, probe: probe, store: store, spin: spin)
+
     // MARK: Cursor over card buttons: arrow, not the text I-beam
     vc.showFolder(folders.notes.id)
     probe.layoutNow(); spin(); probe.layoutNow()
@@ -813,7 +837,13 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     var menus: [NSMenu] = []
     probe.captureMenus { menus.append($0) }
     probe.focusList()
-    key("G"); Check.equal(probe.selectedFolderID, probe.folderRowIDs.last, "vim: G selects the last folder")
+    key("G")
+    if probe.trashRowCount != nil {
+        Check.equal(probe.selectedSpecialRow, "trash", "vim: G selects the last row (Recently Deleted)")
+        key("k")
+    }
+    if probe.archiveRowCount != nil { key("k") }
+    Check.equal(probe.selectedFolderID, probe.folderRowIDs.last, "vim: G, then k past the special rows: the last folder")
     key("g"); key("g"); Check.equal(probe.selectedFolderID, probe.folderRowIDs.first, "vim: gg selects the first folder")
     while probe.selectedFolderID != vf.id { key("j") }
     key("g"); key("p"); Check.equal(store.folder(id: vf.id)?.isPinned, true, "vim: gp pins the folder")
@@ -1011,12 +1041,10 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     probe.undoDelete()
     Check.expect(store.folder(id: uf.id) != nil, "folder toast Undo restores")
 
-    // Recently Deleted row and menu (Keep deleted items = Recently Deleted).
+    // Recently Deleted row and menu: shown whenever the trash has items (any Keep deleted items).
     let settings = probe.settings
     store.purgeTrash(deletedBefore: .distantFuture)
     vc.showFolderList()
-    Check.equal(probe.trashRowCount, nil, "no Recently Deleted row by default (1 hour)")
-    settings.deletedItemsRetention = .recentlyDeleted
     Check.equal(probe.trashRowCount, nil, "no row while the trash is empty")
     let gone = store.createNote(in: uf.id, body: "Gone note\nbody", mode: .standard, position: .top)
     vc.showFolder(uf.id)
@@ -1031,6 +1059,12 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     Check.expect(store.note(id: gone.id) != nil, "Restore from the menu")
     Check.equal(probe.trashRowCount, nil, "row hidden when the trash is empty again")
     probe.deleteWithUndo(gone.id)
+    var foreverAlerts: [String] = []
+    probe.onDestructiveAlert { foreverAlerts.append($0); return false }
+    probe.trashMenuRun("Gone note", "Delete Now")
+    Check.equal(foreverAlerts, ["Delete “Gone note” for good?"], "Delete Now asks first")
+    Check.equal(store.trashedNotes().map(\.id), [gone.id], "Cancel keeps it in the trash")
+    probe.confirmDestructiveAlerts(true)
     probe.trashMenuRun("Gone note", "Delete Now")
     Check.expect(store.trashedNotes().isEmpty && store.note(id: gone.id) == nil, "Delete Now removes it for good")
     let g2 = store.createNote(in: uf.id, body: "Another\nx", mode: .standard, position: .top)
@@ -1045,8 +1079,159 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     vc.showFolderList()
     probe.layoutNow(); spin()
     renderHook?("23-recently-deleted-light")
+    settings.deletedItemsRetention = .recentlyDeleted
+    Check.equal(probe.trashRowCount, 1, "the row stays with 30 days")
     settings.deletedItemsRetention = .oneHour
-    Check.equal(probe.trashRowCount, nil, "changing the setting hides the row")
+    Check.equal(probe.trashRowCount, 1, "the row stays with the default 1 hour")
     Check.expect(store.trashedNotes().count == 1, "changing the setting deletes nothing at once")
     store.purgeTrash(deletedBefore: .distantFuture)
 }
+
+@MainActor
+func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore, spin: () -> Void) {
+    func cmdZ() { spin(); probe.press(keyCode: 6, characters: "z", modifiers: [.command]); spin() }
+    func optCmdA() { probe.press(keyCode: 0, characters: "a", modifiers: [.command, .option]) }
+    let af = store.createFolder(name: "Archive Test")
+    let a = store.createNote(in: af.id, body: "Keep me\nfirst", mode: .standard, position: .bottom)
+    let b = store.createNote(in: af.id, body: "Old plan\nsecond", mode: .standard, position: .bottom)
+    let c = store.createNote(in: af.id, body: "Old idea\nthird", mode: .standard, position: .bottom)
+    for n in store.archivedNotes() { store.unarchiveNote(id: n.id) }
+    vc.showFolderList()
+    Check.equal(probe.archiveRowCount, nil, "no Archive row while nothing is archived")
+
+    // ⌥⌘A on the selected note.
+    vc.showFolder(af.id)
+    probe.layoutNow(); spin()
+    probe.select(b.id)
+    optCmdA()
+    Check.expect(store.note(id: b.id)?.isArchived == true, "⌥⌘A archives the selected note")
+    Check.equal(probe.displayedNoteIDs, [a.id, c.id], "the archived note leaves the folder")
+    Check.equal(probe.selectedNoteID, c.id, "the next note gets the selection")
+    Check.equal(probe.toastMessage, "Note archived", "archive toast")
+    probe.tapToastAction()
+    Check.expect(store.note(id: b.id)?.isArchived == false, "toast Undo unarchives")
+    Check.equal(probe.displayedNoteIDs, [a.id, b.id, c.id], "and the note is back at its place")
+    probe.select(b.id)
+    optCmdA()
+    cmdZ()
+    Check.expect(store.note(id: b.id)?.isArchived == false, "⌘Z unarchives")
+    probe.select(b.id)
+    optCmdA()
+    Check.expect(store.note(id: b.id)?.isArchived == true, "archived again")
+
+    // The archive button on the card.
+    probe.layoutNow()
+    probe.mouseMoved()
+    probe.setHovered(c.id, true)
+    probe.layoutNow()
+    Check.equal(probe.archiveButtonToolTip(c.id), "Archive (⌥⌘A)", "archive button on the card")
+    Check.equal(probe.hiddenActionCount(c.id), 0, "the tray holds copy, archive and delete")
+    var trashAlerts = 0
+    probe.onDestructiveAlert { _ in trashAlerts += 1; return false }
+    probe.clickTrashButton(c.id)
+    Check.equal(trashAlerts, 1, "the card's trash button asks first")
+    Check.expect(store.note(id: c.id) != nil, "Cancel keeps the note")
+    probe.confirmDestructiveAlerts(nil)
+    probe.clickArchiveButton(c.id)
+    probe.setHovered(c.id, false)
+    Check.expect(store.note(id: c.id)?.isArchived == true, "the archive button archives the note")
+
+    // vim: ga on a selected note, :archive / :unarchive from the editor.
+    probe.select(a.id)
+    probe.press(keyCode: 5, characters: "g"); probe.press(keyCode: 0, characters: "a")
+    Check.expect(store.note(id: a.id)?.isArchived != true, "ga does nothing with vim keys off")
+    probe.settings.vimKeybinds = true
+    probe.select(a.id)
+    probe.press(keyCode: 5, characters: "g"); probe.press(keyCode: 0, characters: "a")
+    Check.expect(store.note(id: a.id)?.isArchived == true, "vim: ga archives the selected note")
+    probe.settings.vimKeybinds = false
+    store.unarchiveNote(id: a.id)
+    probe.vimCommand(.setArchived(true), on: a.id)
+    Check.expect(store.note(id: a.id)?.isArchived == true, ":archive archives the note")
+    vc.showArchive()
+    probe.layoutNow(); spin()
+    probe.vimCommand(.setArchived(false), on: a.id)
+    Check.expect(store.note(id: a.id)?.isArchived == false, ":unarchive in the archive brings it back")
+
+    // The Archive row and screen.
+    vc.showFolderList()
+    probe.layoutNow(); spin()
+    Check.equal(probe.archiveRowCount, 2, "Archive row shows the count")
+    renderHook?("24-folders-archive-light")
+    probe.clickArchiveRow()
+    probe.layoutNow(); spin()
+    Check.equal(probe.headerTitle, "Archive", "the Archive row opens the archive")
+    Check.equal(probe.displayedNoteIDs, [c.id, b.id], "archive lists the archived notes, most recent first")
+    Check.equal(probe.cardFolderLabel(c.id), "Archive Test", "archived cards show their folder")
+    Check.expect(!probe.isPlusButtonVisible, "no + button in the archive")
+    Check.expect(!probe.cardMenuItems(for: c.id).contains("Move"), "no Move in the menu of an archived note")
+    var moveMenus = 0
+    probe.captureMenus { _ in moveMenus += 1 }
+    probe.select(c.id)
+    probe.press(keyCode: 46, characters: "m", modifiers: [.command, .shift])
+    Check.equal(moveMenus, 0, "⇧⌘M does nothing on an archived note")
+    probe.captureMenus(nil)
+    renderHook?("25-archive-light")
+    probe.layoutNow()
+    probe.mouseMoved()
+    probe.setHovered(b.id, true)
+    probe.layoutNow()
+    Check.equal(probe.archiveButtonToolTip(b.id), "Unarchive (⌥⌘A)", "the button unarchives in the archive")
+    probe.setHovered(b.id, false)
+    probe.select(b.id)
+    optCmdA()
+    Check.expect(store.note(id: b.id)?.isArchived == false, "⌥⌘A in the archive unarchives")
+    Check.equal(probe.toastMessage, "Moved back to “Archive Test”", "unarchive toast names the folder")
+    Check.equal(probe.displayedNoteIDs, [c.id], "the note leaves the archive")
+    probe.goBack()
+    Check.expect(probe.folderRowsVisible, "back from the archive goes to the folder list")
+    Check.equal(probe.selectedSpecialRow, "archive", "back from the archive selects the Archive row")
+
+    // Keyboard: ↓ past the last folder reaches Archive, then Recently Deleted; ↩ opens them.
+    let trashed = store.createNote(in: af.id, body: "Trashed for the row", mode: .standard, position: .top)
+    store.trashNote(id: trashed.id)
+    probe.focusList()
+    probe.press(keyCode: 115, characters: "\u{F729}")  // Home
+    Check.expect(probe.selectedFolderID != nil && probe.selectedSpecialRow == nil, "Home selects the first folder")
+    probe.press(keyCode: 119, characters: "\u{F72B}")  // End
+    Check.equal(probe.selectedSpecialRow, "trash", "End selects Recently Deleted")
+    Check.equal(probe.selectedFolderID, nil, "no folder selected with it")
+    probe.press(keyCode: 126, characters: "\u{F700}")  // ↑
+    Check.equal(probe.selectedSpecialRow, "archive", "↑ selects Archive")
+    probe.press(keyCode: 126, characters: "\u{F700}")
+    Check.expect(probe.selectedSpecialRow == nil && probe.selectedFolderID == probe.folderRowIDs.last, "↑ again: the last folder")
+    probe.press(keyCode: 125, characters: "\u{F701}")  // ↓
+    probe.press(keyCode: 36, characters: "\r")
+    Check.equal(probe.headerTitle, "Archive", "↩ on the Archive row opens the archive")
+    probe.goBack()
+    var trashMenus = 0
+    probe.captureMenus { _ in trashMenus += 1 }
+    probe.press(keyCode: 125, characters: "\u{F701}")
+    Check.equal(probe.selectedSpecialRow, "trash", "↓ from Archive: Recently Deleted")
+    probe.press(keyCode: 36, characters: "\r")
+    Check.equal(trashMenus, 1, "↩ on Recently Deleted opens its menu")
+    probe.captureMenus(nil)
+    store.purgeTrash(deletedBefore: .distantFuture)
+    Check.equal(probe.selectedSpecialRow, nil, "the selection goes when its row goes")
+
+    // Search: archived notes only with the Archive chip; search from the archive finds only archived notes.
+    vc.showFolder(af.id)
+    probe.setSearchQuery("old", allFolders: true)
+    Check.equal(probe.displayedNoteIDs, [b.id], "search skips archived notes")
+    Check.expect(probe.isArchiveChipVisible, "the Archive chip is shown")
+    probe.setSearchIncludesArchive(true)
+    Check.equal(Set(probe.displayedNoteIDs), [b.id, c.id], "the Archive chip finds archived notes too")
+    Check.equal(probe.cardFolderLabel(c.id), "Archive Test · Archived", "archived results are marked")
+    probe.goBack()
+    vc.showArchive()
+    probe.setSearchQuery("old")
+    Check.equal(probe.displayedNoteIDs, [c.id], "search from the archive finds archived notes only")
+    Check.expect(!probe.isArchiveChipVisible, "no Archive chip when searching the archive")
+    probe.goBack()
+    Check.equal(probe.headerTitle, "Archive", "Esc from search returns to the archive")
+    for n in store.archivedNotes() { store.unarchiveNote(id: n.id) }
+    vc.showFolderList()
+    Check.equal(probe.archiveRowCount, nil, "row hidden when the archive is empty again")
+    store.deleteFolder(id: af.id)
+}
+

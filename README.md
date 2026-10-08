@@ -60,6 +60,7 @@ NoteBar can run at a time.
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
 | Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), or the fold button |
+| Archive or unarchive a note | ⌥⌘A (also while you type), or the archive button on the card |
 | Settings | ⌘, |
 
 You can change the global hotkeys in Settings › Shortcuts. You can move the panel to the left or right
@@ -70,18 +71,33 @@ When the pointer is on a card, the card shows these controls:
 - The date and the pin button in the top-right corner, with the expand and fold buttons below the
   pin. A pinned note always shows its pin, and an expanded note always shows its collapse button. A folded
   note shows a `+ N lines` button: click it to unfold the note.
-- A row of actions in the bottom-right corner: copy the text, color and mode (gear), and delete.
+- A row of actions in the bottom-right corner: copy the text, archive, and delete.
 
-The format button (`Aa`) is always shown in the bottom-left corner of an unfolded card.
+The bottom-left corner of an unfolded card always shows two buttons:
+
+- `Aa` opens the formatting menu. Only Standard (Markdown) notes have it.
+- The Color & Mode button sets the note's color and mode. Its icon shows the mode: ¶ for Standard,
+  `{ }` for Code, and ≡ for Plain. On Code and Plain notes it takes the place of `Aa`.
 
 ### Undo and deleted items
 
 - ⌘Z and ⇧⌘Z undo and redo note and folder actions: color, mode, fold, pin, order, move, rename,
   new note, new folder and delete. While you type in a note, ⌘Z undoes the text only.
-- A deleted note or folder goes to the trash. Undo on the toast, or ⌘Z, brings it back.
+- Every delete asks first (keys, the card's trash button, menus). A deleted note or folder goes to
+  the trash. Undo on the toast, or ⌘Z, brings it back. Delete Now in Recently Deleted asks too.
 - Settings › Data › Keep deleted items sets how long deleted items stay: until NoteBar quits, for
-  1 hour (the default), or 30 days in Recently Deleted. Recently Deleted is a row at the end of the
-  folder list. Click it to restore an item, delete it now, or empty the list.
+  1 hour (the default), or for 30 days. Until then, they are listed in Recently Deleted, a row at the
+  end of the folder list. Click it to restore an item, delete it now, or empty the list.
+
+### Archive
+
+- ⌥⌘A or the archive button moves a note to the archive. The toast's Undo, or ⌘Z, brings it back.
+- The Archive row at the end of the folder list shows the archived notes of every folder, most
+  recently archived first. Each card shows its folder. ⌥⌘A or the button there puts a note back in its
+  folder, at the place it had.
+- Search leaves archived notes out. Turn on the Archive chip above the results to find them too.
+  Search in the Archive finds archived notes only.
+- An archived note cannot be moved to another folder. Unarchive it first.
 
 ### Vim keys
 
@@ -91,7 +107,7 @@ Vim keys are off by default. To turn them on, go to Settings › Shortcuts › U
 - These standard vim keys work: motions, counts, operators (`d` `c` `y`), `p` `P` `u` `⌃R` `r` `.`,
   Visual mode (`v` `V`), search (`/` `?` `n` `N`) and `:` commands.
 - ⌃W J and ⌃W K edit the next and the previous note. A folded note unfolds.
-- On a selected note that you are not editing, `gp` `gc` `gm` `gy` `ge` `gx` `dd` `za` `zc` `zo` work
+- On a selected note that you are not editing, `gp` `gc` `gm` `gy` `ge` `ga` `gx` `dd` `za` `zc` `zo` work
   too, and `gg` `G` select the first and the last note.
 
 NoteBar adds these keys:
@@ -105,6 +121,7 @@ NoteBar adds these keys:
 | Copy the note | `gy`, `:copy` |
 | Expand or collapse the card | `ge` (like ⇧⌘E) |
 | Formatting menu | `gf` |
+| Archive or unarchive the note | `ga`, `:archive`, `:unarchive` |
 | Delete the note (with the usual alert, undoable) | `gx`, `:delete` (`dd` on a selected note) |
 | Stop editing | `:q` |
 | Go up to the folder list | ⌃[ (in Insert mode, ⌃[ is Esc) |

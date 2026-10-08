@@ -220,7 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
             Show or hide this panel with **\(toggle)**\(edgeHint)
             - [ ] Press **+** or ⌘N for a new note
             - [ ] Drop text, images or files on the panel
-            - [ ] Use the gear button for colors and *Code* mode
+            - [ ] Use the ¶ button next to Aa for colors and *Code* mode
             Settings: ⌘,
             """
         var note = store.createNote(in: folder.id, body: body, mode: .standard, position: .top)

@@ -37,11 +37,14 @@ final class NoteCardView: NSView {
     var expandButtonFrame: NSRect { expandButton.frame }
     var isExpandButtonShown: Bool { !expandButton.isHidden }
     /// Fold button below the pin (unfolded cards, on hover), when the card is tall enough to keep a
-    /// slot for the action column under it. Otherwise Fold stays in the gear / "…" menu only.
+    /// slot for the action column under it. Otherwise Fold stays in the right-click menu only.
     private let foldButton = IconButton(symbol: "chevron.up", size: 10.5, toolTip: "Fold (⌥⌘←)")
     private var foldFits = false
-    /// Formatting menu, always shown at the bottom-left of an unfolded card.
+    /// Formatting menu (Aa) at the bottom-left of an unfolded Standard note.
     private let formatButton = IconButton(symbol: "textformat", size: 11, toolTip: "Format")
+    /// Color & Mode at the bottom-left, Aa right of it. Its symbol shows the mode.
+    private let modeButton = IconButton(symbol: "paragraphsign", size: 11, toolTip: "Color & Mode")
+    var modeButtonFrame: NSRect? { modeButton.isHidden ? nil : modeButton.frame }
     var formatButtonFrame: NSRect? { formatButton.isHidden ? nil : formatButton.frame }
     /// Extra space under the text for the bottom row (Aa, and the action tray on hover).
     static let formatRowHeight: CGFloat = 14
@@ -130,6 +133,14 @@ final class NoteCardView: NSView {
             let menu = MenuBuilder.formatMenu { [weak self] action in self?.performFormat(action) }
             self.popUp(menu, from: b)
         }
+        modeButton.symbolWeight = .medium
+        modeButton.shape = .circle
+        modeButton.onClick = { [weak self] b in
+            guard let self, let actions = self.delegate?.actions else { return }
+            self.popUp(MenuBuilder.gearMenu(for: self.currentNote, actions: actions), from: b)
+        }
+        addSubview(modeButton)
+        updateModeButtons()
         addSubview(formatButton)
         registerForDraggedTypes(PasteboardImport.attachmentTypes)
         setAccessibilityElement(true)
@@ -163,6 +174,8 @@ final class NoteCardView: NSView {
         editor?.apply(note: newNote)
         if bodyChanged || modeChanged { invalidateHeight() }
         refreshContent()
+        updateArchiveButton()
+        if modeChanged { updateModeButtons() }
         if foldChanged { foldStateChanged() }
         needsDisplay = true
     }
@@ -466,6 +479,7 @@ final class NoteCardView: NSView {
             }
             footer?.frame = .zero
             formatButton.isHidden = true
+            modeButton.isHidden = true
             foldFits = false
             updateFoldButton()
             let th = ceil(titleLabel.intrinsicContentSize.height)
@@ -491,14 +505,17 @@ final class NoteCardView: NSView {
                 && cr.maxY - Metrics.actionColumnInsetBottom - (foldFrame.maxY + 2) >= CardActionsView.minHeight
             foldButton.frame = foldFrame
             updateFoldButton()
-            // Bottom row: Aa on the left (always), the action tray on the right (hover), centered on one line.
+            // Bottom row, centered on one line: the mode button (always) then Aa (Standard notes) on the
+            // left, the action tray on the right (hover).
             let fb = CardActionsView.buttonSize
             let rowH = CardActionsView.minHeight
             let rowY = cr.maxY - Metrics.actionColumnInsetBottom - rowH
-            formatButton.isHidden = false
-            formatButton.frame = NSRect(x: cr.minX + px - 4, y: rowY + (rowH - fb) / 2, width: fb, height: fb)
+            modeButton.isHidden = false
+            modeButton.frame = NSRect(x: cr.minX + px - 4, y: rowY + (rowH - fb) / 2, width: fb, height: fb)
+            formatButton.isHidden = note.mode != .standard
+            formatButton.frame = NSRect(x: modeButton.frame.maxX + 2, y: modeButton.frame.minY, width: fb, height: fb)
             let trayRight = pf.maxX + CardActionsView.padding
-            let trayLeft = formatButton.frame.maxX + 8
+            let trayLeft = (formatButton.isHidden ? modeButton.frame.maxX : formatButton.frame.maxX) + 8
             footer?.frame = NSRect(x: trayLeft, y: rowY, width: max(0, trayRight - trayLeft), height: rowH)
             if let dateLabel {
                 // Centered on the pin, ending where the text ends.
@@ -527,7 +544,6 @@ final class NoteCardView: NSView {
         titleLabel.textColor = env.themes.cardTitle(note.color, appearance: a)
         let fs = env.themes.fontSize
         updateGlass()
-        formatButton.textFont = UIFonts.footerButton(fs)
         badge.font = UIFonts.badge(fs)
         folderLabel?.font = UIFonts.small(fs)
         let tint = colored ? env.themes.cardTitle(note.color, appearance: a).withAlphaComponent(0.8) : c.secondaryText
@@ -535,6 +551,7 @@ final class NoteCardView: NSView {
         footer?.style(tint: tint, pillFill: pillFill, pillStroke: .clear, hoverFill: c.hoverFill, pressedFill: c.pressedFill)
         dateLabel?.color = tint
         dateLabel?.font = UIFonts.footer(fs)
+        formatButton.textFont = UIFonts.footerButton(fs)
         badge.textColor = colored ? env.themes.cardTitle(note.color, appearance: a) : c.secondaryText
         badge.fill = pillFill
         badge.hoverFill = c.hoverFill
@@ -546,10 +563,12 @@ final class NoteCardView: NSView {
         expandButton.restingFill = isExpanded ? nil : pillFill
         expandButton.hoverFill = c.hoverFill
         expandButton.pressedFill = c.pressedFill
-        formatButton.tint = tint
-        formatButton.restingFill = nil
-        formatButton.hoverFill = c.hoverFill
-        formatButton.pressedFill = c.pressedFill
+        for b in [formatButton, modeButton] {
+            b.tint = tint
+            b.restingFill = nil
+            b.hoverFill = c.hoverFill
+            b.pressedFill = c.pressedFill
+        }
         foldButton.tint = tint
         foldButton.restingFill = pillFill
         foldButton.hoverFill = c.hoverFill
@@ -836,14 +855,24 @@ final class NoteCardView: NSView {
             guard let self, let actions = self.delegate?.actions else { return }
             actions.copyText(self.note.id)
         }
-        footer.gearButton.onClick = { [weak self] b in
+        footer.archiveButton.onClick = { [weak self] _ in
             guard let self, let actions = self.delegate?.actions else { return }
-            self.popUp(MenuBuilder.gearMenu(for: self.currentNote, actions: actions), from: b)
+            actions.toggleArchive(self.note.id)
         }
+        updateArchiveButton()
         footer.trashButton.onClick = { [weak self] _ in
             guard let self, let actions = self.delegate?.actions else { return }
-            actions.delete(self.note.id, confirm: false)
+            actions.delete(self.note.id)
         }
+    }
+
+    /// Archive, or Unarchive on an archived note.
+    func updateArchiveButton() {
+        guard let b = footer?.archiveButton else { return }
+        let archived = note.isArchived
+        b.symbolName = archived ? "tray.and.arrow.up" : "archivebox"
+        b.toolTip = archived ? "Unarchive (⌥⌘A)" : "Archive (⌥⌘A)"
+        b.setAccessibilityLabel(archived ? "Unarchive note" : "Archive note")
     }
 
     /// "…" menu: the actions that do not fit in the column of a short card.
@@ -857,17 +886,17 @@ final class NoteCardView: NSView {
                     guard let self else { return }
                     self.delegate?.actions.copyText(self.note.id)
                 })
-            case .colorAndMode:
-                guard let actions = delegate?.actions else { continue }
-                let item = NSMenuItem(title: "Color & Mode", action: nil, keyEquivalent: "")
-                item.image = Symbols.image("gearshape", size: 13)
-                item.submenu = MenuBuilder.gearMenu(for: currentNote, actions: actions)
-                m.addItem(item)
+            case .archive:
+                let archived = note.isArchived
+                m.addItem(ClosureMenuItem(archived ? "Unarchive" : "Archive", key: "", symbol: archived ? "tray.and.arrow.up" : "archivebox") { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.actions.toggleArchive(self.note.id)
+                })
             case .delete:
                 m.addItem(.separator())
                 m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { [weak self] in
                     guard let self else { return }
-                    self.delegate?.actions.delete(self.note.id, confirm: false)
+                    self.delegate?.actions.delete(self.note.id)
                 })
             }
         }
@@ -876,6 +905,28 @@ final class NoteCardView: NSView {
 
     /// The freshest copy of the note (the store may be ahead of `note` while typing).
     var currentNote: Note { env.store.note(id: note.id) ?? note }
+
+    /// Mode button symbol: Standard ¶, Code { }, Plain ≡.
+    static func modeSymbol(for mode: NoteMode) -> String {
+        switch mode {
+        case .standard: "paragraphsign"
+        case .code: "curlybraces"
+        case .plain: "text.alignleft"
+        }
+    }
+
+    var modeButtonSymbolForChecks: String { modeButton.symbolName }
+    var isFormatButtonShown: Bool { !formatButton.isHidden }
+
+    /// Aa only for Standard notes (Code and Plain have no markdown formatting); the mode button shows
+    /// the mode and opens Color & Mode.
+    private func updateModeButtons() {
+        modeButton.symbolName = Self.modeSymbol(for: note.mode)
+        let label = "Color & Mode: \(note.mode.displayName)"
+        modeButton.toolTip = label
+        modeButton.setAccessibilityLabel(label)
+        needsLayout = true
+    }
 
     func performFormat(_ action: FormatAction) {
         guard !isFolded else { return }

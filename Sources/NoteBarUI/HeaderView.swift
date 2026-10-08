@@ -38,6 +38,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     private(set) var isSearching = false
     private var showsBack = false
     private var showsSettings = false
+    private var showsPlus = true
     private var title = "NoteBar"
     private var titleIsAccent = false
     private var springTimer: Timer?
@@ -91,11 +92,13 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     // MARK: State
 
-    func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, plusToolTip: String) {
+    func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, showsPlus: Bool = true,
+                  plusToolTip: String) {
         self.title = title
         self.titleIsAccent = accent
         self.showsBack = showsBack
         self.showsSettings = showsSettings
+        self.showsPlus = showsPlus
         plusButton.toolTip = plusToolTip
         plusButton.setAccessibilityLabel(plusToolTip)
         update()
@@ -133,7 +136,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         backButton.isHidden = isSearching || !showsBack
         settingsButton.isHidden = isSearching || !showsSettings
         searchButton.isHidden = isSearching
-        plusButton.isHidden = isSearching
+        plusButton.isHidden = isSearching || !showsPlus
         searchField.isHidden = !isSearching
         closeSearchButton.isHidden = !isSearching
         restyle()
@@ -172,7 +175,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         let y = (h - s) / 2
         backButton.frame = NSRect(x: 8, y: y, width: s, height: s)
         plusButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
-        searchButton.frame = NSRect(x: plusButton.frame.minX - 6 - s, y: y, width: s, height: s)
+        // Without the + button (archive), search takes its place at the right end.
+        searchButton.frame = NSRect(x: showsPlus ? plusButton.frame.minX - 6 - s : w - 8 - s, y: y, width: s, height: s)
         settingsButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
         let titleX: CGFloat = showsBack ? backButton.frame.maxX + 8 : 16
         let th = ceil(titleLabel.intrinsicContentSize.height)

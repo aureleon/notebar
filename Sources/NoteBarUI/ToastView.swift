@@ -89,6 +89,9 @@ final class ToastView: NSView {
         if expired { expire?() }
     }
 
+    var messageForChecks: String { label.stringValue }
+    func fireActionForChecks() { fireAction() }
+
     private func fireAction() {
         let action = onAction
         onExpire = nil

@@ -98,6 +98,21 @@ final class NoteActions {
         root?.toggleExpand(id)
     }
 
+    // MARK: Archive
+
+    /// Archives / unarchives with undo. UI entry points use `toggleArchive` (it also shows a toast).
+    func setArchived(_ archived: Bool, id: NoteID) {
+        guard let n = store.note(id: id), n.isArchived != archived else { return }
+        if archived { store.archiveNote(id: id) } else { store.unarchiveNote(id: id) }
+        registerUndo(archived ? "Archive" : "Unarchive") { $0.setArchived(!archived, id: id) }
+    }
+
+    /// Card button, ⌥⌘A, `ga`, menus.
+    func toggleArchive(_ id: NoteID) {
+        guard let n = store.note(id: id) else { return }
+        if let root { root.setArchived(!n.isArchived, id: id) } else { setArchived(!n.isArchived, id: id) }
+    }
+
     func togglePin(_ id: NoteID) {
         guard var n = store.note(id: id) else { return }
         n.isPinned.toggle()
@@ -171,7 +186,7 @@ final class NoteActions {
 
     /// Creates a folder, moves the note there and starts renaming the new folder.
     func moveToNewFolder(_ id: NoteID) {
-        guard let note = store.note(id: id),
+        guard let note = store.note(id: id), !note.isArchived,
               let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         let folder = store.createFolder(name: uniqueFolderName("New Folder", in: store))
         store.moveNote(id: id, toFolder: folder.id, position: .top)
@@ -184,17 +199,16 @@ final class NoteActions {
 
     // MARK: Delete
 
-    func delete(_ id: NoteID, confirm: Bool) {
+    /// Every delete asks first (keys, card button, menus); the note goes to the trash with undo.
+    func delete(_ id: NoteID) {
         guard let note = store.note(id: id) else { return }
-        if confirm {
-            let alert = NSAlert()
-            let title = note.title.isEmpty ? "this note" : "“\(note.title.prefix(60))”"
-            alert.messageText = "Delete \(title)?"
-            alert.informativeText = "You can undo this."
-            alert.addButton(withTitle: "Delete").hasDestructiveAction = true
-            alert.addButton(withTitle: "Cancel")
-            guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
-        }
+        let alert = NSAlert()
+        let title = note.title.isEmpty ? "this note" : "“\(note.title.prefix(60))”"
+        alert.messageText = "Delete \(title)?"
+        alert.informativeText = "You can undo this."
+        alert.addButton(withTitle: "Delete").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
         root?.softDelete(id)
     }
 
@@ -276,13 +290,26 @@ final class NoteActions {
 extension NoteActions {
     // MARK: Recently Deleted
 
-    /// Delete Now (Recently Deleted menu): gone for good, no undo.
+    /// Delete Now (Recently Deleted menu): gone for good, no undo, after an alert.
     func deleteForGood(note id: NoteID) {
+        guard let n = store.trashedNotes().first(where: { $0.id == id }) else { return }
+        guard confirmDeleteForGood(n.title.isEmpty ? "this note" : "“\(n.title.prefix(60))”") else { return }
         store.deleteNote(id: id)
     }
 
     func deleteForGood(folder id: FolderID) {
+        guard let f = store.trashedFolders().first(where: { $0.id == id }) else { return }
+        guard confirmDeleteForGood("the folder “\(f.name)” and its notes") else { return }
         store.deleteFolder(id: id)
+    }
+
+    private func confirmDeleteForGood(_ what: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Delete \(what) for good?"
+        alert.informativeText = "This cannot be undone."
+        alert.addButton(withTitle: "Delete").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        return confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn)
     }
 
     /// Empty Recently Deleted (after a confirmation).

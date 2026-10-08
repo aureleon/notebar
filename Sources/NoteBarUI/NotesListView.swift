@@ -115,8 +115,9 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     /// Diffs the displayed cards against `notes`: inserts / removes / reorders card views and keeps
     /// the existing editors.
+    /// `marksArchived`: archived cards add "· Archived" to their folder name (search results).
     func setNotes(_ notes: [Note], animated: Bool, folderNames: [FolderID: String]? = nil,
-                  forceUnfolded: Bool = false, query: String = "") {
+                  forceUnfolded: Bool = false, query: String = "", marksArchived: Bool = true) {
         var old = cardsByID
         var newCards: [NoteCardView] = []
         var inserted: [NoteCardView] = []
@@ -134,7 +135,7 @@ final class NotesListView: NSView, NoteCardDelegate {
                 inserted.append(card)
             }
             card.forceUnfolded = forceUnfolded
-            card.folderName = folderNames?[n.folderId]
+            card.folderName = folderNames?[n.folderId].map { n.isArchived && marksArchived ? "\($0) · Archived" : $0 }
             card.searchQuery = query
             newCards.append(card)
         }
@@ -162,7 +163,7 @@ final class NotesListView: NSView, NoteCardDelegate {
     /// Everything but the body / date is equal.
     static func sameMetadata(_ a: Note, _ b: Note) -> Bool {
         a.color == b.color && a.mode == b.mode && a.isFolded == b.isFolded && a.isPinned == b.isPinned
-            && a.folderId == b.folderId && a.sortIndex == b.sortIndex
+            && a.folderId == b.folderId && a.sortIndex == b.sortIndex && a.archivedAt == b.archivedAt
     }
 
     func noteChanged(_ note: Note) { cardsByID[note.id]?.update(note: note) }

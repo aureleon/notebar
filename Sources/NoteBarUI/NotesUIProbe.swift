@@ -175,6 +175,7 @@ public final class NotesUIProbe {
     public func moveByKeyboard(_ id: NoteID, up: Bool) { root.actions.move(id, up ? .up : .down) }
     // Panel actions (undoable) and the panel undo history.
     public func setColor(_ c: NoteColor, of id: NoteID) { root.actions.setColor(c, for: id) }
+    public func setMode(_ m: NoteMode, of id: NoteID) { root.actions.setMode(m, for: id) }
     public func togglePin(_ id: NoteID) { root.actions.togglePin(id) }
     public func setFolded(_ f: Bool, _ id: NoteID) { root.actions.setFolded(f, id: id) }
     public func moveToFolder(_ id: NoteID, _ fid: FolderID) { root.actions.move(id, toFolder: fid) }
@@ -186,6 +187,32 @@ public final class NotesUIProbe {
     public var undoActionName: String { root.panelUndo.undoActionName }
     public func deleteFolder(_ id: FolderID) { root.actions.deleteFolder(id) }
     /// The Recently Deleted row's count (nil = hidden).
+    public var selectedSpecialRow: String? {
+        root.folderList.selectedSpecial.map { $0 == .archive ? "archive" : "trash" }
+    }
+    public var archiveRowCount: Int? { root.folderList.archiveRow == nil ? nil : root.folderList.archiveCount }
+    public func clickArchiveRow() { _ = root.folderList.archiveRow?.accessibilityPerformPress() }
+    public func modeButtonSymbol(_ id: NoteID) -> String? { list.card(for: id)?.modeButtonSymbolForChecks }
+    public func isFormatButtonShown(_ id: NoteID) -> Bool { list.card(for: id)?.isFormatButtonShown ?? false }
+    public func modeButtonFrame(of id: NoteID) -> NSRect? {
+        guard let card = list.card(for: id), let f = card.modeButtonFrame else { return nil }
+        return card.convert(f, to: root.view)
+    }
+    public func clickTrashButton(_ id: NoteID) {
+        guard let b = list.card(for: id)?.footer?.trashButton else { Check.expect(false, "no trash button"); return }
+        b.onClick?(b)
+    }
+    public func clickArchiveButton(_ id: NoteID) {
+        guard let b = list.card(for: id)?.footer?.archiveButton else { Check.expect(false, "no archive button"); return }
+        b.onClick?(b)
+    }
+    public func archiveButtonToolTip(_ id: NoteID) -> String? { list.card(for: id)?.footer?.archiveButton.toolTip }
+    public var isPlusButtonVisible: Bool { !root.header.plusButton.isHidden }
+    public var toastMessage: String? { root.toast.isShowing ? root.toast.messageForChecks : nil }
+    public func tapToastAction() { root.toast.fireActionForChecks() }
+    public func setSearchIncludesArchive(_ on: Bool) { root.scopeBar.archiveChip.isOn = on; root.setSearchIncludesArchive(on) }
+    public var isArchiveChipVisible: Bool { root.search != nil && !root.scopeBar.archiveChip.isHidden }
+    public func cardFolderLabel(_ id: NoteID) -> String? { list.card(for: id)?.folderName }
     public var trashRowCount: Int? { root.folderList.trashRow == nil ? nil : root.folderList.trashCount }
     /// Titles of the trash menu (top level), and running one of its item actions:
     /// `trashMenuRun("Shopping", "Restore")`, `trashMenuRun("Empty Recently Deleted…")`.
@@ -286,6 +313,7 @@ extension NotesRootViewController {
         switch screen {
         case .folders: return "NoteBar"
         case .folder(let id): return store.folder(id: id)?.name ?? "Notes"
+        case .archive: return "Archive"
         }
     }
 }

@@ -12,6 +12,8 @@ protocol FolderListDelegate: AnyObject {
     func folderListDidEndRename(_ list: FolderListView, hadFocus: Bool)
     /// Click on the Recently Deleted row.
     func folderListOpenTrash(_ list: FolderListView, from row: NSView)
+    /// Click on the Archive row.
+    func folderListOpenArchive(_ list: FolderListView)
 }
 
 /// Root view: the folder list (icon, name, pin mark, note count) inside one rounded group.
@@ -25,14 +27,30 @@ final class FolderListView: NSView {
     private(set) var rows: [FolderRowView] = []
     /// See NotesListView.hoverSuppressed.
     var hoverSuppressed = false { didSet { if oldValue != hoverSuppressed { rows.forEach { $0.hoverSuppressed = hoverSuppressed } } } }
-    var selectedFolderID: FolderID? { didSet { if oldValue != selectedFolderID { updateRowStates() } } }
+    var selectedFolderID: FolderID? {
+        didSet {
+            if selectedFolderID != nil { selectedSpecial = nil }
+            if oldValue != selectedFolderID { updateRowStates() }
+        }
+    }
+    /// Keyboard selection on the Archive / Recently Deleted row (instead of a folder).
+    var selectedSpecial: SpecialRowView.Kind? {
+        didSet {
+            if selectedSpecial != nil, selectedFolderID != nil { selectedFolderID = nil }
+            if oldValue != selectedSpecial { updateRowStates() }
+        }
+    }
+    var hasSelection: Bool { selectedFolderID != nil || selectedSpecial != nil }
     /// Shows the keyboard selection ring (the list has keyboard focus).
     var showsSelection = false { didSet { if oldValue != showsSelection { updateRowStates() } } }
     private(set) var renamingFolderID: FolderID?
     private var pendingReload = false
-    /// Number of items in Recently Deleted; nil hides the row (only shown with that setting).
+    /// Number of items in Recently Deleted; nil hides the row.
     var trashCount: Int? { didSet { if oldValue != trashCount { updateTrashRow() } } }
-    private(set) var trashRow: TrashRowView?
+    private(set) var trashRow: SpecialRowView?
+    /// Number of archived notes; nil hides the Archive row.
+    var archiveCount: Int? { didSet { if oldValue != archiveCount { updateArchiveRow() } } }
+    private(set) var archiveRow: SpecialRowView?
 
     var topInset: CGFloat = 0 { didSet { scrollView.contentInsets.top = topInset; needsLayout = true } }
 
@@ -95,27 +113,48 @@ final class FolderListView: NSView {
 
     // MARK: Selection / keyboard
 
+    /// The keyboard goes through the folders, then Archive and Recently Deleted.
+    private enum Item: Equatable { case folder(FolderID), special(SpecialRowView.Kind) }
+
+    private var items: [Item] { folderIDs.map(Item.folder) + specialRows.map { .special($0.kind) } }
+
+    private var selectedItem: Item? {
+        get { selectedFolderID.map(Item.folder) ?? selectedSpecial.map(Item.special) }
+        set {
+            switch newValue {
+            case .folder(let id)?: selectedFolderID = id
+            case .special(let k)?: selectedSpecial = k
+            case nil: selectedFolderID = nil; selectedSpecial = nil
+            }
+        }
+    }
+
     func moveSelection(_ delta: Int) {
-        guard !rows.isEmpty else { return }
-        let ids = folderIDs
-        if let sel = selectedFolderID, let i = ids.firstIndex(of: sel) {
-            selectedFolderID = ids[max(0, min(ids.count - 1, i + delta))]
+        let all = items
+        guard !all.isEmpty else { return }
+        if let sel = selectedItem, let i = all.firstIndex(of: sel) {
+            selectedItem = all[max(0, min(all.count - 1, i + delta))]
         } else {
-            selectedFolderID = delta >= 0 ? ids.first : ids.last
+            selectedItem = delta >= 0 ? all.first : all.last
         }
         if let sel = selectedFolderID, let r = row(for: sel) { scrollToVisible(r) }
+        if let k = selectedSpecial, let r = specialRow(k) { scrollToVisible(r) }
     }
 
     func openSelected() {
+        if let k = selectedSpecial, let r = specialRow(k) { r.onClick?(r); return }
         guard let sel = selectedFolderID else { return }
         delegate?.folderList(self, open: sel)
     }
 
+    func specialRow(_ kind: SpecialRowView.Kind) -> SpecialRowView? { kind == .archive ? archiveRow : trashRow }
+
     private func updateRowStates() {
         for r in rows { r.isSelected = showsSelection && r.folder.id == selectedFolderID }
+        for r in specialRows { r.isSelected = showsSelection && r.kind == selectedSpecial }
     }
 
-    func scrollToVisible(_ row: FolderRowView) {
+    func scrollToVisible(_ row: NSView) {
         let clip = scrollView.contentView
         let visible = clip.bounds
         let top = visible.minY + topInset
@@ -158,7 +197,7 @@ final class FolderListView: NSView {
     private func updateTrashRow() {
         if let n = trashCount {
             let row = trashRow ?? {
-                let r = TrashRowView(env: env)
+                let r = SpecialRowView(env: env, kind: .trash)
                 r.onClick = { [weak self] v in
                     guard let self else { return }
                     self.delegate?.folderListOpenTrash(self, from: v)
@@ -171,13 +210,44 @@ final class FolderListView: NSView {
         } else {
             trashRow?.removeFromSuperview()
             trashRow = nil
+            if selectedSpecial == .trash { selectedSpecial = nil }
         }
+        updateSpecialSeparators()
         needsLayout = true
+    }
+
+    private func updateArchiveRow() {
+        if let n = archiveCount {
+            let row = archiveRow ?? {
+                let r = SpecialRowView(env: env, kind: .archive)
+                r.onClick = { [weak self] _ in
+                    guard let self else { return }
+                    self.delegate?.folderListOpenArchive(self)
+                }
+                doc.addSubview(r)
+                archiveRow = r
+                return r
+            }()
+            row.count = n
+        } else {
+            archiveRow?.removeFromSuperview()
+            archiveRow = nil
+            if selectedSpecial == .archive { selectedSpecial = nil }
+        }
+        updateSpecialSeparators()
+        needsLayout = true
+    }
+
+    /// Archive then Recently Deleted, below the folders. The first one draws the separator line.
+    private var specialRows: [SpecialRowView] { [archiveRow, trashRow].compactMap { $0 } }
+
+    private func updateSpecialSeparators() {
+        for (i, r) in specialRows.enumerated() { r.drawsTopSeparator = i == 0 }
     }
 
     func restyle() {
         for r in rows { r.restyle() }
-        trashRow?.restyle()
+        for r in specialRows { r.restyle() }
         doc.updateGlass()
         doc.needsDisplay = true
     }
@@ -199,8 +269,8 @@ final class FolderListView: NSView {
             r.frame = NSRect(x: m + pad, y: y, width: max(0, w - 2 * (m + pad)), height: Metrics.folderRowHeight)
             y += Metrics.folderRowHeight
         }
-        if let trashRow {
-            trashRow.frame = NSRect(x: m + pad, y: y, width: max(0, w - 2 * (m + pad)), height: Metrics.folderRowHeight)
+        for r in specialRows {
+            r.frame = NSRect(x: m + pad, y: y, width: max(0, w - 2 * (m + pad)), height: Metrics.folderRowHeight)
             y += Metrics.folderRowHeight
         }
         let groupHeight = y + pad
@@ -627,11 +697,18 @@ final class DropIndicatorView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// "Recently Deleted" at the end of the folder list (Keep deleted items = Recently Deleted). A click
-/// opens the trash menu (Restore / Delete Now per item, Empty).
+/// "Archive" and "Recently Deleted" at the end of the folder list. Archive opens the archived notes;
+/// Recently Deleted opens the trash menu (Restore / Delete Now per item, Empty).
 @MainActor
-final class TrashRowView: NSView {
+final class SpecialRowView: NSView {
+    enum Kind { case archive, trash }
+
+    let kind: Kind
     private let env: AppEnvironment
+    /// The first special row draws a line above itself (between the folders and these rows).
+    var drawsTopSeparator = false { didSet { if oldValue != drawsTopSeparator { needsDisplay = true } } }
+    /// Keyboard selection (the folder list has focus).
+    var isSelected = false { didSet { if oldValue != isSelected { needsDisplay = true } } }
     private let icon = NSImageView()
     private let nameLabel = PassthroughLabel()
     private let countLabel = PassthroughLabel()
@@ -641,21 +718,25 @@ final class TrashRowView: NSView {
     var count = 0 {
         didSet {
             countLabel.stringValue = "\(count)"
-            setAccessibilityLabel("Recently Deleted, \(count) \(count == 1 ? "item" : "items")")
+            let noun = kind == .archive ? (count == 1 ? "note" : "notes") : (count == 1 ? "item" : "items")
+            setAccessibilityLabel("\(Self.title(kind)), \(count) \(noun)")
             needsLayout = true
         }
     }
 
-    init(env: AppEnvironment) {
+    static func title(_ kind: Kind) -> String { kind == .archive ? "Archive" : "Recently Deleted" }
+
+    init(env: AppEnvironment, kind: Kind) {
         self.env = env
+        self.kind = kind
         super.init(frame: .zero)
         icon.imageScaling = .scaleProportionallyDown
         icon.unregisterDraggedTypes()
-        nameLabel.stringValue = "Recently Deleted"
+        nameLabel.stringValue = Self.title(kind)
         countLabel.alignment = .right
         for v in [icon, nameLabel, countLabel] as [NSView] { addSubview(v) }
         setAccessibilityRole(.button)
-        toolTip = "Deleted notes and folders"
+        toolTip = kind == .archive ? "Archived notes" : "Deleted notes and folders"
         restyle()
     }
 
@@ -668,7 +749,7 @@ final class TrashRowView: NSView {
         let c = env.themes.ui(effectiveAppearance)
         nameLabel.font = UIFonts.folderName(env.themes.fontSize)
         countLabel.font = UIFonts.folderCount(env.themes.fontSize)
-        icon.image = Symbols.image("trash", size: 13, weight: .regular)
+        icon.image = Symbols.image(kind == .archive ? "archivebox" : "trash", size: 13, weight: .regular)
         icon.contentTintColor = c.secondaryText
         nameLabel.textColor = c.secondaryText
         countLabel.textColor = c.secondaryText
@@ -691,9 +772,17 @@ final class TrashRowView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        guard hovering else { return }
-        env.themes.ui(effectiveAppearance).hoverFill.setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 8, yRadius: 8).fill()
+        let c = env.themes.ui(effectiveAppearance)
+        if drawsTopSeparator {
+            c.hairline.setFill()
+            NSRect(x: 8, y: 0, width: max(0, bounds.width - 16), height: 1).fill()
+        }
+        let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0, dy: 1), xRadius: 8, yRadius: 8)
+        if isSelected {
+            c.accent.withAlphaComponent(c.isDark ? 0.28 : 0.18).setFill(); p.fill()
+        } else if hovering {
+            c.hoverFill.setFill(); p.fill()
+        }
     }
 
     override func updateTrackingAreas() {

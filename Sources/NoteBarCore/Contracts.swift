@@ -30,7 +30,7 @@ public enum VimMode: String, Sendable {
 public enum VimCardCommand: Equatable, Sendable {
     /// `gp`, `:pin`.
     case togglePin
-    /// `za`, Tab in Normal mode.
+    /// `za`.
     case toggleFold
     /// `:fold` / `:unfold`.
     case setFolded(Bool)
@@ -50,8 +50,12 @@ public enum VimCardCommand: Equatable, Sendable {
     case showFormatMenu
     /// `ge`: expand the card to the panel height / collapse it again (like ⇧⌘E).
     case toggleExpand
-    /// `gx`, `:delete`: delete with the undo toast.
+    /// `gx`, `:delete`: delete (after the alert) with the undo toast.
     case delete
+    /// `ga`: archive / unarchive (like ⌥⌘A).
+    case toggleArchive
+    /// `:archive` / `:unarchive`.
+    case setArchived(Bool)
     /// `:q`, `:wq`, `:x`: stop editing, keep the card selected.
     case quit
     /// ⌃W J / ⌃W K.

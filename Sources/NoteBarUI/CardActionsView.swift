@@ -1,20 +1,20 @@
 import AppKit
 import NoteBarCore
 
-/// The card's action tray in the bottom-right corner: copy · gear · trash, left to right, in a rounded
-/// tray that hugs the right end of the view. (Aa is on the card's bottom-left, in the same row.)
+/// The card's action tray in the bottom-right corner: copy · archive · trash, left to right, in a rounded
+/// tray that hugs the right end of the view. (Aa and Color & Mode are on the card's bottom-left, in the same row.)
 /// When the card is too narrow for all three, the last slot that fits becomes a "…" button with the rest in a menu (`hiddenActions`).
 /// Shown on hover / focus, like the date.
 @MainActor
 final class CardActionsView: NSView {
-    enum Action: CaseIterable { case copy, colorAndMode, delete }
+    enum Action: CaseIterable { case copy, archive, delete }
 
     let copyButton = IconButton(symbol: "doc.on.doc", size: 11, toolTip: "Copy Note Text")
-    let gearButton = IconButton(symbol: "gearshape", size: 11, toolTip: "Color & Mode")
+    let archiveButton = IconButton(symbol: "archivebox", size: 11, toolTip: "Archive (⌥⌘A)")
     let trashButton = IconButton(symbol: "trash", size: 11, toolTip: "Delete Note")
     let moreButton = IconButton(symbol: "ellipsis", size: 11, toolTip: "More")
     private let pill = PillView()
-    private var actionButtons: [IconButton] { [copyButton, gearButton, trashButton] }
+    private var actionButtons: [IconButton] { [copyButton, archiveButton, trashButton] }
     /// Actions that do not fit and are in the "…" menu. Set by `layout`.
     private(set) var hiddenActions: [Action] = []
 

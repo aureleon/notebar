@@ -27,7 +27,7 @@ final class ClosureMenuItem: NSMenuItem {
     }
 }
 
-/// A menu item view with a row of color circles (gear menu / Color submenu).
+/// A menu item view with a row of color circles (Color & Mode menu / Color submenu).
 final class ColorRowView: NSView {
     private let colors = NoteColor.allCases
     private let current: NoteColor
@@ -142,7 +142,7 @@ enum MenuBuilder {
         }
     }
 
-    /// Gear button: color circles, then the note mode.
+    /// Color & Mode button (and `gc`): color circles, then the note mode.
     static func gearMenu(for note: Note, actions: NoteActions) -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
@@ -291,14 +291,17 @@ enum MenuBuilder {
         for item in modeItems(current: note.mode, onPick: { actions.setMode($0, for: note.id) }) { modes.addItem(item) }
         modeItem.submenu = modes
         m.addItem(modeItem)
-        let moveItem = NSMenuItem(title: "Move", action: nil, keyEquivalent: "")
-        moveItem.image = Symbols.image("arrow.up.and.down.and.arrow.left.and.right", size: 13)
-        moveItem.submenu = moveMenu(for: note, actions: actions)
-        m.addItem(moveItem)
+        if !note.isArchived {
+            // Archived notes are not moved (unarchive first).
+            let moveItem = NSMenuItem(title: "Move", action: nil, keyEquivalent: "")
+            moveItem.image = Symbols.image("arrow.up.and.down.and.arrow.left.and.right", size: 13)
+            moveItem.submenu = moveMenu(for: note, actions: actions)
+            m.addItem(moveItem)
+        }
         m.addItem(.separator())
         m.addItem(ClosureMenuItem("Copy Text", key: "", symbol: "doc.on.doc") { actions.copyText(note.id) })
         m.addItem(.separator())
-        m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { actions.delete(note.id, confirm: false) })
+        m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { actions.delete(note.id) })
         return m
     }
 

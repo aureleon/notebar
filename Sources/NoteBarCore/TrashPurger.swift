@@ -6,14 +6,14 @@ public enum DeletedItemsRetention: String, CaseIterable, Codable, Sendable {
     case untilQuit
     /// One hour after the delete.
     case oneHour
-    /// 30 days, listed in the "Recently Deleted" row of the folder list.
+    /// 30 days. (Every setting lists the trash in the "Recently Deleted" row of the folder list.)
     case recentlyDeleted
 
     public var displayName: String {
         switch self {
         case .untilQuit: "Until NoteBar quits"
         case .oneHour: "For 1 hour"
-        case .recentlyDeleted: "In Recently Deleted (\(TrashPurger.recentlyDeletedDays) days)"
+        case .recentlyDeleted: "For \(TrashPurger.recentlyDeletedDays) days"
         }
     }
 
