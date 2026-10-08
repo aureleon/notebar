@@ -108,7 +108,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
         env?.presenter?.panelWillHide() // ends inline renames, hides the delete toast
         database.flush()
         guard database.hasPendingChanges, database.writeFailing || database.lastError != nil else { return .terminateNow }
-        NSApp.activate()
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.messageText = "Some changes are not saved"
@@ -121,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
             """
         alert.addButton(withTitle: "Don't Quit")
         alert.addButton(withTitle: "Quit Anyway")
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        return ModalSupport.run(alert) == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -184,8 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
                 The menu bar icon shows a dot until saving works again. Do not quit NoteBar until then.
                 """
             alert.addButton(withTitle: "OK")
-            NSApp.activate()
-            alert.runModal()
+            ModalSupport.run(alert)
         }
     }
 
@@ -207,7 +205,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
             """
         alert.addButton(withTitle: "Quit")
         alert.addButton(withTitle: "Show Data Folder and Quit")
-        if alert.runModal() == .alertSecondButtonReturn {
+        if ModalSupport.run(alert) == .alertSecondButtonReturn {
             NSWorkspace.shared.activateFileViewerSelecting([AppPaths.supportDirectory])
         }
         exit(1)

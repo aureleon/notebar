@@ -46,7 +46,7 @@ public final class SettingsModels {
         if let window, window.isVisible {
             alert.beginSheetModal(for: window) { completion?($0) }
         } else {
-            let r = alert.runModal()
+            let r = ModalSupport.run(alert)
             completion?(r)
         }
     }

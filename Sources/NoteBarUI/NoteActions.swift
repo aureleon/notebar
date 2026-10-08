@@ -298,30 +298,3 @@ extension NoteActions {
         store.purgeTrash(deletedBefore: .distantFuture)
     }
 }
-
-/// Runs alerts / save panels from the non-activating panel: activates the app, keeps the dialog above
-/// the panel, and suspends auto-hide while it is open.
-@MainActor
-enum ModalSupport {
-    static let suspendAutoHide = Notification.Name("NoteBar.suspendAutoHide")
-
-    static func suspend(_ active: Bool) {
-        NotificationCenter.default.post(name: suspendAutoHide, object: nil, userInfo: ["active": active])
-    }
-
-    static func run(_ alert: NSAlert) -> NSApplication.ModalResponse {
-        suspend(true)
-        defer { suspend(false) }
-        NSApp.activate()
-        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        return alert.runModal()
-    }
-
-    static func run(_ panel: NSSavePanel) -> NSApplication.ModalResponse {
-        suspend(true)
-        defer { suspend(false) }
-        NSApp.activate()
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        return panel.runModal()
-    }
-}

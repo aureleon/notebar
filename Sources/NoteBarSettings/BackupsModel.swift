@@ -140,7 +140,7 @@ final class BackupsModel: ObservableObject {
             MainActor.assumeIsolated { self?.export(into: url) }
         }
         if let w = models.window, w.isVisible { panel.beginSheetModal(for: w, completionHandler: handle) }
-        else { handle(panel.runModal()) }
+        else { handle(ModalSupport.run(panel)) }
     }
 
     private func export(into parent: URL) {
