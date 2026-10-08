@@ -12,6 +12,8 @@ final class NoteBarPanelWindow: NSPanel {
     var onClose: (() -> Void)?
     /// ⌘,
     var onOpenSettings: (() -> Void)?
+    /// ⌥⇧⌘N.
+    var onToggleFloat: (() -> Void)?
 
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: PanelWidth.fallback, height: 600),
@@ -79,6 +81,8 @@ final class NoteBarPanelWindow: NSPanel {
             onClose?(); return true
         case ([.command], ","):
             onOpenSettings?(); return true
+        case ([.command, .shift, .option], "n"):
+            onToggleFloat?(); return true
         default: break
         }
         if let selector { return NSApp.sendAction(selector, to: nil, from: self) }

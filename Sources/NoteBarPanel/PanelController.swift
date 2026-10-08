@@ -49,6 +49,7 @@ public final class PanelController {
         window.onEscape = { [weak self] in self?.hide() }
         window.onClose = { [weak self] in self?.hide() }
         window.onOpenSettings = { [weak self] in self?.env.controller?.openSettings() }
+        window.onToggleFloat = { [weak self] in self?.env.controller?.toggleFloatPanel() }
 
         container.side = env.settings.panelSide
         container.resizeHandle.onResize = { [weak self] proposed in
@@ -70,6 +71,7 @@ public final class PanelController {
 
         autoHide.onFocusChange = { [weak self] focused in
             if focused { self?.passive.stop() }
+            self?.env.presenter?.panelFocusChanged(focused)
         }
         passive.isEngaged = { [weak self] in self?.autoHide.panelHasFocus ?? true }
         passive.mayHide = { [weak self] in self?.autoHide.isEnabled ?? false }
@@ -93,7 +95,8 @@ public final class PanelController {
 
     // MARK: Show / hide
 
-    public func show(animated: Bool = true) { show(on: nil, animated: animated) }
+    public func show(animated: Bool = true) { show(on: nil, animated: animated, makeKey: true) }
+    public func show(animated: Bool = true, makeKey: Bool = true) { show(on: nil, animated: animated, makeKey: makeKey) }
 
     /// Shows the panel on `screen` (default: the screen with the cursor). If it is already visible on
     /// another screen it moves there.
@@ -134,14 +137,16 @@ public final class PanelController {
         setFrame(g.shownFrame, alpha: 1, duration: fade, timing: .easeOut)
 
         if !wasVisible {
-            env.presenter?.panelDidShow()
+            env.presenter?.panelDidShow(focused: makeKey)
             autoHide.panelDidShow(focused: makeKey)
             if !makeKey { passive.start() }
             notifyVisibility(true)
         } else if makeKey {
             autoHide.noteFocusGained()
+            env.presenter?.panelFocusChanged(true)
         } else if !autoHide.panelHasFocus {
             passive.start()
+            env.presenter?.panelFocusChanged(false)
         }
     }
 

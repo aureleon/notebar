@@ -31,6 +31,10 @@ MainActor.assumeIsolated {
     Check.equal(s.folders().map(\.id), [f.id, f2.id], "folder reorder stays below pinned")
     Check.equal(s.search("TWO", in: nil).map(\.id), [n2.id], "search")
     Check.equal(KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option).displayString, "⌥⌘N")
+    Check.equal(HotkeyAction.defaults[.toggleFloatPanel]?.displayString, "⌥⇧⌘N", "float panel default hotkey")
+    Check.equal(HotkeyAction.defaults[.toggleFloatPanel]?.menuKeyEquivalent, "n", "menu key equivalent")
+    Check.expect(HotkeyAction.defaults[.toggleFloatPanel]?.modifierFlags == [.command, .option, .shift], "menu modifiers")
+    Check.equal(HotkeyAction.toggleFloatPanel.displayName, "Float / Stay Open", "display name")
 
     let testDefaults = UserDefaults(suiteName: "local.dhguz.NoteBar.testSettings")!
     testDefaults.removePersistentDomain(forName: "local.dhguz.NoteBar.testSettings")

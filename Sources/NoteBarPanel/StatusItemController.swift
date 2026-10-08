@@ -101,7 +101,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         menu.addItem(search)
         menu.addItem(.separator())
 
-        menu.addItem(ClosureMenuItem("Keep Panel Open", state: s.pinnedOpen ? .on : .off) { s.pinnedOpen.toggle() })
+        let floatItem = ClosureMenuItem("Float / Stay Open", state: s.pinnedOpen ? .on : .off) { [weak self] in
+            self?.env.controller?.toggleFloatPanel()
+        }
+        floatItem.nbShowHotkey(s.hotkeys[.toggleFloatPanel])
+        menu.addItem(floatItem)
         let sideTitle = s.panelSide == .right ? "Move to Left Side" : "Move to Right Side"
         menu.addItem(ClosureMenuItem(sideTitle) { s.panelSide = s.panelSide.opposite })
 

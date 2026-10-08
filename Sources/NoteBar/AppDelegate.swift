@@ -235,6 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
             panel.show()
             if root.createNote(fromPasteboard: .general) == nil { NSSound.beep() }
         case .search: showSearch()
+        case .toggleFloatPanel: toggleFloatPanel()
         }
     }
 
@@ -279,11 +280,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
 
     func openSettings() { settingsWindow?.show() }
 
+    func toggleFloatPanel() {
+        env.settings.pinnedOpen.toggle()
+        if env.settings.pinnedOpen && !isPanelVisible {
+            panel.show(makeKey: false)
+        }
+    }
+
     // MARK: Menu actions
 
     @objc func showSettingsWindow(_ sender: Any?) { openSettings() }
     @objc func showAbout(_ sender: Any?) { settingsWindow?.show(tab: .about) }
     @objc func togglePanelFromMenu(_ sender: Any?) { togglePanel() }
+    @objc func toggleFloatPanelFromMenu(_ sender: Any?) { toggleFloatPanel() }
 
     /// ⌘W: hides the panel when it is key, otherwise closes the key window (Settings, alerts...).
     @objc func closeKeyWindow(_ sender: Any?) {

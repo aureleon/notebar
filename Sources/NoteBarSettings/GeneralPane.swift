@@ -79,8 +79,8 @@ struct GeneralPane: View {
                 .disabled(settings.pinnedOpen)
 
                 Toggle(isOn: $settings.pinnedOpen) {
-                    Text("Keep panel open")
-                    Text("The panel stays visible until you hide it with the hotkey or the menu bar icon.")
+                    Text("Float / Stay open")
+                    Text("The panel stays visible while you work in other apps.")
                 }
             }
 

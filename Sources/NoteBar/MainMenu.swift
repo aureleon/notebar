@@ -17,6 +17,7 @@ enum MainMenu {
         app.addItem(.separator())
         app.addItem(item("Settings…", #selector(AppDelegate.showSettingsWindow(_:)), ",", target: target))
         app.addItem(item("Show / Hide Panel", #selector(AppDelegate.togglePanelFromMenu(_:)), "", target: target))
+        app.addItem(item("Float / Stay Open", #selector(AppDelegate.toggleFloatPanelFromMenu(_:)), "", target: target))
         app.addItem(.separator())
         let services = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")

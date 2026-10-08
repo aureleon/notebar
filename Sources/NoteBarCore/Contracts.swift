@@ -64,11 +64,13 @@ public protocol AppController: AnyObject {
     func showSearch()
     /// Shows the panel with the search field filled with `query` (blank = like `showSearch()`).
     func showSearch(query: String)
+    func toggleFloatPanel()
     func openSettings()
 }
 
 public extension AppController {
     func showSearch(query: String) { showSearch() }
+    func toggleFloatPanel() {}
 }
 
 /// Implemented by the notes UI (NoteBarUI.NotesRootViewController).
@@ -87,12 +89,16 @@ public protocol NotesPresenting: AnyObject {
     func beginSearch(query: String)
     /// Called by the panel right after it slides in / before it slides out.
     func panelDidShow()
+    func panelDidShow(focused: Bool)
+    func panelFocusChanged(_ focused: Bool)
     func panelWillHide()
 }
 
 public extension NotesPresenting {
     var contentHeight: CGFloat { 0 }
     func beginSearch(query: String) { beginSearch() }
+    func panelDidShow(focused: Bool) { panelDidShow() }
+    func panelFocusChanged(_ focused: Bool) {}
 }
 
 /// Shared services. Created once by the app delegate and passed to every module.

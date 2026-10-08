@@ -135,7 +135,13 @@ public final class AppSettings: ObservableObject {
         backupRetention = get("backupRetention", 14)
         lastFolderId = (defaults.object(forKey: "lastFolderId") as? NSNumber)?.int64Value
         if let data = defaults.data(forKey: "hotkeys"), let h = try? JSONDecoder().decode([String: KeyCombo].self, from: data) {
-            hotkeys = Dictionary(uniqueKeysWithValues: h.compactMap { k, v in HotkeyAction(rawValue: k).map { ($0, v) } })
+            var decoded = Dictionary(uniqueKeysWithValues: h.compactMap { k, v in HotkeyAction(rawValue: k).map { ($0, v) } })
+            for (action, defaultCombo) in HotkeyAction.defaults {
+                if decoded[action] == nil {
+                    decoded[action] = defaultCombo
+                }
+            }
+            hotkeys = decoded
         } else {
             hotkeys = HotkeyAction.defaults
         }
@@ -193,7 +199,7 @@ public final class AppSettings: ObservableObject {
 // MARK: - Hotkeys
 
 public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
-    case togglePanel, newNote, newNoteFromClipboard, search
+    case togglePanel, newNote, newNoteFromClipboard, search, toggleFloatPanel
 
     public var displayName: String {
         switch self {
@@ -201,15 +207,17 @@ public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
         case .newNote: "New Note"
         case .newNoteFromClipboard: "New Note from Clipboard"
         case .search: "Search Notes"
+        case .toggleFloatPanel: "Float / Stay Open"
         }
     }
 
-    /// ⌥⌘N toggle; ⌃⌥⌘N new; ⌃⌥⌘V clipboard; ⌃⌥⌘F search.
+    /// ⌥⌘N toggle; ⌃⌥⌘N new; ⌃⌥⌘V clipboard; ⌃⌥⌘F search; ⌥⇧⌘N float panel.
     public static let defaults: [HotkeyAction: KeyCombo] = [
         .togglePanel: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option),
         .newNote: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
         .newNoteFromClipboard: KeyCombo(keyCode: 0x09, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
         .search: KeyCombo(keyCode: 0x03, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
+        .toggleFloatPanel: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.shift),
     ]
 }
 
