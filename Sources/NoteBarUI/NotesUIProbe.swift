@@ -32,6 +32,7 @@ public final class NotesUIProbe {
     public func editor(of id: NoteID) -> (any NoteEditing)? { list.card(for: id)?.editor }
     public func cardFrame(of id: NoteID) -> NSRect? { list.card(for: id).map { $0.convert($0.cardRect, to: root.view) } }
     public func isCardFolded(_ id: NoteID) -> Bool? { list.card(for: id)?.isFolded }
+    public func cardShowsSelectionRing(_ id: NoteID) -> Bool { list.card(for: id)?.showsSelectionRing ?? false }
     /// Visible card height (without the shadow pad) and the title's frame / font size (card coordinates).
     public func cardVisibleHeight(_ id: NoteID) -> CGFloat? { list.card(for: id).map { $0.cardRect.height } }
     public func cardTitleOrigin(_ id: NoteID) -> NSPoint? { list.card(for: id)?.titleFrameForChecks.origin }

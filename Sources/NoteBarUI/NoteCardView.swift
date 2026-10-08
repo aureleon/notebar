@@ -605,6 +605,10 @@ final class NoteCardView: NSView {
         if window != nil { editor?.apply(note: currentNote) }
     }
 
+    /// The keyboard selection ring: only on a selected card that is folded or expanded (and not being
+    /// edited). A plain unfolded card shows its selection by its hover chrome only.
+    var showsSelectionRing: Bool { isSelected && !isEditorFocused && (isFolded || isExpanded) }
+
     private var footerVisible: Bool { hovering || isEditorFocused || isSelected || menuOpen }
 
     private func updateChrome(animated: Bool) {
@@ -720,7 +724,7 @@ final class NoteCardView: NSView {
             path.stroke()
         }
 
-        if isSelected && !isEditorFocused {
+        if showsSelectionRing {
             let ring = NSBezierPath(roundedRect: cr.insetBy(dx: 1, dy: 1), xRadius: radius - 1, yRadius: radius - 1)
             c.accent.withAlphaComponent(0.9).setStroke()
             ring.lineWidth = 2
