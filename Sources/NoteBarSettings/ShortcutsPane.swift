@@ -61,7 +61,20 @@ struct ShortcutsPane: View {
         ("Move to a New Folder", "⌥⌘M"),
         ("Move Note Up", "⌥⇧⌘↑"),
         ("Move Note Down", "⌥⇧⌘↓"),
+        ("Search All Folders", "⌘/"),
         ("Stop Editing", "Esc"),
+    ]
+    /// Only the NoteBar-specific keys. Standard vim keys (modes, motions, edits, search, ⌃W J / K, :q) work as usual.
+    static let vimKeys: [(String, String)] = [
+        ("Pin note", "gp · :pin"),
+        ("Fold note", "za · Tab · :fold · :unfold"),
+        ("Color & Mode", "gc · :color [name] · :mode [name]"),
+        ("Move to folder", "gm · :move [folder]"),
+        ("Copy note", "gy · :copy"),
+        ("Formatting menu", "gf"),
+        ("Delete note", "gx · :delete"),
+        ("Folder list", "j k · l or ↩ open · R rename"),
+        ("Go up to the folder list", "⌃["),
     ]
 
     var body: some View {
@@ -111,6 +124,23 @@ struct ShortcutsPane: View {
                         Text(item.1).foregroundStyle(.secondary)
                     }
                 }
+            }
+
+            Section {
+                Toggle("Use Vim keys", isOn: $settings.vimKeybinds)
+                if settings.vimKeybinds {
+                    ForEach(Self.vimKeys, id: \.0) { item in
+                        LabeledContent(item.0) {
+                            Text(item.1).foregroundStyle(.secondary).font(.system(.body, design: .monospaced))
+                        }
+                    }
+                }
+            } header: {
+                Text("Vim Navigation & Editing")
+            } footer: {
+                FootnoteText("Notes open in Normal mode with a block cursor. New notes open in Insert mode. "
+                             + "Standard vim keys work as usual: motions, operators, / search, : commands, "
+                             + "and ⌃W J / ⌃W K to move between notes. Above are the keys that NoteBar adds.")
             }
         }
         .formStyle(.grouped)

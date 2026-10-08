@@ -257,6 +257,16 @@ MainActor.assumeIsolated {
     renderAll(models, outDir: outDir, tall: tall, suffix: "-custom", tabs: [.appearance])
     settings.themeId = "default"
 
+    // Vim keys: off by default; the Shortcuts pane lists the keys when on.
+    Check.expect(!settings.vimKeybinds, "vim keys are off by default")
+    // Default hotkeys here (the duplicate above is only for the warning snapshot).
+    settings.hotkeys = HotkeyAction.defaults
+    Check.equal(HotkeyAction.defaults[.search]?.displayString, "⌃⌥⌘F", "Search Notes defaults to ⌃⌥⌘F")
+    settings.vimKeybinds = true
+    Check.expect(AppSettings(defaults: defaults).vimKeybinds, "vimKeybinds is persisted")
+    renderAll(models, outDir: outDir, tall: tall, suffix: "-vim", tabs: [.shortcuts])
+    settings.vimKeybinds = false
+
     // No backup service.
     let envNoBackups = AppEnvironment(store: store, backups: nil, settings: settings, themes: themes,
                                       editorFactory: PlainNoteEditorFactory())

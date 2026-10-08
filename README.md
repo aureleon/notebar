@@ -55,7 +55,7 @@ NoteBar can run at a time.
 | Show or hide the panel | ⌥⌘N, the menu bar icon, or swipe to edge (if enabled) |
 | New note | `+`, ⌘N, or ⌃⌥⌘N from any app |
 | New note from the clipboard | ⌃⌥⌘V from any app |
-| Search | ⌘F, or ⌃⌥⌘F from any app |
+| Search | ⌘F (⌘/ searches all folders), or ⌃⌥⌘F from any app |
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
 | Settings | ⌘, |
@@ -68,6 +68,30 @@ When the pointer is on a card, the card shows these controls:
 - The date and the pin button, in the top-right corner.
 - A column of actions, in the bottom-right corner: format (`Aa`), copy the text, color and mode (gear),
   and delete. On a short card, the actions that do not fit go into a `…` menu.
+
+### Vim keys
+
+Vim keys are off by default. To turn them on, go to Settings › Shortcuts › Use Vim keys.
+
+- A note opens in Normal mode, with a block cursor. A new, empty note opens in Insert mode.
+- These standard vim keys work: motions, counts, operators (`d` `c` `y`), `p` `P` `u` `⌃R` `r` `.`,
+  Visual mode (`v` `V`), search (`/` `?` `n` `N`) and `:` commands.
+- ⌃W J and ⌃W K edit the next and the previous note. A folded note unfolds.
+
+NoteBar adds these keys:
+
+| Action | Keys |
+|---|---|
+| Pin the note | `gp`, `:pin` |
+| Fold the note | `za`, Tab, `:fold`, `:unfold` |
+| Color and mode | `gc`, `:color [name]`, `:mode [standard\|code\|plain]` |
+| Move to a folder | `gm`, `:move [folder]` |
+| Copy the note | `gy`, `:copy` |
+| Formatting menu | `gf` |
+| Delete the note (with undo) | `gx`, `:delete` |
+| Stop editing | `:q` |
+| Go up to the folder list | ⌃[ (in Insert mode, ⌃[ is Esc) |
+| Folder list | `j` `k` select, `l` or Return opens, `R` renames |
 
 ## URL scheme and AppleScript
 
