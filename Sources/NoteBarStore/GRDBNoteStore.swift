@@ -282,7 +282,7 @@ public final class GRDBNoteStore: NoteStore {
 
     public func notes(in folderId: FolderID) -> [Note] {
         if let cached = sortedNotesCache[folderId] { return cached }
-        let list = noteMap.values.filter { $0.folderId == folderId && isLive($0) }.sorted {
+        let list = noteMap.values.filter { $0.folderId == folderId && isLive($0) && !$0.isArchived }.sorted {
             ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id)
         }
         sortedNotesCache[folderId] = list
@@ -293,10 +293,15 @@ public final class GRDBNoteStore: NoteStore {
 
     /// Case- and diacritic-insensitive substring search over bodies, in display order
     /// (folders order, then notes order).
-    public func search(_ query: String, in folderId: FolderID?) -> [Note] {
+    public func search(_ query: String, in folderId: FolderID?, includeArchived: Bool) -> [Note] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return [] }
-        let pool = folderId.map { notes(in: $0) } ?? folders().flatMap { notes(in: $0.id) }
+        func pool(_ fid: FolderID) -> [Note] {
+            guard includeArchived else { return notes(in: fid) }
+            // Archived notes after the folder's other notes, most recently archived first.
+            return notes(in: fid) + archivedNotes().filter { $0.folderId == fid }
+        }
+        let pool = folderId.map { pool($0) } ?? folders().flatMap { pool($0.id) }
         return pool.filter { $0.body.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
@@ -337,6 +342,7 @@ public final class GRDBNoteStore: NoteStore {
         guard let old = liveNote(note.id) else { return }
         var n = note
         n.deletedAt = old.deletedAt
+        n.archivedAt = old.archivedAt
         if liveFolder(n.folderId) == nil { n.folderId = old.folderId }
         n.createdAt = n.createdAt.storeNormalized
         n.updatedAt = .storeNow
@@ -407,6 +413,27 @@ public final class GRDBNoteStore: NoteStore {
         postStoreChange(.notes(folderId: old), sender: self)
         if old != folderId { postStoreChange(.notes(folderId: folderId), sender: self) }
         postStoreChange(.folders, sender: self)
+    }
+
+    // MARK: - Archive
+
+    public func archiveNote(id: NoteID) { setArchived(id, .storeNow) }
+    public func unarchiveNote(id: NoteID) { setArchived(id, nil) }
+
+    private func setArchived(_ id: NoteID, _ date: Date?) {
+        guard var n = liveNote(id), n.isArchived != (date != nil) else { return }
+        n.archivedAt = date
+        noteMap[id] = n
+        pendingNoteIDs.insert(id)
+        invalidateNotes(in: n.folderId)
+        flush()
+        postStoreChange(.note(id: id), sender: self)
+        postStoreChange(.notes(folderId: n.folderId), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func archivedNotes() -> [Note] {
+        noteMap.values.filter { isLive($0) && $0.isArchived }.sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
     }
 
     // MARK: - Trash

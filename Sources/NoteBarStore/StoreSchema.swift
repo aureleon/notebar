@@ -63,7 +63,12 @@ enum StoreSchema {
             try db.alter(table: "note") { t in t.add(column: "deletedAt", .double) }
         }
 
-        // Future migrations go here: m.registerMigration("v3-...") { db in ... }
+        // Archive: an archived note has `archivedAt` (seconds since 1970) until it is unarchived.
+        m.registerMigration("v3-archive") { db in
+            try db.alter(table: "note") { t in t.add(column: "archivedAt", .double) }
+        }
+
+        // Future migrations go here: m.registerMigration("v4-...") { db in ... }
         return m
     }
 
@@ -113,7 +118,8 @@ extension Note {
                   mode: NoteMode(rawValue: modeRaw) ?? .standard,
                   createdAt: Date(timeIntervalSince1970: row["createdAt"]),
                   updatedAt: Date(timeIntervalSince1970: row["updatedAt"]),
-                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
+                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
     }
 }
 

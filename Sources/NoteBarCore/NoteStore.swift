@@ -67,10 +67,13 @@ public protocol NoteStore: AnyObject {
     func moveFolder(id: FolderID, toIndex index: Int)
 
     // MARK: Notes
+    /// The folder's notes, without archived notes.
     func notes(in folderId: FolderID) -> [Note]
+    /// Also returns archived notes (not trashed ones).
     func note(id: NoteID) -> Note?
     /// Case-insensitive substring search over bodies. `folderId == nil` searches everything.
-    func search(_ query: String, in folderId: FolderID?) -> [Note]
+    /// Archived notes are found only with `includeArchived` (see the `search(_:in:)` shortcut).
+    func search(_ query: String, in folderId: FolderID?, includeArchived: Bool) -> [Note]
     @discardableResult func createNote(in folderId: FolderID, body: String, mode: NoteMode, position: InsertPosition) -> Note
     /// Called on every keystroke. Implementations debounce persistence and post `.noteBody`.
     func updateNoteBody(id: NoteID, body: String)
@@ -83,6 +86,16 @@ public protocol NoteStore: AnyObject {
     func moveNote(id: NoteID, toIndex index: Int)
     /// Moves the note to another folder.
     func moveNote(id: NoteID, toFolder folderId: FolderID, position: InsertPosition)
+
+    // MARK: Archive
+    // An archived note keeps its folder and its place there; it is hidden from `notes(in:)`,
+    // `noteCount(in:)` and search until it is unarchived. Changes post `.notes(folderId:)` and `.folders`.
+
+    func archiveNote(id: NoteID)
+    /// Puts the note back in its folder, at the place it had.
+    func unarchiveNote(id: NoteID)
+    /// Archived notes of folders that are not in the trash, most recently archived first.
+    func archivedNotes() -> [Note]
 
     // MARK: Trash (soft delete)
     // A trashed note or folder is hidden from every query above (`folders`, `folder(id:)`, `notes`,
@@ -136,6 +149,9 @@ public protocol NoteStore: AnyObject {
 public extension NoteStore {
     var lastError: Error? { nil }
     var hasPendingChanges: Bool { false }
+
+    /// Search without archived notes.
+    func search(_ query: String, in folderId: FolderID?) -> [Note] { search(query, in: folderId, includeArchived: false) }
 
     func folder(named name: String) -> Folder? {
         folders().first { $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }

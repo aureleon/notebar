@@ -72,14 +72,21 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     /// Set while the note is in the trash (soft delete). Only `NoteStore.trashNote` / `restoreNote`
     /// change it.
     public var deletedAt: Date?
+    /// Set while the note is in the archive. It keeps its folder and place; `notes(in:)` and search hide
+    /// it. Only `NoteStore.archiveNote` / `unarchiveNote` change it.
+    public var archivedAt: Date?
 
     public init(id: NoteID, folderId: FolderID, body: String, color: NoteColor = .none,
                 sortIndex: Double, isPinned: Bool = false, isFolded: Bool = false,
-                mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
+                mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil,
+                archivedAt: Date? = nil) {
         self.id = id; self.folderId = folderId; self.body = body; self.color = color
         self.sortIndex = sortIndex; self.isPinned = isPinned; self.isFolded = isFolded
         self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
+        self.archivedAt = archivedAt
     }
+
+    public var isArchived: Bool { archivedAt != nil }
 
     /// Title = first non-empty line with leading markdown markers removed.
     public var title: String { NoteText.title(of: body) }

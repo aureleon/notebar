@@ -33,7 +33,7 @@ public final class InMemoryNoteStore: NoteStore {
             .sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
     }
     public func folder(id: FolderID) -> Folder? { folderMap[id].flatMap { isLive($0) ? $0 : nil } }
-    public func noteCount(in folderId: FolderID) -> Int { liveNotes.filter { $0.folderId == folderId }.count }
+    public func noteCount(in folderId: FolderID) -> Int { liveNotes.filter { $0.folderId == folderId && !$0.isArchived }.count }
 
     @discardableResult public func createFolder(name: String) -> Folder {
         let f = Folder(id: newID(), name: name, sortIndex: SortIndex.between(folders().last?.sortIndex, nil))
@@ -69,16 +69,19 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     // MARK: Notes
-    public func notes(in folderId: FolderID) -> [Note] {
-        liveNotes.filter { $0.folderId == folderId }
+    public func notes(in folderId: FolderID) -> [Note] { notes(in: folderId, archived: false) }
+
+    private func notes(in folderId: FolderID, archived: Bool?) -> [Note] {
+        liveNotes.filter { $0.folderId == folderId && (archived == nil || $0.isArchived == archived) }
             .sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
     }
     public func note(id: NoteID) -> Note? { noteMap[id].flatMap { isLive($0) ? $0 : nil } }
 
-    public func search(_ query: String, in folderId: FolderID?) -> [Note] {
+    public func search(_ query: String, in folderId: FolderID?, includeArchived: Bool) -> [Note] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return [] }
-        let pool = folderId.map { notes(in: $0) } ?? folders().flatMap { notes(in: $0.id) }
+        let a: Bool? = includeArchived ? nil : false
+        let pool = folderId.map { notes(in: $0, archived: a) } ?? folders().flatMap { notes(in: $0.id, archived: a) }
         return pool.filter { $0.body.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
@@ -105,6 +108,7 @@ public final class InMemoryNoteStore: NoteStore {
         guard let old = self.note(id: note.id) else { return }
         var n = note; n.updatedAt = Date()
         n.deletedAt = old.deletedAt
+        n.archivedAt = old.archivedAt
         if folder(id: n.folderId) == nil { n.folderId = old.folderId }
         noteMap[note.id] = n
         postStoreChange(.note(id: note.id), sender: self)
@@ -146,6 +150,29 @@ public final class InMemoryNoteStore: NoteStore {
         postStoreChange(.notes(folderId: old), sender: self)
         postStoreChange(.notes(folderId: folderId), sender: self)
         postStoreChange(.folders, sender: self)
+    }
+
+    // MARK: Archive
+    public func archiveNote(id: NoteID) {
+        guard var n = note(id: id), !n.isArchived else { return }
+        n.archivedAt = Date()
+        noteMap[id] = n
+        postStoreChange(.note(id: id), sender: self)
+        postStoreChange(.notes(folderId: n.folderId), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func unarchiveNote(id: NoteID) {
+        guard var n = note(id: id), n.isArchived else { return }
+        n.archivedAt = nil
+        noteMap[id] = n
+        postStoreChange(.note(id: id), sender: self)
+        postStoreChange(.notes(folderId: n.folderId), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func archivedNotes() -> [Note] {
+        liveNotes.filter(\.isArchived).sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
     }
 
     // MARK: Trash

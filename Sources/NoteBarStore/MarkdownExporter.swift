@@ -21,13 +21,15 @@ public struct MarkdownExporter {
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         var folderNames = FileNames.existingNames(in: directory)
 
+        let archived = Dictionary(grouping: store.archivedNotes(), by: \.folderId)
         for folder in store.folders() {
             let folderDir = directory.appendingPathComponent(
                 FileNames.unique(FileNames.sanitize(folder.name, fallback: "Folder"), ext: "", taken: &folderNames),
                 isDirectory: true)
             try fm.createDirectory(at: folderDir, withIntermediateDirectories: true)
             var context = FolderContext(directory: folderDir)
-            for note in store.notes(in: folder.id) {
+            // Archived notes are exported with their folder.
+            for note in store.notes(in: folder.id) + (archived[folder.id] ?? []) {
                 let body = rewriteLinks(in: note.body, context: &context)
                 let base = FileNames.sanitize(note.title, fallback: "Untitled")
                 let file = folderDir.appendingPathComponent(FileNames.unique(base, ext: "md", taken: &context.noteNames))

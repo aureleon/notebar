@@ -220,12 +220,12 @@ extension SQL {
         isPinned = excluded.isPinned, color = excluded.color, deletedAt = excluded.deletedAt
         """
     static let upsertNote = """
-        INSERT INTO note (id, folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, deletedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO note (id, folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, deletedAt, archivedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET folderId = excluded.folderId, body = excluded.body, color = excluded.color,
         sortIndex = excluded.sortIndex, isPinned = excluded.isPinned, isFolded = excluded.isFolded,
         mode = excluded.mode, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt,
-        deletedAt = excluded.deletedAt
+        deletedAt = excluded.deletedAt, archivedAt = excluded.archivedAt
         """
     static let upsertTheme = """
         INSERT INTO theme (id, name, json, updatedAt) VALUES (?, ?, ?, ?)
@@ -238,6 +238,7 @@ extension SQL {
     }
     static func noteUpsertArgs(_ n: Note) -> StatementArguments {
         [n.id, n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.deletedAt?.timeIntervalSince1970]
+         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.deletedAt?.timeIntervalSince1970,
+         n.archivedAt?.timeIntervalSince1970]
     }
 }
