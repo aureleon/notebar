@@ -34,7 +34,7 @@ final class FakeBackups: BackupService {
 }
 
 @MainActor
-func pump(_ seconds: TimeInterval = 0.15) {
+func pump(_ seconds: TimeInterval = 0.05) {
     RunLoop.main.run(until: Date().addingTimeInterval(seconds))
 }
 
@@ -47,7 +47,7 @@ func render(_ view: NSView, appearance: NSAppearance, to url: URL) {
     window.contentView = view
     view.appearance = appearance
     view.layoutSubtreeIfNeeded()
-    pump(0.3)
+    pump(0.05)
     view.layoutSubtreeIfNeeded()
     view.display()
     guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { print("no rep for \(url.lastPathComponent)"); return }
@@ -217,6 +217,11 @@ func renderAll(_ models: SettingsModels, outDir: URL, tall: Bool, suffix: String
 }
 
 MainActor.assumeIsolated {
+    // Never put a dialog on the screen: an unexpected one is a failed check, answered Cancel.
+    ModalSupport.testResponder = { title in
+        Check.expect(false, "unexpected dialog: \(title)")
+        return .cancel
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
 
@@ -285,7 +290,7 @@ MainActor.assumeIsolated {
         for (name, ap) in [("light", light), ("dark", dark)] {
             w.appearance = ap
             controller.select(.general)
-            pump(0.3)
+            pump(0.05)
             frameView.layoutSubtreeIfNeeded()
             if let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
                 frameView.cacheDisplay(in: frameView.bounds, to: rep)

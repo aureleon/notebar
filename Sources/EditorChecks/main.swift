@@ -8,6 +8,11 @@ import NoteBarEditor
 let arguments = CommandLine.arguments
 
 MainActor.assumeIsolated {
+    // Never put a dialog on the screen: an unexpected one is a failed check, answered Cancel.
+    ModalSupport.testResponder = { title in
+        Check.expect(false, "unexpected dialog: \(title)")
+        return .cancel
+    }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
 

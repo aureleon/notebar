@@ -14,8 +14,12 @@ public enum ModalSupport {
         NotificationCenter.default.post(name: suspendAutoHide, object: nil, userInfo: ["active": active])
     }
 
+    /// Checks and snapshots set this: dialogs are answered by it and never shown on the screen.
+    public static var testResponder: ((String) -> NSApplication.ModalResponse)?
+
     @discardableResult
     public static func run(_ alert: NSAlert) -> NSApplication.ModalResponse {
+        if let testResponder { return testResponder(alert.messageText) }
         suspend(true)
         defer { suspend(false) }
         prepare(alert.window)
@@ -23,6 +27,7 @@ public enum ModalSupport {
     }
 
     public static func run(_ panel: NSSavePanel) -> NSApplication.ModalResponse {
+        if let testResponder { return testResponder(panel.message ?? "open / save panel") }
         suspend(true)
         defer { suspend(false) }
         prepare(panel)

@@ -15,7 +15,7 @@ enum BehaviorChecks {
         return AppEnvironment(store: store, backups: nil, settings: settings, themes: themes, editorFactory: MarkdownEditorFactory())
     }
 
-    static func spin(_ seconds: TimeInterval = 0.02) {
+    static func spin(_ seconds: TimeInterval = 0.002) {
         RunLoop.main.run(until: Date().addingTimeInterval(seconds))
     }
 
