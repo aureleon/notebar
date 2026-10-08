@@ -99,9 +99,13 @@ final class MarkdownStyler {
                 para.tab = st.width(of: "    ", font: st.monoFont)
                 lineAttrs[.nbCodeBlock] = (line.codeBlock % 2) + 1
                 if line.kind == .fence {
-                    color = st.markup
+                    // Backticks are markers; the language name stays visible as a grey label.
+                    size = st.fenceSize
+                    color = st.secondary
                     lineAttrs[.nbFence] = true
-                    mark(line.range, .marker)
+                    let info = BlockScanner.fenceInfoRange(s, line.range)
+                    mark(NSRange(location: line.range.location, length: info.location - line.range.location), .marker)
+                    mark(NSRange(location: info.end, length: line.range.end - info.end), .marker)
                 }
             case .rule:
                 color = st.markup

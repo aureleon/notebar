@@ -90,6 +90,15 @@ final class EditorStyle {
 
     var titleSize: CGFloat { fontSize + 2 }
 
+    /// Code fence lines (```` ```lang ````): a small mono font in a bar of fixed height, so the block does
+    /// not move when its backticks are shown or hidden.
+    var fenceSize: CGFloat { max(8, round(fontSize * 0.78)) }
+    var fenceFont: NSFont { font(size: fenceSize, mono: true) }
+    var fenceBarHeight: CGFloat {
+        let f = fenceFont
+        return ceil(f.ascender - f.descender + f.leading) + 6
+    }
+
     func font(size: CGFloat, bold: Bool = false, italic: Bool = false, mono: Bool = false) -> NSFont {
         let key = "\(size)|\(bold)|\(italic)|\(mono)"
         if let f = fontCache[key] { return f }

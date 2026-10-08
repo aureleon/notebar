@@ -2,7 +2,7 @@ import AppKit
 
 /// TextKit 1 layout manager for note editors:
 /// - hides markdown markers (null glyphs) in invisible-markdown mode unless they are "revealed" (caret inside the span),
-/// - collapses hidden code-fence lines, draws list bullets,
+/// - gives code-fence lines a fixed bar height, draws list bullets,
 /// - draws code block boxes, rounded highlights, `#hex` swatches and horizontal rules.
 final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     /// Invisible markdown on/off.
@@ -13,7 +13,8 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     var ruleColor: NSColor = .separatorColor
     var swatchDiameter: CGFloat = 9
     var swatchGap: CGFloat = 3
-    var collapsedFenceHeight: CGFloat = 7
+    /// Height of a code fence line, the same with backticks shown or hidden (nothing moves).
+    var fenceBarHeight: CGFloat = 16
 
     private var bulletGlyphs: [String: CGGlyph] = [:]
 
@@ -100,13 +101,15 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
                        lineFragmentUsedRect: UnsafeMutablePointer<NSRect>,
                        baselineOffset: UnsafeMutablePointer<CGFloat>,
                        in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
-        guard hideMarkup, let storage = textStorage, glyphRange.length > 0 else { return false }
+        guard let storage = textStorage, glyphRange.length > 0 else { return false }
         let ci = characterIndexForGlyph(at: glyphRange.location)
-        guard ci < storage.length, storage.attribute(.nbFence, at: ci, effectiveRange: nil) != nil, !isRevealed(ci) else { return false }
-        let h = collapsedFenceHeight
+        guard ci < storage.length, storage.attribute(.nbFence, at: ci, effectiveRange: nil) != nil else { return false }
+        let h = fenceBarHeight
+        let font = storage.attribute(.font, at: ci, effectiveRange: nil) as? NSFont ?? .monospacedSystemFont(ofSize: 11, weight: .regular)
+        let textH = font.ascender - font.descender
         lineFragmentRect.pointee.size.height = h
         lineFragmentUsedRect.pointee.size.height = h
-        baselineOffset.pointee = h
+        baselineOffset.pointee = ((h - textH) / 2 + font.ascender).rounded()
         return true
     }
 

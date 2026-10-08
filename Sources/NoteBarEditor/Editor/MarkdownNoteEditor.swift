@@ -174,6 +174,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         layoutManagerNB.hideMarkup = st.hideMarkup && mode == .standard
         layoutManagerNB.codeBlockColor = st.codeBackground
         layoutManagerNB.ruleColor = st.ruleColor
+        layoutManagerNB.fenceBarHeight = st.fenceBarHeight
         layoutManagerNB.swatchDiameter = st.swatchDiameter
         layoutManagerNB.swatchGap = st.swatchGap
     }

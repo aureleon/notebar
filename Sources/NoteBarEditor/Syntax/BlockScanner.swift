@@ -111,6 +111,20 @@ public enum BlockScanner {
 
     struct Fence { var char: unichar; var count: Int; var infoIsBlank: Bool; var infoHasBacktick: Bool }
 
+    /// The info string (language) of a fence line, without the spaces around it. Empty range after
+    /// the fence characters when there is none.
+    static func fenceInfoRange(_ s: NSString, _ range: NSRange) -> NSRange {
+        var i = range.location
+        let end = range.end
+        while i < end, s.character(at: i) == UC.space { i += 1 }
+        let c = i < end ? s.character(at: i) : 0
+        while i < end, s.character(at: i) == c { i += 1 }
+        while i < end, UC.isSpaceOrTab(s.character(at: i)) { i += 1 }
+        var e = end
+        while e > i, UC.isWhitespace(s.character(at: e - 1)) { e -= 1 }
+        return NSRange(location: i, length: e - i)
+    }
+
     static func fence(_ s: NSString, _ range: NSRange) -> Fence? {
         var i = range.location
         let end = range.end
