@@ -804,6 +804,127 @@ do {
     try! store.close()
 }
 
+
+// MARK: - Trash (soft delete), both stores
+
+@MainActor func trashChecks(_ store: NoteStore, _ label: String) {
+    let home = store.folders()[0]
+    let work = store.createFolder(name: "Work")
+    let a = store.createNote(in: home.id, body: "alpha note", mode: .standard, position: .bottom)
+    let b = store.createNote(in: home.id, body: "beta note", mode: .standard, position: .bottom)
+    let w = store.createNote(in: work.id, body: "work note", mode: .standard, position: .bottom)
+
+    // Note: hidden everywhere, restorable.
+    let posted = changes { store.trashNote(id: a.id) }
+    Check.expect(posted.contains(.notes(folderId: home.id)) && posted.contains(.folders), "\(label): trash posts .notes + .folders")
+    Check.equal(store.note(id: a.id), nil, "\(label): trashed note hidden from note(id:)")
+    Check.equal(store.notes(in: home.id).map(\.id), [b.id], "\(label): trashed note hidden from notes(in:)")
+    Check.equal(store.noteCount(in: home.id), 1, "\(label): trashed note not counted")
+    Check.equal(store.search("alpha", in: nil).count, 0, "\(label): trashed note not found by search")
+    Check.equal(store.trashedNotes().map(\.id), [a.id], "\(label): trashedNotes lists it")
+    Check.expect(store.trashedNotes().first?.deletedAt != nil, "\(label): deletedAt is set")
+    var edited = b; edited.body = "changed"
+    store.updateNote(edited)
+    Check.equal(store.note(id: b.id)?.deletedAt, nil, "\(label): updateNote cannot trash")
+    var ghost = store.trashedNotes()[0]; ghost.body = "edited while trashed"
+    store.updateNote(ghost)
+    store.updateNoteBody(id: a.id, body: "typed while trashed")
+    Check.expect(store.restoreNote(id: a.id), "\(label): restoreNote")
+    Check.equal(store.note(id: a.id)?.body, "alpha note", "\(label): trashed notes cannot be edited")
+    Check.equal(store.notes(in: home.id).map(\.id), [a.id, b.id], "\(label): restored note keeps its place")
+    Check.expect(!store.restoreNote(id: a.id), "\(label): restoring a live note does nothing")
+
+    // Folder: hides its notes; restore brings them back; individually trashed notes stay trashed.
+    let w2 = store.createNote(in: work.id, body: "second work note", mode: .standard, position: .bottom)
+    store.trashNote(id: w2.id)
+    store.trashFolder(id: work.id)
+    Check.equal(store.folder(id: work.id), nil, "\(label): trashed folder hidden")
+    Check.expect(!store.folders().contains { $0.id == work.id }, "\(label): trashed folder not listed")
+    Check.equal(store.note(id: w.id), nil, "\(label): notes of a trashed folder hidden")
+    Check.equal(store.search("work", in: nil).count, 0, "\(label): notes of a trashed folder not searched")
+    Check.equal(store.trashedFolders().map(\.id), [work.id], "\(label): trashedFolders lists it")
+    Check.equal(store.noteCount(inTrashedFolder: work.id), 1, "\(label): note count of the trashed folder")
+    Check.expect(!store.trashedNotes().contains { $0.id == w2.id }, "\(label): notes inside a trashed folder are listed with it")
+    let into = store.createNote(in: work.id, body: "into trashed folder", mode: .standard, position: .top)
+    Check.equal(into.folderId, home.id, "\(label): a new note never goes into a trashed folder (first folder instead)")
+    let taken = store.createFolder(name: "Work")
+    Check.expect(store.restoreFolder(id: work.id), "\(label): restoreFolder")
+    Check.equal(store.folder(id: work.id)?.name, "Work 2", "\(label): restored folder gets a free name")
+    Check.equal(store.note(id: w.id)?.body, "work note", "\(label): folder notes come back")
+    Check.equal(store.note(id: w2.id), nil, "\(label): a note trashed on its own stays trashed")
+    store.deleteFolder(id: taken.id)
+
+    // Restoring a note whose folder is trashed restores the folder.
+    store.trashFolder(id: work.id)
+    store.restoreNote(id: w2.id)
+    Check.expect(store.folder(id: work.id) != nil, "\(label): restoreNote brings its folder back")
+    Check.equal(store.note(id: w2.id)?.body, "second work note", "\(label): and the note")
+
+    // The last folder is never trashed.
+    store.trashFolder(id: work.id)
+    store.trashFolder(id: home.id)
+    Check.expect(store.folder(id: home.id) != nil, "\(label): the last folder cannot be trashed")
+    store.restoreFolder(id: work.id)
+
+    // Purge.
+    store.trashNote(id: b.id)
+    store.purgeTrash(deletedBefore: Date.distantPast)
+    Check.equal(store.trashedNotes().map(\.id), [b.id], "\(label): purge keeps newer items")
+    store.trashFolder(id: work.id)
+    store.purgeTrash(deletedBefore: Date.distantFuture)
+    Check.expect(store.trashedNotes().isEmpty && store.trashedFolders().isEmpty, "\(label): purge empties the trash")
+    Check.expect(!store.restoreNote(id: b.id), "\(label): a purged note is gone")
+    Check.expect(!store.restoreFolder(id: work.id), "\(label): a purged folder is gone")
+    Check.equal(store.notes(in: home.id).map(\.id), [into.id, a.id], "\(label): live notes untouched by purge")
+}
+
+trashChecks(InMemoryNoteStore(), "memory")
+do {
+    let dir = freshDir("trash")
+    let store = try! GRDBNoteStore(directory: dir)
+    trashChecks(store, "grdb")
+    // Persisted: the trash survives a reopen.
+    let f = store.createFolder(name: "Gone")
+    let n = store.createNote(in: f.id, body: "kept in the trash", mode: .standard, position: .top)
+    let solo = store.createNote(in: store.folders()[0].id, body: "solo", mode: .standard, position: .top)
+    store.trashNote(id: solo.id)
+    store.trashFolder(id: f.id)
+    try! store.reopen()
+    Check.equal(store.trashedFolders().map(\.id), [f.id], "grdb: trashed folder persisted")
+    Check.equal(store.trashedNotes().map(\.id), [solo.id], "grdb: trashed note persisted")
+    Check.equal(store.note(id: n.id), nil, "grdb: still hidden after reopen")
+    store.restoreFolder(id: f.id)
+    try! store.reopen()
+    Check.equal(store.note(id: n.id)?.body, "kept in the trash", "grdb: restore persisted")
+    try! store.close()
+}
+
+// v1 database (before the trash): migrates, keeps the data, nothing is trashed.
+do {
+    let dir = freshDir("migrate-v1")
+    rawSQL(dir, """
+        CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY);
+        INSERT INTO grdb_migrations VALUES ('v1-initial');
+        CREATE TABLE folder (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, sortIndex DOUBLE NOT NULL DEFAULT 0,
+            isPinned BOOLEAN NOT NULL DEFAULT 0, color TEXT NOT NULL DEFAULT 'none', createdAt DOUBLE NOT NULL);
+        CREATE TABLE note (id INTEGER PRIMARY KEY AUTOINCREMENT, folderId INTEGER NOT NULL REFERENCES folder(id) ON DELETE CASCADE,
+            body TEXT NOT NULL DEFAULT '', color TEXT NOT NULL DEFAULT 'none', sortIndex DOUBLE NOT NULL DEFAULT 0,
+            isPinned BOOLEAN NOT NULL DEFAULT 0, isFolded BOOLEAN NOT NULL DEFAULT 0, mode TEXT NOT NULL DEFAULT 'standard',
+            createdAt DOUBLE NOT NULL, updatedAt DOUBLE NOT NULL);
+        CREATE TABLE attachment (id INTEGER PRIMARY KEY AUTOINCREMENT, noteId INTEGER NOT NULL REFERENCES note(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL, relativePath TEXT, bookmarkData BLOB, displayName TEXT NOT NULL DEFAULT '', createdAt DOUBLE NOT NULL);
+        CREATE TABLE theme (id TEXT PRIMARY KEY, name TEXT NOT NULL, json BLOB NOT NULL, updatedAt DOUBLE NOT NULL);
+        INSERT INTO folder (name, createdAt) VALUES ('Old', 1);
+        INSERT INTO note (folderId, body, createdAt, updatedAt) VALUES (1, 'old note', 1, 1);
+        """)
+    let store = try! GRDBNoteStore(directory: dir)
+    Check.equal(store.folders().map(\.name), ["Old"], "v1 → v2: folder kept")
+    Check.equal(store.notes(in: store.folders()[0].id).map(\.body), ["old note"], "v1 → v2: note kept and not trashed")
+    store.trashNote(id: store.notes(in: store.folders()[0].id)[0].id)
+    try! store.reopen()
+    Check.equal(store.trashedNotes().count, 1, "v1 → v2: trash works after the migration")
+    try! store.close()
+}
 }
 
 try? fm.removeItem(at: root)

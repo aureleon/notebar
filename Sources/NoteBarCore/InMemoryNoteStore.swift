@@ -19,15 +19,21 @@ public final class InMemoryNoteStore: NoteStore {
     private func newID() -> Int64 { defer { nextID += 1 }; return nextID }
 
     private func ensureFolder() {
-        if folderMap.isEmpty { _ = createFolder(name: "Notes") }
+        if folders().isEmpty { _ = createFolder(name: "Notes") }
     }
+
+    /// Not trashed (a note: neither the note nor its folder).
+    private func isLive(_ f: Folder) -> Bool { f.deletedAt == nil }
+    private func isLive(_ n: Note) -> Bool { n.deletedAt == nil && folderMap[n.folderId].map(isLive) == true }
+    private var liveNotes: [Note] { noteMap.values.filter(isLive) }
 
     // MARK: Folders
     public func folders() -> [Folder] {
-        folderMap.values.sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
+        folderMap.values.filter(isLive)
+            .sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
     }
-    public func folder(id: FolderID) -> Folder? { folderMap[id] }
-    public func noteCount(in folderId: FolderID) -> Int { noteMap.values.filter { $0.folderId == folderId }.count }
+    public func folder(id: FolderID) -> Folder? { folderMap[id].flatMap { isLive($0) ? $0 : nil } }
+    public func noteCount(in folderId: FolderID) -> Int { liveNotes.filter { $0.folderId == folderId }.count }
 
     @discardableResult public func createFolder(name: String) -> Folder {
         let f = Folder(id: newID(), name: name, sortIndex: SortIndex.between(folders().last?.sortIndex, nil))
@@ -37,20 +43,23 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func updateFolder(_ folder: Folder) {
-        guard folderMap[folder.id] != nil else { return }
-        folderMap[folder.id] = folder
+        guard let old = self.folder(id: folder.id) else { return }
+        var f = folder
+        f.deletedAt = old.deletedAt
+        folderMap[folder.id] = f
         postStoreChange(.folders, sender: self)
     }
 
     public func deleteFolder(id: FolderID) {
-        guard folderMap.count > 1, folderMap[id] != nil else { return }
+        guard let f = folderMap[id], !isLive(f) || folders().count > 1 else { return }
         for n in noteMap.values where n.folderId == id { removeNote(n.id) }
         folderMap[id] = nil
+        postStoreChange(.notes(folderId: id), sender: self)
         postStoreChange(.folders, sender: self)
     }
 
     public func moveFolder(id: FolderID, toIndex index: Int) {
-        guard var f = folderMap[id] else { return }
+        guard var f = folder(id: id) else { return }
         let others = folders().filter { $0.id != id }
         let list = others.filter { $0.isPinned == f.isPinned }   // same zone only (pinned sort first)
         let i = max(0, min(index - (f.isPinned ? 0 : others.count - list.count), list.count))
@@ -61,10 +70,10 @@ public final class InMemoryNoteStore: NoteStore {
 
     // MARK: Notes
     public func notes(in folderId: FolderID) -> [Note] {
-        noteMap.values.filter { $0.folderId == folderId }
+        liveNotes.filter { $0.folderId == folderId }
             .sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
     }
-    public func note(id: NoteID) -> Note? { noteMap[id] }
+    public func note(id: NoteID) -> Note? { noteMap[id].flatMap { isLive($0) ? $0 : nil } }
 
     public func search(_ query: String, in folderId: FolderID?) -> [Note] {
         let q = query.trimmingCharacters(in: .whitespaces)
@@ -75,7 +84,7 @@ public final class InMemoryNoteStore: NoteStore {
 
     @discardableResult
     public func createNote(in folderId: FolderID, body: String, mode: NoteMode, position: InsertPosition) -> Note {
-        let fid = folderMap[folderId] != nil ? folderId : folders()[0].id
+        let fid = folder(id: folderId) != nil ? folderId : folders()[0].id
         let list = notes(in: fid).filter { !$0.isPinned }
         let idx = position == .top ? SortIndex.between(nil, list.first?.sortIndex) : SortIndex.between(list.last?.sortIndex, nil)
         let n = Note(id: newID(), folderId: fid, body: body, sortIndex: idx, mode: mode)
@@ -86,15 +95,17 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func updateNoteBody(id: NoteID, body: String) {
-        guard var n = noteMap[id], n.body != body else { return }
+        guard var n = note(id: id), n.body != body else { return }
         n.body = body; n.updatedAt = Date()
         noteMap[id] = n
         postStoreChange(.noteBody(id: id), sender: self)
     }
 
     public func updateNote(_ note: Note) {
-        guard let old = noteMap[note.id] else { return }
+        guard let old = self.note(id: note.id) else { return }
         var n = note; n.updatedAt = Date()
+        n.deletedAt = old.deletedAt
+        if folder(id: n.folderId) == nil { n.folderId = old.folderId }
         noteMap[note.id] = n
         postStoreChange(.note(id: note.id), sender: self)
         if old.isPinned != n.isPinned || old.folderId != n.folderId || old.sortIndex != n.sortIndex {
@@ -115,7 +126,7 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func moveNote(id: NoteID, toIndex index: Int) {
-        guard let n0 = noteMap[id] else { return }
+        guard let n0 = note(id: id) else { return }
         var n = n0
         let others = notes(in: n0.folderId).filter { $0.id != id }
         let list = others.filter { $0.isPinned == n0.isPinned }   // same zone only (pinned sort first)
@@ -126,7 +137,7 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func moveNote(id: NoteID, toFolder folderId: FolderID, position: InsertPosition) {
-        guard var n = noteMap[id], folderMap[folderId] != nil else { return }
+        guard var n = note(id: id), folder(id: folderId) != nil else { return }
         let old = n.folderId
         let list = notes(in: folderId).filter { !$0.isPinned }
         n.folderId = folderId
@@ -134,6 +145,67 @@ public final class InMemoryNoteStore: NoteStore {
         noteMap[id] = n
         postStoreChange(.notes(folderId: old), sender: self)
         postStoreChange(.notes(folderId: folderId), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    // MARK: Trash
+    public func trashNote(id: NoteID) {
+        guard var n = note(id: id) else { return }
+        n.deletedAt = Date()
+        noteMap[id] = n
+        postStoreChange(.notes(folderId: n.folderId), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func trashFolder(id: FolderID) {
+        guard var f = folder(id: id), folders().count > 1 else { return }
+        f.deletedAt = Date()
+        folderMap[id] = f
+        postStoreChange(.notes(folderId: id), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    @discardableResult public func restoreNote(id: NoteID) -> Bool {
+        guard var n = noteMap[id], !isLive(n) else { return false }
+        if let f = folderMap[n.folderId], !isLive(f) { restoreFolder(id: f.id) }
+        if n.deletedAt != nil {
+            n.deletedAt = nil
+            noteMap[id] = n
+            postStoreChange(.notes(folderId: n.folderId), sender: self)
+            postStoreChange(.folders, sender: self)
+        }
+        return true
+    }
+
+    @discardableResult public func restoreFolder(id: FolderID) -> Bool {
+        guard var f = folderMap[id], !isLive(f) else { return false }
+        f.name = availableFolderName(f.name)
+        f.deletedAt = nil
+        folderMap[id] = f
+        postStoreChange(.notes(folderId: id), sender: self)
+        postStoreChange(.folders, sender: self)
+        return true
+    }
+
+    public func trashedNotes() -> [Note] {
+        noteMap.values.filter { n in n.deletedAt != nil && folderMap[n.folderId].map(isLive) == true }
+            .sorted { ($0.deletedAt!, $0.id) > ($1.deletedAt!, $1.id) }
+    }
+
+    public func trashedFolders() -> [Folder] {
+        folderMap.values.filter { !isLive($0) }.sorted { ($0.deletedAt!, $0.id) > ($1.deletedAt!, $1.id) }
+    }
+
+    public func noteCount(inTrashedFolder id: FolderID) -> Int {
+        noteMap.values.filter { $0.folderId == id && $0.deletedAt == nil }.count
+    }
+
+    public func purgeTrash(deletedBefore date: Date) {
+        for n in noteMap.values where (n.deletedAt.map { $0 < date } ?? false) { removeNote(n.id) }
+        for f in folderMap.values where (f.deletedAt.map { $0 < date } ?? false) {
+            for n in noteMap.values where n.folderId == f.id { removeNote(n.id) }
+            folderMap[f.id] = nil
+        }
         postStoreChange(.folders, sender: self)
     }
 

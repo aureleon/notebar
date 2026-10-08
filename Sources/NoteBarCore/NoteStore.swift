@@ -56,7 +56,8 @@ public protocol NoteStore: AnyObject {
     func noteCount(in folderId: FolderID) -> Int
     @discardableResult func createFolder(name: String) -> Folder
     func updateFolder(_ folder: Folder)
-    /// Deletes the folder and all its notes + attachments. Never deletes the last folder.
+    /// Deletes the folder and all its notes + attachments for good (also a trashed folder). Never
+    /// deletes the last folder. The UI uses `trashFolder` (undoable) instead.
     func deleteFolder(id: FolderID)
     /// Moves the folder to `index` in the `folders()` order. The folder stays in its pinned/unpinned
     /// zone: the index is clamped to that zone and only same-zone neighbors define the new sortIndex.
@@ -72,12 +73,36 @@ public protocol NoteStore: AnyObject {
     func updateNoteBody(id: NoteID, body: String)
     /// Updates metadata (color, mode, isFolded, isPinned, body). Posts `.note` (+ `.notes` if pin changed).
     func updateNote(_ note: Note)
+    /// Deletes the note and its attachments for good (also a trashed note). The UI uses `trashNote`.
     func deleteNote(id: NoteID)
     /// Moves the note to `index` in the `notes(in:)` order of its folder. Like `moveFolder`, the note
     /// stays in its pinned/unpinned zone (index clamped to the zone, same-zone neighbors only).
     func moveNote(id: NoteID, toIndex index: Int)
     /// Moves the note to another folder.
     func moveNote(id: NoteID, toFolder folderId: FolderID, position: InsertPosition)
+
+    // MARK: Trash (soft delete)
+    // A trashed note or folder is hidden from every query above (`folders`, `folder(id:)`, `notes`,
+    // `note(id:)`, `noteCount`, `search`) until it is restored or purged. Its attachments stay.
+    // Changes post `.folders` and `.notes(folderId:)`.
+
+    /// Moves a note to the trash.
+    func trashNote(id: NoteID)
+    /// Moves a folder to the trash; its notes are hidden with it. Never trashes the last folder.
+    func trashFolder(id: FolderID)
+    /// Brings a trashed note back. When its folder is in the trash too, the folder comes back first.
+    @discardableResult func restoreNote(id: NoteID) -> Bool
+    /// Brings a trashed folder back with its notes (notes trashed on their own stay in the trash).
+    /// A name that is taken now gets a number ("Work 2").
+    @discardableResult func restoreFolder(id: FolderID) -> Bool
+    /// Trashed notes whose folder is not trashed, most recently deleted first.
+    func trashedNotes() -> [Note]
+    /// Trashed folders, most recently deleted first.
+    func trashedFolders() -> [Folder]
+    /// Notes that come back with a trashed folder (its notes that were not trashed on their own).
+    func noteCount(inTrashedFolder id: FolderID) -> Int
+    /// Deletes for good every trashed item deleted before `date` (`.distantFuture` = everything).
+    func purgeTrash(deletedBefore date: Date)
 
     // MARK: Attachments
     func attachments(for noteId: NoteID) -> [Attachment]
@@ -111,6 +136,15 @@ public extension NoteStore {
 
     func folder(named name: String) -> Folder? {
         folders().first { $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }
+    }
+
+    /// `base`, or `base 2`, `base 3` ... when a (visible) folder already has that name.
+    func availableFolderName(_ base: String) -> String {
+        let names = Set(folders().map { $0.name.lowercased() })
+        if !names.contains(base.lowercased()) { return base }
+        var i = 2
+        while names.contains("\(base) \(i)".lowercased()) { i += 1 }
+        return "\(base) \(i)"
     }
 
     /// Finds the folder by name or creates it.

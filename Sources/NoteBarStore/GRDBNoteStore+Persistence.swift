@@ -215,16 +215,17 @@ extension GRDBNoteStore {
 
 extension SQL {
     static let upsertFolder = """
-        INSERT INTO folder (id, name, sortIndex, isPinned, color, createdAt) VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO folder (id, name, sortIndex, isPinned, color, createdAt, deletedAt) VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, sortIndex = excluded.sortIndex,
-        isPinned = excluded.isPinned, color = excluded.color
+        isPinned = excluded.isPinned, color = excluded.color, deletedAt = excluded.deletedAt
         """
     static let upsertNote = """
-        INSERT INTO note (id, folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO note (id, folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, deletedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET folderId = excluded.folderId, body = excluded.body, color = excluded.color,
         sortIndex = excluded.sortIndex, isPinned = excluded.isPinned, isFolded = excluded.isFolded,
-        mode = excluded.mode, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt
+        mode = excluded.mode, createdAt = excluded.createdAt, updatedAt = excluded.updatedAt,
+        deletedAt = excluded.deletedAt
         """
     static let upsertTheme = """
         INSERT INTO theme (id, name, json, updatedAt) VALUES (?, ?, ?, ?)
@@ -232,10 +233,11 @@ extension SQL {
         """
 
     static func folderUpsertArgs(_ f: Folder) -> StatementArguments {
-        [f.id, f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970]
+        [f.id, f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970,
+         f.deletedAt?.timeIntervalSince1970]
     }
     static func noteUpsertArgs(_ n: Note) -> StatementArguments {
         [n.id, n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970]
+         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.deletedAt?.timeIntervalSince1970]
     }
 }

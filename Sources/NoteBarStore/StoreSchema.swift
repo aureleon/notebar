@@ -56,7 +56,14 @@ enum StoreSchema {
             }
         }
 
-        // Future migrations go here: m.registerMigration("v2-...") { db in ... }
+        // Soft delete: a trashed note / folder has `deletedAt` (seconds since 1970) until it is
+        // restored or purged.
+        m.registerMigration("v2-trash") { db in
+            try db.alter(table: "folder") { t in t.add(column: "deletedAt", .double) }
+            try db.alter(table: "note") { t in t.add(column: "deletedAt", .double) }
+        }
+
+        // Future migrations go here: m.registerMigration("v3-...") { db in ... }
         return m
     }
 
@@ -91,7 +98,8 @@ extension Folder {
         let colorRaw: String = row["color"] ?? ""
         self.init(id: row["id"], name: row["name"], sortIndex: row["sortIndex"], isPinned: row["isPinned"],
                   color: NoteColor(rawValue: colorRaw) ?? .none,
-                  createdAt: Date(timeIntervalSince1970: row["createdAt"]))
+                  createdAt: Date(timeIntervalSince1970: row["createdAt"]),
+                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
     }
 }
 
@@ -104,7 +112,8 @@ extension Note {
                   sortIndex: row["sortIndex"], isPinned: row["isPinned"], isFolded: row["isFolded"],
                   mode: NoteMode(rawValue: modeRaw) ?? .standard,
                   createdAt: Date(timeIntervalSince1970: row["createdAt"]),
-                  updatedAt: Date(timeIntervalSince1970: row["updatedAt"]))
+                  updatedAt: Date(timeIntervalSince1970: row["updatedAt"]),
+                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
     }
 }
 

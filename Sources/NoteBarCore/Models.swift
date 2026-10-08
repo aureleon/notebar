@@ -45,11 +45,14 @@ public struct Folder: Identifiable, Hashable, Codable, Sendable {
     public var isPinned: Bool
     public var color: NoteColor
     public var createdAt: Date
+    /// Set while the folder is in the trash (soft delete). Store queries hide trashed folders and
+    /// their notes. Only `NoteStore.trashFolder` / `restoreFolder` change it.
+    public var deletedAt: Date?
 
     public init(id: FolderID, name: String, sortIndex: Double, isPinned: Bool = false,
-                color: NoteColor = .none, createdAt: Date = Date()) {
+                color: NoteColor = .none, createdAt: Date = Date(), deletedAt: Date? = nil) {
         self.id = id; self.name = name; self.sortIndex = sortIndex
-        self.isPinned = isPinned; self.color = color; self.createdAt = createdAt
+        self.isPinned = isPinned; self.color = color; self.createdAt = createdAt; self.deletedAt = deletedAt
     }
 }
 
@@ -66,13 +69,16 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     public var mode: NoteMode
     public var createdAt: Date
     public var updatedAt: Date
+    /// Set while the note is in the trash (soft delete). Only `NoteStore.trashNote` / `restoreNote`
+    /// change it.
+    public var deletedAt: Date?
 
     public init(id: NoteID, folderId: FolderID, body: String, color: NoteColor = .none,
                 sortIndex: Double, isPinned: Bool = false, isFolded: Bool = false,
-                mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date()) {
+                mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil) {
         self.id = id; self.folderId = folderId; self.body = body; self.color = color
         self.sortIndex = sortIndex; self.isPinned = isPinned; self.isFolded = isFolded
-        self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt
+        self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
     }
 
     /// Title = first non-empty line with leading markdown markers removed.
