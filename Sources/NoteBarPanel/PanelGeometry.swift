@@ -9,9 +9,6 @@ enum PanelMetrics {
     static let maxWidth: CGFloat = PanelWidth.maxWidth
     static let animationDuration: TimeInterval = 0.18
 
-    /// Blurred backdrop: how far it reaches past the inner edge of the panel (toward the screen center).
-    /// The blur is opaque at the screen edge and fades out over this distance.
-    static let backdropFadeWidth: CGFloat = 120
 
     /// After a programmatic show (URL, AppleScript, hotkey, status item) focus changes are ignored for
     /// this long. Only a real click outside the panel hides it during that time.
@@ -155,7 +152,7 @@ extension NSScreen {
     }
 }
 
-/// Collection behavior shared by every NoteBar edge window (panel and backdrop): on all Spaces, over
+/// Collection behavior shared by NoteBar edge windows: on all Spaces, over
 /// full-screen apps, not moved by Mission Control / Exposé, not in the window cycle.
 let edgeWindowCollectionBehavior: NSWindow.CollectionBehavior = [
     .canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle,

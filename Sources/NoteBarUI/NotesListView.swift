@@ -162,6 +162,7 @@ final class NotesListView: NSView, NoteCardDelegate {
         emptyView.subtitle = subtitle ?? ""
         emptyView.isHidden = title == nil
         needsLayout = true
+        onContentExtentChange?()
     }
 
     func restyleAll() {
@@ -258,6 +259,7 @@ final class NotesListView: NSView, NoteCardDelegate {
             scrollClip(to: newY)
         }
         scheduleLiveEditors()
+        onContentExtentChange?()
     }
 
     private func scrollClip(to y: CGFloat) {
@@ -272,7 +274,24 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     // MARK: Lazy editors
 
-    @objc private func clipBoundsChanged() { scheduleLiveEditors() }
+    @objc private func clipBoundsChanged() {
+        scheduleLiveEditors()
+        onContentExtentChange?()
+    }
+
+    /// Called when `contentBottom` may have changed (layout, scroll, empty state).
+    var onContentExtentChange: (() -> Void)?
+
+    /// Bottom edge of the last visible element (search bar, last card, empty state) in this view's
+    /// coordinates, clamped to the view. `topInset` when there is nothing.
+    var contentBottom: CGFloat {
+        var docBottom: CGFloat?
+        if let acc = topAccessory { docBottom = acc.frame.maxY }
+        if let last = cards.last { docBottom = max(docBottom ?? 0, last.frame.maxY - Metrics.cardShadowPad) }
+        var y = docBottom.map { convert(NSPoint(x: 0, y: $0), from: doc).y } ?? topInset
+        if !emptyView.isHidden { y = max(y, emptyView.frame.maxY) }
+        return min(max(y, 0), bounds.height)
+    }
 
     private func scheduleLiveEditors() {
         guard !liveEditorsScheduled else { return }

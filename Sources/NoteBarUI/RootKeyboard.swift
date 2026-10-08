@@ -11,7 +11,7 @@ extension NotesRootViewController {
         static let home: UInt16 = 115, end: UInt16 = 119
     }
 
-    private var notesVisible: Bool { search != nil || screen != .folders }
+    var notesVisible: Bool { search != nil || screen != .folders }
 
     func rootFocusChanged(_ focused: Bool) {
         notesList?.showsSelection = focused
@@ -71,17 +71,25 @@ extension NotesRootViewController {
         }
     }
 
+    /// Escape leaves the current thing, never the folder (use ⌘[ or the back button for that):
+    /// editing or a selected card → no card; search → closes; otherwise the panel hides.
     func handleEscape() {
         if header.isSearchFieldFocused { searchFieldEscape(); return }
         if isEditingText {
-            // Text view that did not handle Escape itself: stop editing.
-            if let id = focusedNoteID { notesList.selectedNoteID = id }
-            focusRoot()
+            // Text view that did not handle Escape itself: leave the card.
+            leaveCard()
             return
         }
         if search != nil { endSearch(restore: true, focusRoot: true); return }
-        if case .folder = screen { showFolderList(); focusRoot(); return }
+        if notesVisible, notesList.selectedNoteID != nil { leaveCard(); return }
         env.controller?.hidePanel()
+    }
+
+    /// Ends editing and clears the card selection (no card shows its hover chrome any more).
+    func leaveCard() {
+        notesList.selectedNoteID = nil
+        focusRoot()
+        NSCursor.arrow.set()
     }
 
     func moveSelection(_ delta: Int) {

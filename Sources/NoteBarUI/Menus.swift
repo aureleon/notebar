@@ -256,12 +256,7 @@ enum MenuBuilder {
         moveItem.submenu = moveMenu(for: note, actions: actions)
         m.addItem(moveItem)
         m.addItem(.separator())
-        m.addItem(ClosureMenuItem("Copy Text", key: "", symbol: "doc.on.doc") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(env.store.note(id: note.id)?.body ?? note.body, forType: .string)
-        })
-        m.addItem(ClosureMenuItem("Copy as Image", key: "", symbol: "photo") { actions.copyImage(note.id) })
-        m.addItem(ClosureMenuItem("Export as Image…", key: "", symbol: "square.and.arrow.down") { actions.saveImage(note.id) })
+        m.addItem(ClosureMenuItem("Copy Text", key: "", symbol: "doc.on.doc") { actions.copyText(note.id) })
         m.addItem(.separator())
         m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { actions.delete(note.id, confirm: false) })
         return m
@@ -292,15 +287,6 @@ enum MenuBuilder {
         m.addItem(ClosureMenuItem("Delete Folder…", key: "", symbol: "trash", enabled: env.store.folders().count > 1) {
             actions.deleteFolder(folder.id)
         })
-        return m
-    }
-
-    /// Export button: save or copy the note as an image.
-    static func exportMenu(for note: Note, actions: NoteActions) -> NSMenu {
-        let m = NSMenu()
-        m.autoenablesItems = false
-        m.addItem(ClosureMenuItem("Save as PNG…", key: "", symbol: "square.and.arrow.down") { actions.saveImage(note.id) })
-        m.addItem(ClosureMenuItem("Copy Image", key: "", symbol: "doc.on.doc") { actions.copyImage(note.id) })
         return m
     }
 }

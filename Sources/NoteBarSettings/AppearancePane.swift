@@ -23,8 +23,8 @@ struct AppearancePane: View {
                 .pickerStyle(.segmented)
 
                 Toggle(isOn: $settings.blurBackdrop) {
-                    Text("Blur background behind panel")
-                    Text("Blurs and slightly darkens the screen edge behind the panel, like Notification Center.")
+                    Text("Glass cards")
+                    Text("Notes and folders use translucent Liquid Glass in their theme color, like Notification Center widgets.")
                 }
             }
 

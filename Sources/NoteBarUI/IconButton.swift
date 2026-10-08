@@ -109,9 +109,11 @@ final class IconButton: NSView {
 final class PillView: NSView {
     var fill: NSColor = .clear { didSet { needsDisplay = true } }
     var stroke: NSColor = .clear { didSet { needsDisplay = true } }
+    /// nil = capsule (half the short side).
+    var cornerRadius: CGFloat? { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
     override func draw(_ dirtyRect: NSRect) {
-        let r = bounds.height / 2
+        let r = cornerRadius ?? min(bounds.width, bounds.height) / 2
         let p = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: r, yRadius: r)
         fill.setFill(); p.fill()
         stroke.setStroke(); p.lineWidth = 1; p.stroke()

@@ -38,6 +38,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// Folder whose notes the list currently shows (nil: empty, or search results).
     private var displayedFolder: FolderID?
     private var observers: [NSObjectProtocol] = []
+    /// Blur behind the whole content stack (header to the last element), so the desktop does not show
+    /// sharp between the glass elements. Only in glass mode (`CardGlass`).
+    private let backdrop = StackBackdropView()
+    private var clickMonitor: Any?
 
     /// Where the UI keeps its own state (the screen to restore at launch).
     /// `env.settings.lastFolderId` always means "last opened folder"; it stays set while the
@@ -83,7 +87,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         scopeBar.onToggle = { [weak self] all in self?.setSearchAllFolders(all) }
         toast = ToastView(frame: .zero)
         toast.fontSize = env.themes.fontSize
-        for sub in [notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
+        for sub in [backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
+        notesList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
+        folderList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
+        installClickMonitor()
         wireHeader()
         observeChanges()
         restoreInitialScreen()
@@ -126,6 +133,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         for list in [notesList!, folderList!] as [NSView] { list.frame = listFrame }
         if notesList.topInset != inset { notesList.topInset = inset }
         if folderList.topInset != inset { folderList.topInset = inset }
+        updateBackdrop()
         let ts = toast.preferredSize(maxWidth: b.width - 4 * m)
         toast.frame = NSRect(x: (b.width - ts.width) / 2, y: b.height - m - ts.height - 8, width: ts.width, height: ts.height)
     }
@@ -148,7 +156,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         })
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: nil) { [weak self] n in
             let key = n.userInfo?["key"] as? String
-            guard key == "colorStyle" else { return }
+            guard key == "colorStyle" || key == "blurBackdrop" else { return }
+            MainActor.assumeIsolated { self?.updateBackdrop() }
             MainActor.assumeIsolated { self?.restyleAll() }
         })
         observers.append(nc.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
@@ -618,11 +627,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     // MARK: Misc used by actions
 
-    func exportContext() -> (width: CGFloat, appearance: NSAppearance) {
-        let w = max(200, (notesList?.bounds.width ?? PanelSizing.defaultWidth) - 2 * Metrics.outerMargin)
-        return (w, view.effectiveAppearance)
-    }
-
     func noteDidMoveByKeyboard(_ id: NoteID) {
         guard let card = notesList.card(for: id) else { return }
         rootView.layoutSubtreeIfNeeded()
@@ -638,7 +642,69 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     var isEditingText: Bool { view.window?.firstResponder is NSText }
 
+    /// Fits the backdrop to the visible elements: the header down to the bottom of the shown list's
+    /// last element, with `outerMargin` around them.
+    func updateBackdrop() {
+        guard let v = rootView, header != nil else { return }
+        backdrop.isHidden = !CardGlass.isEnabled(env)
+        guard !backdrop.isHidden else { return }
+        let m = Metrics.outerMargin
+        let bottom: CGFloat
+        if !notesList.isHidden {
+            bottom = notesList.frame.minY + notesList.contentBottom
+        } else if !folderList.isHidden {
+            bottom = folderList.frame.minY + folderList.contentBottom
+        } else {
+            bottom = m + Metrics.headerHeight
+        }
+        let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
+        if backdrop.frame != f { backdrop.frame = f }
+    }
+
+    /// A click anywhere in the panel outside the card being edited (header, search bar, gaps, another
+    /// element) leaves that card: editing ends, the selection clears and the cursor is reset. Clicks
+    /// on another card are left to that card (it starts editing itself).
+    private func installClickMonitor() {
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .mouseMoved]) { [weak self] event in
+            MainActor.assumeIsolated {
+                if event.type == .mouseMoved { self?.resetCursorIfNeeded(event) } else { self?.handleClickOff(event) }
+            }
+            return event
+        }
+    }
+
+    /// The view under the event in this panel, if it is part of the notes UI.
+    private func hitView(_ event: NSEvent) -> NSView? {
+        guard let v = rootView, let w = v.window, event.window === w, let content = w.contentView else { return nil }
+        let p = content.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
+        guard let hit = content.hitTest(p), v.containsDescendant(hit) else { return nil }
+        return hit
+    }
+
+    /// The panel is non-activating, so AppKit's cursor rects do not run while another app is active, and
+    /// the editor's I-beam stays after the pointer leaves the text. Outside text, set the arrow.
+    private func resetCursorIfNeeded(_ event: NSEvent) {
+        guard let hit = hitView(event) else { return }
+        var v: NSView? = hit
+        while let cur = v {
+            if cur is NSText || cur is NSTextField { return }
+            v = cur.superview
+        }
+        NSCursor.arrow.set()
+    }
+
+    private func handleClickOff(_ event: NSEvent) {
+        guard notesVisible, let hit = hitView(event) else { return }
+        if notesList.cards.contains(where: { $0.containsDescendant(hit) }) { return }
+        guard focusedNoteID != nil || notesList.selectedNoteID != nil else { return }
+        notesList.selectedNoteID = nil
+        // Leave a text field the user clicked into (search) alone; end note editing otherwise.
+        if isEditingText, !(hit is NSTextField || hit.superview is NSTextField) { focusRoot() }
+        NSCursor.arrow.set()
+    }
+
     deinit {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
         for o in observers { NotificationCenter.default.removeObserver(o) }
     }
 }
@@ -687,4 +753,36 @@ final class NotesRootView: FlippedView {
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
     }
+}
+
+/// Behind-window blur with rounded corners, behind the content stack (see `updateBackdrop`).
+final class StackBackdropView: NSVisualEffectView {
+    static let cornerRadius: CGFloat = Metrics.headerCornerRadius + Metrics.outerMargin
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        blendingMode = .behindWindow
+        material = .underWindowBackground
+        state = .active
+        maskImage = Self.mask
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Stretchable rounded-rect mask (corners kept by the cap insets).
+    private static let mask: NSImage = {
+        let r = cornerRadius
+        let size = NSSize(width: 2 * r + 1, height: 2 * r + 1)
+        let image = NSImage(size: size, flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
+            return true
+        }
+        image.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+        image.resizingMode = .stretch
+        return image
+    }()
 }

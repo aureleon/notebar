@@ -117,46 +117,19 @@ final class NoteActions {
         root?.softDelete(id)
     }
 
-    // MARK: Export / share
+    // MARK: Copy
 
-    func copyImage(_ id: NoteID) {
-        guard let image = renderImage(id) else { NSSound.beep(); return }
+    /// Copies the note text (attachment tokens become file paths) and confirms with a toast.
+    func copyText(_ id: NoteID) {
+        guard let note = store.note(id: id) else { NSSound.beep(); return }
         let pb = NSPasteboard.general
         pb.clearContents()
-        if let png = image.representation(using: .png, properties: [:]) { pb.setData(png, forType: .png) }
-        if let tiff = image.tiffRepresentation { pb.setData(tiff, forType: .tiff) }
-        root?.showToast("Image copied")
-    }
-
-    func saveImage(_ id: NoteID) {
-        guard let note = store.note(id: id), let image = renderImage(id),
-              let png = image.representation(using: .png, properties: [:]) else { NSSound.beep(); return }
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = UIFormat.fileName(for: note) + ".png"
-        panel.canCreateDirectories = true
-        panel.isExtensionHidden = false
-        guard ModalSupport.run(panel) == .OK, let url = panel.url else { return }
-        do { try png.write(to: url) } catch { root?.showToast("Could not save image") }
-    }
-
-    private func renderImage(_ id: NoteID) -> NSBitmapImageRep? {
-        guard let note = store.note(id: id) else { return nil }
-        let ctx = root?.exportContext() ?? (width: 278, appearance: NSApp.effectiveAppearance)
-        return NoteImageExporter.render(note: note, width: ctx.width, appearance: ctx.appearance, env: env)
-    }
-
-    func share(_ id: NoteID, from view: NSView) {
-        guard let note = store.note(id: id) else { return }
-        let text = Self.shareText(for: note, store: store)
-        let picker = NSSharingServicePicker(items: [text])
-        SharePickerDelegate.shared.begin()
-        picker.delegate = SharePickerDelegate.shared
-        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        pb.setString(Self.plainText(for: note, store: store), forType: .string)
+        root?.showToast("Copied")
     }
 
     /// Body with attachment tokens replaced by file names/paths (readable outside NoteBar).
-    static func shareText(for note: Note, store: NoteStore) -> String {
+    static func plainText(for note: Note, store: NoteStore) -> String {
         var text = note.body
         for m in AttachmentLink.matches(in: text).reversed() {
             let att = store.attachment(id: m.attachmentID)
@@ -238,25 +211,5 @@ enum ModalSupport {
         NSApp.activate()
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
         return panel.runModal()
-    }
-}
-
-/// Balances the auto-hide suspension around the share picker.
-@MainActor
-final class SharePickerDelegate: NSObject, @preconcurrency NSSharingServicePickerDelegate {
-    static let shared = SharePickerDelegate()
-    private var active = false
-
-    func begin() {
-        if !active { active = true; ModalSupport.suspend(true) }
-    }
-
-    func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
-        // Keep the panel open a moment longer: the chosen service may show its own window.
-        DispatchQueue.main.asyncAfter(deadline: .now() + (service == nil ? 0 : 1.5)) {
-            MainActor.assumeIsolated {
-                if self.active { self.active = false; ModalSupport.suspend(false) }
-            }
-        }
     }
 }

@@ -16,7 +16,9 @@ extension NotesRootViewController: NotesListDelegate {
 
     func notesList(_ list: NotesListView, card: NoteCardView, editorEvent event: EditorEvent) {
         switch event {
-        case .escape, .commit:
+        case .escape:
+            leaveCard()
+        case .commit:
             list.selectedNoteID = card.note.id
             focusRoot()
         case .focusPrevious:

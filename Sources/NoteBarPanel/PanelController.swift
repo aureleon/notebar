@@ -1,7 +1,7 @@
 import AppKit
 import NoteBarCore
 
-/// Owns the floating side panel, its blurred backdrop and the Hot Side. Create once, call `setContent(_:)`
+/// Owns the floating side panel and the Hot Side. Create once, call `setContent(_:)`
 /// with the notes view controller, then drive it with `show` / `hide` / `toggle`.
 ///
 /// Behavior summary:
@@ -13,7 +13,6 @@ import NoteBarCore
 ///   in the panel focuses it. If the user does not interact and the cursor leaves the panel area, it
 ///   hides again (`PassiveOpenTracker`).
 /// - Focus changes in the first `PanelMetrics.showGrace` seconds after a show do not hide the panel.
-/// - The backdrop (`PanelBackdrop`) fades with the panel and follows its frame.
 /// - Settings changes (side, width, blur, Hot Side) and display changes apply immediately.
 @MainActor
 public final class PanelController {
@@ -30,7 +29,6 @@ public final class PanelController {
     private var contentController: NSViewController?
     private let autoHide: AutoHideMonitor
     private let hotSide: HotSideController
-    private let backdrop: PanelBackdrop
     private let passive = PassiveOpenTracker()
 
     /// Screen the panel is (or was last) shown on.
@@ -47,7 +45,6 @@ public final class PanelController {
         window.alphaValue = 0
         autoHide = AutoHideMonitor(settings: env.settings, panel: window)
         hotSide = HotSideController(settings: env.settings)
-        backdrop = PanelBackdrop(panelLevel: window.level)
 
         window.onEscape = { [weak self] in self?.hide() }
         window.onClose = { [weak self] in self?.hide() }
@@ -135,7 +132,6 @@ public final class PanelController {
         }
         let fade = animated ? PanelMetrics.animationDuration : 0
         setFrame(g.shownFrame, alpha: 1, duration: fade, timing: .easeOut)
-        backdrop.show(g, enabled: env.settings.blurBackdrop, duration: fade)
 
         if !wasVisible {
             env.presenter?.panelDidShow()
@@ -190,7 +186,6 @@ public final class PanelController {
         setFrame(target, alpha: 0, duration: fade, timing: .easeIn) { [weak self] in
             self?.window.orderOut(nil)
         }
-        backdrop.hide(duration: fade)
         notifyVisibility(false)
         yieldActivationIfIdle()
     }
@@ -267,16 +262,6 @@ public final class PanelController {
             if NSScreen.nbScreen(withID: screenID) == nil { screenID = NSScreen.nbScreenWithMouse?.nbDisplayID }
             if let screen = currentScreen { setFrame(geometry(for: screen).shownFrame, alpha: 1, duration: 0) }
         }
-        updateBackdrop(duration: 0)
-    }
-
-    /// Moves the backdrop to the panel's screen, side and width (or hides it while the panel is hidden).
-    private func updateBackdrop(duration: TimeInterval) {
-        guard isVisible, let screen = currentScreen else {
-            backdrop.hide(duration: duration)
-            return
-        }
-        backdrop.show(geometry(for: screen), enabled: env.settings.blurBackdrop, duration: duration)
     }
 
     private func notifyVisibility(_ visible: Bool) {
@@ -304,7 +289,7 @@ public final class PanelController {
 
     private func settingsChanged(_ key: String?) {
         switch key {
-        case "panelSide", "panelWidth", "panelWidthIsAutomatic", "blurBackdrop":
+        case "panelSide", "panelWidth", "panelWidthIsAutomatic":
             // HotSideController observes panelSide / hotSideEnabled itself.
             relayout()
         case "autoHide", "pinnedOpen":
@@ -326,6 +311,5 @@ public final class PanelController {
         guard isVisible, let screen = currentScreen else { return }
         let frame = geometry(for: screen).shownFrame
         if window.frame != frame { setFrame(frame, alpha: 1, duration: 0) }
-        updateBackdrop(duration: 0)
     }
 }

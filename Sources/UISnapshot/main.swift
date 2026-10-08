@@ -135,7 +135,15 @@ MainActor.assumeIsolated {
     let hello = ids[1]
     probe.setHovered(hello, true)
     render("05-hover-footer-light")
+    Check.equal(probe.hiddenActionCount(hello), 0, "tall card shows every action")
     probe.setHovered(hello, false)
+    // One-line card: only the pin and "…" fit; every action is in the menu.
+    let short = store.createNote(in: folders.notes.id, body: "One line", mode: .standard, position: .top)
+    probe.setHovered(short.id, true)
+    render("05b-hover-short-light")
+    Check.equal(probe.hiddenActionCount(short.id), 4, "one-line card puts actions in the … menu")
+    probe.setHovered(short.id, false)
+    store.deleteNote(id: short.id)
 
     // Left-bar color style.
     settings.colorStyle = .leftBar
@@ -196,9 +204,9 @@ MainActor.assumeIsolated {
     if let newID {
         Check.equal(probe.focusedNoteID, newID, "new note focused")
         Check.expect(probe.editor(of: newID)?.isEditingFocused == true, "new note editor is first responder")
-        // Esc from editor -> list focus, note selected.
+        // Esc from editor -> leaves the card (no editing, no selection).
         probe.pressEscape()
-        Check.equal(probe.selectedNoteID, newID, "Esc selects the edited note")
+        Check.expect(probe.selectedNoteID == nil, "Esc leaves the edited note")
         Check.expect(probe.focusedNoteID == nil, "Esc ends editing")
         // Delete with undo.
         probe.deleteWithUndo(newID)
@@ -261,15 +269,6 @@ MainActor.assumeIsolated {
     probe.dropFiles([tmpFile])
     Check.expect(store.notes(in: folders.notes.id).contains { $0.body.hasPrefix("[nb-snap-file.txt](attachment:") }, "file drop creates note")
 
-    // Export image.
-    if let rep = probe.exportImage(hello) {
-        try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("11-export-card.png"))
-        written.append("11-export-card")
-        Check.expect(rep.pixelsWide >= 500, "export at 2x")
-    } else {
-        Check.expect(false, "export image")
-    }
-
     // Search.
     probe.setSearchQuery("note", allFolders: true)
     Check.expect(probe.isSearching, "search active")
@@ -319,10 +318,13 @@ MainActor.assumeIsolated {
     Check.equal(vc.currentFolderId, folders.work.id, "reveal switches folder")
     Check.equal(probe.selectedNoteID, workNote, "reveal selects")
 
-    // Esc chain: list -> back to folders.
+    // Esc never goes up a folder: first it clears the selection, then (panel only) it hides.
     probe.focusList()
     probe.pressEscape()
-    Check.expect(probe.folderRowsVisible, "Esc goes back to the folder list")
+    Check.expect(probe.selectedNoteID == nil, "Esc clears the selection")
+    Check.expect(!probe.folderRowsVisible, "Esc does not go back to the folder list")
+    probe.goBack()
+    Check.expect(probe.folderRowsVisible, "back goes to the folder list")
     Check.expect(UserDefaults(suiteName: suite)!.bool(forKey: "NoteBarUI.showsFolderList"), "folder list remembered")
     Check.equal(settings.lastFolderId, folders.work.id, "lastFolderId keeps the last opened folder at the folder list")
 

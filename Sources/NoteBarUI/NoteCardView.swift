@@ -23,8 +23,6 @@ final class NoteCardView: NSView {
     private(set) var note: Note
     let env: AppEnvironment
     weak var delegate: NoteCardDelegate?
-    /// Export rendering: no footer, no hover chrome.
-    let isExport: Bool
 
     private(set) var editor: (any NoteEditing)?
     private var preview: NotePreviewView?
@@ -35,11 +33,14 @@ final class NoteCardView: NSView {
     var pinButtonFrame: NSRect { pinButton.frame }
     var previewForChecks: NotePreviewView? { preview }
     /// Created on first hover / focus (keeps long lists light).
-    private(set) var footer: CardFooterView?
-    /// Card-colored fade under the footer overlay, so the text under it does not show through.
-    private var footerBacking: FooterBackingView?
+    private(set) var footer: CardActionsView?
+    /// Date on the title line, left of the pin. Created and shown with `footer`.
+    private var dateLabel: CardDateView?
     private var folderLabel: PassthroughLabel?
     private var folderIcon: NSImageView?
+    /// Glass mode (`CardGlass`): the card background, and above it the left bar, hairline and rings.
+    private var glass: NSGlassEffectView?
+    private var chrome: CardChromeView?
 
     /// Search results are always shown expanded.
     var forceUnfolded = false { didSet { if oldValue != forceUnfolded { foldStateChanged() } } }
@@ -65,10 +66,9 @@ final class NoteCardView: NSView {
     private var isMeasuring = false
     private var layoutChangeScheduled = false
 
-    init(note: Note, env: AppEnvironment, isExport: Bool = false) {
+    init(note: Note, env: AppEnvironment) {
         self.note = note
         self.env = env
-        self.isExport = isExport
         super.init(frame: NSRect(x: 0, y: 0, width: PanelSizing.defaultWidth, height: 80))
         titleLabel.font = titleFont
         addSubview(titleLabel)
@@ -83,9 +83,7 @@ final class NoteCardView: NSView {
             self.delegate?.actions.togglePin(self.note.id)
         }
         addSubview(pinButton)
-        if !isExport {
-            registerForDraggedTypes(PasteboardImport.attachmentTypes)
-        }
+        registerForDraggedTypes(PasteboardImport.attachmentTypes)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         refreshContent()
@@ -131,12 +129,12 @@ final class NoteCardView: NSView {
             delegate?.cardNeedsLayout(self)
         }
         refreshTitle()
-        footer?.date = newNote.updatedAt
+        dateLabel?.text = UIFormat.footerDate.string(from: newNote.updatedAt)
     }
 
     private func refreshContent() {
         refreshTitle()
-        footer?.date = note.updatedAt
+        dateLabel?.text = UIFormat.footerDate.string(from: note.updatedAt)
         let pinned = note.isPinned
         pinButton.symbolName = pinned ? "pin.fill" : "pin"
         pinButton.toolTip = pinned ? "Unpin" : "Pin"
@@ -286,22 +284,24 @@ final class NoteCardView: NSView {
         needsLayout = true
     }
 
-    private func contentWidth(forCardWidth w: CGFloat) -> CGFloat { max(40, w - 2 * Metrics.cardPaddingX) }
+    /// The text stops left of the pin / action column on the right edge.
+    private func contentWidth(forCardWidth w: CGFloat) -> CGFloat {
+        max(40, w - Metrics.cardPaddingX - Metrics.pinButtonInset - Metrics.pinButtonSize - Metrics.pinTextGap)
+    }
+
+    /// Room for the date at the end of the title line.
+    private var dateReserve: CGFloat { CardDateView.reservedWidth(font: UIFonts.footer(env.themes.fontSize)) }
 
     // MARK: Pin corner
 
-    /// The top-right part of the content area under the pin button (content coordinates), where text
-    /// must not go. Reserved for every card (not only pinned / hovered ones) so text does not reflow
-    /// when the pin appears on hover. nil: the pin does not reach the text (folder row above it, export).
+    /// The top-right part of the content area under the date (which is centered on the pin), in content
+    /// coordinates. Text must not go there. Reserved for every card (not only hovered ones) so text
+    /// does not reflow when the date appears. nil: the date sits above the text (folder row).
     private func pinCornerRect(contentWidth w: CGFloat) -> NSRect? {
-        guard !isExport else { return nil }
-        let pin = Metrics.pinButtonSize
-        let contentTop = Metrics.cardPaddingTop + folderRowHeight
-        let height = Metrics.pinButtonInset + pin - contentTop
-        guard height > 0 else { return nil }
-        // Pin left edge in content coordinates, minus a small gap.
-        let minX = w + Metrics.cardPaddingX - Metrics.pinButtonInset - pin - Metrics.pinTextGap
-        guard minX > 0, minX < w else { return nil }
+        let minX = w - dateReserve - 6
+        let dateBottom = Metrics.pinButtonInset + Metrics.pinButtonSize / 2 + 8
+        let height = dateBottom - (Metrics.cardPaddingTop + folderRowHeight)
+        guard minX > 40, height > 0 else { return nil }
         return NSRect(x: minX, y: 0, width: w - minX + 200, height: height)
     }
 
@@ -353,8 +353,10 @@ final class NoteCardView: NSView {
 
     private var folderRowHeight: CGFloat { folderName == nil ? 0 : 16 + 6 }
 
-    /// Height of the visible card (without the shadow pad) at the given card width. The footer is an
-    /// overlay (it does not take space), so the card ends at its text plus the bottom padding.
+    static let minUnfoldedHeight: CGFloat = Metrics.pinButtonInset + Metrics.pinButtonSize + Metrics.actionColumnGap
+        + CardActionsView.minHeight + Metrics.actionColumnInsetBottom
+
+    /// Height of the visible card (without the shadow pad) at the given card width.
     func cardHeight(forWidth w: CGFloat) -> CGFloat {
         var h = Metrics.cardPaddingTop + folderRowHeight
         if isFolded {
@@ -362,7 +364,9 @@ final class NoteCardView: NSView {
         } else {
             h += contentHeight(forWidth: contentWidth(forCardWidth: w))
         }
-        return ceil(h + Metrics.cardPaddingBottom)
+        h = ceil(h + Metrics.cardPaddingBottom)
+        // Room for the pin and one action slot ("…" when nothing else fits).
+        return isFolded ? h : max(h, Self.minUnfoldedHeight)
     }
 
     // MARK: Layout
@@ -381,10 +385,17 @@ final class NoteCardView: NSView {
         if isFolded {
             let bw = badge.isHidden ? 0 : badge.intrinsicContentSize.width
             let rowH = Metrics.cardTitleRowHeight
-            badge.frame = NSRect(x: cr.maxX - px + 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
-            let pinX = (badge.isHidden ? cr.maxX - px + 4 : badge.frame.minX - 4) - pin
-            pinButton.frame = NSRect(x: pinX, y: y + (rowH - pin) / 2, width: pin, height: pin)
-            let right = pinButton.isHidden ? (badge.isHidden ? cr.maxX - px : badge.frame.minX - 6) : pinButton.frame.minX - 4
+            // Pin on the far right, in the same column as on unfolded cards. Its slot is kept while it
+            // is hidden, so the badge does not move on hover.
+            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
+            badge.frame = NSRect(x: pinButton.frame.minX - 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
+            var right = badge.isHidden ? pinButton.frame.minX - 4 : badge.frame.minX - 6
+            if let dateLabel {
+                let dw = dateReserve
+                dateLabel.frame = NSRect(x: right - dw, y: y + (rowH - 16) / 2, width: dw, height: 16)
+                if footerVisible { right = dateLabel.frame.minX - 6 }
+            }
+            footer?.frame = .zero
             let th = ceil(titleLabel.intrinsicContentSize.height)
             titleLabel.frame = NSRect(x: cr.minX + px, y: y + (rowH - th) / 2, width: max(0, right - cr.minX - px), height: th)
             y += Metrics.cardTitleRowHeight
@@ -396,18 +407,20 @@ final class NoteCardView: NSView {
             if let preview, preview.frame != r { preview.frame = r }
             pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + Metrics.pinButtonInset,
                                      width: pin, height: pin)
+            let pf = pinButton.frame
+            let top = pf.maxY + Metrics.actionColumnGap
+            let cw = CardActionsView.width
+            footer?.frame = NSRect(x: pf.midX - cw / 2, y: top, width: cw,
+                                   height: max(0, cr.maxY - Metrics.actionColumnInsetBottom - top))
+            if let dateLabel {
+                // Centered on the pin, ending where the text ends.
+                let dw = dateReserve
+                dateLabel.frame = NSRect(x: r.maxX - dw, y: pf.midY - 8, width: dw, height: 16)
+            }
             y += h
         }
-        if let footer {
-            // Overlay on the bottom edge of the card (hover / focus only). It does not move the text.
-            footer.frame = NSRect(x: cr.minX + Metrics.footerInsetX, y: cr.maxY - Metrics.footerInsetBottom - Metrics.footerHeight,
-                                  width: max(0, cr.width - 2 * Metrics.footerInsetX), height: Metrics.footerHeight)
-        }
-        if let footerBacking {
-            // Taller than the footer: a soft fade over the last text line, then solid under the footer.
-            let bh = Metrics.footerHeight + Metrics.footerInsetBottom + 26
-            footerBacking.frame = NSRect(x: cr.minX, y: cr.maxY - bh, width: cr.width, height: bh)
-        }
+        glass?.frame = cr
+        chrome?.frame = bounds
     }
 
     // MARK: Style
@@ -425,15 +438,15 @@ final class NoteCardView: NSView {
         titleLabel.font = titleFont
         titleLabel.textColor = env.themes.cardTitle(note.color, appearance: a)
         let fs = env.themes.fontSize
-        footerBacking?.color = backgroundColor
-        footerBacking?.cornerRadius = env.themes.cornerRadius
+        updateGlass()
         footer?.setFontSize(fs)
         badge.font = UIFonts.badge(fs)
         folderLabel?.font = UIFonts.small(fs)
         let tint = colored ? env.themes.cardTitle(note.color, appearance: a).withAlphaComponent(0.8) : c.secondaryText
         let pillFill = colored ? (c.isDark ? NSColor.white.withAlphaComponent(0.08) : NSColor.white.withAlphaComponent(0.5)) : c.hoverFill
-        footer?.style(tint: tint, pillFill: pillFill, pillStroke: .clear, hoverFill: c.hoverFill, pressedFill: c.pressedFill,
-                      dateColor: tint)
+        footer?.style(tint: tint, pillFill: pillFill, pillStroke: .clear, hoverFill: c.hoverFill, pressedFill: c.pressedFill)
+        dateLabel?.color = tint
+        dateLabel?.font = UIFonts.footer(fs)
         badge.textColor = colored ? env.themes.cardTitle(note.color, appearance: a) : c.secondaryText
         badge.fill = pillFill
         badge.hoverFill = c.hoverFill
@@ -445,6 +458,28 @@ final class NoteCardView: NSView {
         folderIcon?.contentTintColor = c.secondaryText
         if let preview { preview.configure(note: note, env: env, appearance: a) }
         needsDisplay = true
+    }
+
+    private func updateGlass() {
+        CardGlass.sync(&glass, in: self, enabled: CardGlass.isEnabled(env))
+        if let glass {
+            glass.cornerRadius = env.themes.cornerRadius
+            glass.tintColor = CardGlass.tint(backgroundColor, dark: effectiveAppearance.isDark)
+            glass.frame = cardRect
+            if chrome == nil {
+                let v = CardChromeView(frame: bounds)
+                v.card = self
+                addSubview(v, positioned: .above, relativeTo: glass)
+                chrome = v
+            }
+        } else {
+            chrome?.removeFromSuperview()
+            chrome = nil
+        }
+    }
+
+    override var needsDisplay: Bool {
+        didSet { if needsDisplay { chrome?.needsDisplay = true } }
     }
 
     /// Theme / appearance / color style changed.
@@ -473,52 +508,36 @@ final class NoteCardView: NSView {
     private var footerVisible: Bool { hovering || isEditorFocused || isSelected || menuOpen }
 
     private func updateChrome(animated: Bool) {
-        guard !isExport else {
-            pinButton.isHidden = !note.isPinned
-            badge.isHidden = !isFolded || note.linesAfterTitle == 0
-            return
-        }
         let show = footerVisible
         let target: CGFloat = show ? 1 : 0
-        let footer: CardFooterView
+        let footer: CardActionsView
         if let existing = self.footer { footer = existing } else if show { footer = makeFooter() } else {
             pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
             badge.isHidden = !isFolded || note.linesAfterTitle == 0
             return
         }
-        // A folded card has its title row under the overlay: fade the title row out while the footer shows.
-        let rowTarget: CGFloat = show && isFolded ? 0 : 1
-        if animated && NoteBarUIOptions.animations {
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = show ? 0.12 : 0.2
-                titleLabel.animator().alphaValue = rowTarget
-                badge.animator().alphaValue = rowTarget
-            })
-        } else {
-            titleLabel.alphaValue = rowTarget
-            badge.alphaValue = rowTarget
-        }
         if footer.alphaValue != target {
             if animated && NoteBarUIOptions.animations {
-                if show { footer.isHidden = false; footerBacking?.isHidden = false }
+                if show { footer.isHidden = false; dateLabel?.isHidden = false }
                 NSAnimationContext.runAnimationGroup({ ctx in
                     ctx.duration = show ? 0.12 : 0.2
                     footer.animator().alphaValue = target
-                    footerBacking?.animator().alphaValue = target
+                    dateLabel?.animator().alphaValue = target
                 }, completionHandler: {
                     MainActor.assumeIsolated {
-                        if !self.footerVisible { self.footer?.isHidden = true; self.footerBacking?.isHidden = true }
+                        if !self.footerVisible { self.footer?.isHidden = true; self.dateLabel?.isHidden = true }
                     }
                 })
             } else {
                 footer.alphaValue = target
                 footer.isHidden = !show
-                footerBacking?.alphaValue = target
-                footerBacking?.isHidden = !show
+                dateLabel?.alphaValue = target
+                dateLabel?.isHidden = !show
             }
+            if isFolded { needsLayout = true }
         } else {
             footer.isHidden = !show
-            footerBacking?.isHidden = !show
+            dateLabel?.isHidden = !show
         }
         let pinWasHidden = pinButton.isHidden
         pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
@@ -553,6 +572,8 @@ final class NoteCardView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        // Glass mode: the glass is the background; `chrome` draws the decorations above it.
+        guard glass == nil else { return }
         let a = effectiveAppearance
         let c = env.themes.ui(a)
         let cr = cardRect
@@ -567,7 +588,16 @@ final class NoteCardView: NSView {
         backgroundColor.setFill()
         path.fill()
         NSGraphicsContext.restoreGraphicsState()
+        drawDecorations()
+    }
 
+    /// Left color bar, hairline, selection and drop rings (card coordinates).
+    fileprivate func drawDecorations() {
+        let a = effectiveAppearance
+        let c = env.themes.ui(a)
+        let cr = cardRect
+        let radius = env.themes.cornerRadius
+        let path = NSBezierPath(roundedRect: cr, xRadius: radius, yRadius: radius)
         if colorStyle == .leftBar, note.color != .none {
             NSGraphicsContext.saveGraphicsState()
             path.addClip()
@@ -575,9 +605,12 @@ final class NoteCardView: NSView {
             NSRect(x: cr.minX, y: cr.minY, width: Metrics.leftBarWidth, height: cr.height).fill()
             NSGraphicsContext.restoreGraphicsState()
         }
-        c.hairline.setStroke()
-        path.lineWidth = 1
-        path.stroke()
+        if glass == nil {
+            // Glass has its own edge highlight.
+            c.hairline.setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        }
 
         if isSelected && !isEditorFocused {
             let ring = NSBezierPath(roundedRect: cr.insetBy(dx: 1, dy: 1), xRadius: radius - 1, yRadius: radius - 1)
@@ -607,7 +640,6 @@ final class NoteCardView: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        guard !isExport else { return }
         let t = NSTrackingArea(rect: cardRect, options: [.mouseEnteredAndExited, .activeAlways], owner: self)
         addTrackingArea(t)
         tracking = t
@@ -664,16 +696,16 @@ final class NoteCardView: NSView {
 
     // MARK: Footer
 
-    private func makeFooter() -> CardFooterView {
-        let backing = FooterBackingView()
-        backing.alphaValue = 0
-        backing.isHidden = true
-        addSubview(backing)
-        footerBacking = backing
-        let f = CardFooterView()
+    private func makeFooter() -> CardActionsView {
+        let d = CardDateView()
+        d.alphaValue = 0
+        d.isHidden = true
+        d.text = UIFormat.footerDate.string(from: note.updatedAt)
+        addSubview(d)
+        dateLabel = d
+        let f = CardActionsView()
         f.alphaValue = 0
         f.isHidden = true
-        f.date = note.updatedAt
         addSubview(f)
         footer = f
         wireFooter(f)
@@ -683,28 +715,61 @@ final class NoteCardView: NSView {
         return f
     }
 
-    private func wireFooter(_ footer: CardFooterView) {
+    private func wireFooter(_ footer: CardActionsView) {
+        footer.moreButton.onClick = { [weak self] b in
+            guard let self, let footer = self.footer else { return }
+            self.popUp(self.moreMenu(footer.hiddenActions), from: b)
+        }
         footer.formatButton.onClick = { [weak self] b in
             guard let self else { return }
             let menu = MenuBuilder.formatMenu { [weak self] action in self?.performFormat(action) }
             self.popUp(menu, from: b)
         }
-        footer.shareButton.onClick = { [weak self] b in
+        footer.copyButton.onClick = { [weak self] _ in
             guard let self, let actions = self.delegate?.actions else { return }
-            actions.share(self.note.id, from: b)
+            actions.copyText(self.note.id)
         }
         footer.gearButton.onClick = { [weak self] b in
             guard let self, let actions = self.delegate?.actions else { return }
             self.popUp(MenuBuilder.gearMenu(for: self.currentNote, actions: actions), from: b)
         }
-        footer.exportButton.onClick = { [weak self] b in
-            guard let self, let actions = self.delegate?.actions else { return }
-            self.popUp(MenuBuilder.exportMenu(for: self.currentNote, actions: actions), from: b)
-        }
         footer.trashButton.onClick = { [weak self] _ in
             guard let self, let actions = self.delegate?.actions else { return }
             actions.delete(self.note.id, confirm: false)
         }
+    }
+
+    /// "…" menu: the actions that do not fit in the column of a short card.
+    private func moreMenu(_ hidden: [CardActionsView.Action]) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        for action in hidden {
+            switch action {
+            case .format:
+                let item = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+                item.image = Symbols.image("textformat", size: 13)
+                item.submenu = MenuBuilder.formatMenu { [weak self] a in self?.performFormat(a) }
+                m.addItem(item)
+            case .copy:
+                m.addItem(ClosureMenuItem("Copy Note Text", key: "", symbol: "doc.on.doc") { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.actions.copyText(self.note.id)
+                })
+            case .colorAndMode:
+                guard let actions = delegate?.actions else { continue }
+                let item = NSMenuItem(title: "Color & Mode", action: nil, keyEquivalent: "")
+                item.image = Symbols.image("gearshape", size: 13)
+                item.submenu = MenuBuilder.gearMenu(for: currentNote, actions: actions)
+                m.addItem(item)
+            case .delete:
+                m.addItem(.separator())
+                m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { [weak self] in
+                    guard let self else { return }
+                    self.delegate?.actions.delete(self.note.id, confirm: false)
+                })
+            }
+        }
+        return m
     }
 
     /// The freshest copy of the note (the store may be ahead of `note` while typing).
@@ -756,20 +821,12 @@ extension NSView {
     }
 }
 
-/// The fade behind the card footer: transparent at the top, the card color at the bottom. Draws the
-/// card color only where the footer overlay sits, so the text under it fades out. Never takes clicks.
-final class FooterBackingView: NSView {
+/// Glass mode: draws the card's decorations just above its glass background. Never takes clicks.
+private final class CardChromeView: NSView {
+    weak var card: NoteCardView?
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    /// Set by the card (its current background and corner radius).
-    var color: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
-    var cornerRadius: CGFloat = 16 { didSet { needsDisplay = true } }
-
-    override func draw(_ dirtyRect: NSRect) {
-        guard let g = NSGradient(colors: [color.withAlphaComponent(0), color, color]) else { return }
-        // Clip to the card's rounded shape, so the bottom corners stay round.
-        NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
-        g.draw(in: bounds, angle: 90)
-    }
+    override func draw(_ dirtyRect: NSRect) { card?.drawDecorations() }
 }
+

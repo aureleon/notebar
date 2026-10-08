@@ -48,6 +48,13 @@ public final class NotesUIProbe {
 
     public func createAllEditors() { list.createAllEditors() }
     public func setHovered(_ id: NoteID, _ on: Bool) { list.card(for: id)?.setHoveredForSnapshot(on) }
+    /// Number of card actions in the "…" menu (nil if the card has no action column yet).
+    public func hiddenActionCount(_ id: NoteID) -> Int? {
+        guard let card = list.card(for: id), let f = card.footer else { return nil }
+        card.layoutSubtreeIfNeeded()
+        f.layoutSubtreeIfNeeded()
+        return f.hiddenActions.count
+    }
 
     public func select(_ id: NoteID?) { root.select(id) }
     public func focusList() { root.focusRoot() }
@@ -67,6 +74,7 @@ public final class NotesUIProbe {
     }
 
     public func pressEscape() { root.handleEscape() }
+    public func goBack() { root.goBack() }
 
     /// Synthesizes a key-down and routes it like the panel would (key equivalent first, then keyDown
     /// on the first responder chain's root view).
@@ -107,11 +115,6 @@ public final class NotesUIProbe {
         guard let n = root.store.note(id: id) else { return [] }
         return MenuBuilder.cardContextMenu(for: n, actions: root.actions, inSearch: root.search != nil).items
             .map { $0.isSeparatorItem ? "-" : $0.title }
-    }
-    public func exportImage(_ id: NoteID) -> NSBitmapImageRep? {
-        guard let n = root.store.note(id: id) else { return nil }
-        let ctx = root.exportContext()
-        return NoteImageExporter.render(note: n, width: ctx.width, appearance: ctx.appearance, env: root.env)
     }
     public func moveByKeyboard(_ id: NoteID, up: Bool) { root.actions.move(id, up ? .up : .down) }
     public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }

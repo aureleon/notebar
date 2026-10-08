@@ -42,7 +42,12 @@ final class FolderListView: NSView {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.verticalScrollElasticity = .allowed
         scrollView.documentView = doc
+        scrollView.contentView.postsBoundsChangedNotifications = true
         addSubview(scrollView)
+        NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView,
+                                               queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.onContentExtentChange?() }
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -144,6 +149,7 @@ final class FolderListView: NSView {
 
     func restyle() {
         for r in rows { r.restyle() }
+        doc.updateGlass()
         doc.needsDisplay = true
     }
 
@@ -169,6 +175,17 @@ final class FolderListView: NSView {
         let visibleH = max(0, scrollView.contentSize.height - topInset)
         doc.frame = NSRect(x: 0, y: 0, width: w, height: max(groupHeight + Metrics.gap + m, visibleH))
         doc.needsDisplay = true
+        onContentExtentChange?()
+    }
+
+    /// Called when `contentBottom` may have changed (layout, scroll).
+    var onContentExtentChange: (() -> Void)?
+
+    /// Bottom edge of the folder group in this view's coordinates, clamped to the view.
+    var contentBottom: CGFloat {
+        guard doc.groupRect.height > 0 else { return topInset }
+        let y = convert(NSPoint(x: 0, y: doc.groupRect.maxY), from: doc).y
+        return min(max(y, 0), bounds.height)
     }
 
     // MARK: Drag helpers used by rows / doc view
@@ -208,7 +225,8 @@ final class FolderListView: NSView {
 @MainActor
 final class FolderListDocView: NSView, NSDraggingSource {
     weak var owner: FolderListView?
-    var groupRect: NSRect = .zero
+    var groupRect: NSRect = .zero { didSet { if oldValue != groupRect { updateGlass() } } }
+    private var glass: NSGlassEffectView?
     var draggingRow: FolderRowView?
     private let indicator = DropIndicatorView()
     private weak var dropRow: FolderRowView? { didSet { oldValue?.isDropTarget = false; dropRow?.isDropTarget = true } }
@@ -224,10 +242,27 @@ final class FolderListDocView: NSView, NSDraggingSource {
 
     override var isFlipped: Bool { true }
 
+    /// Glass mode (`CardGlass`): a glass group background below the rows instead of the drawn one.
+    func updateGlass() {
+        guard let env = owner?.env else { return }
+        CardGlass.sync(&glass, in: self, enabled: CardGlass.isEnabled(env) && groupRect.height > 0)
+        guard let glass else { return }
+        let c = env.themes.ui(effectiveAppearance)
+        glass.cornerRadius = Metrics.folderGroupRadius
+        glass.tintColor = CardGlass.tint(c.folderRowBackground, dark: c.isDark)
+        glass.frame = groupRect
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateGlass()
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let env = owner?.env, groupRect.height > 0 else { return }
         let c = env.themes.ui(effectiveAppearance)
         let path = NSBezierPath(roundedRect: groupRect, xRadius: Metrics.folderGroupRadius, yRadius: Metrics.folderGroupRadius)
+        guard glass == nil else { return }
         NSGraphicsContext.saveGraphicsState()
         let shadow = NSShadow()
         shadow.shadowColor = NSColor.black.withAlphaComponent(CGFloat(c.shadowOpacity))

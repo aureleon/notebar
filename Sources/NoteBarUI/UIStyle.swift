@@ -11,6 +11,35 @@ public enum NoteBarUIOptions {
     public static var animations = true
 }
 
+/// Glass cards (Settings › Appearance › "Glass cards", key `blurBackdrop`): cards, the folder group and
+/// the header use Liquid Glass (`NSGlassEffectView`), tinted with their theme color, like the widgets
+/// in Notification Center. Off: solid theme colors with a drawn shadow.
+@MainActor
+enum CardGlass {
+    static func isEnabled(_ env: AppEnvironment) -> Bool {
+        NoteBarUIOptions.useGlass && env.settings.blurBackdrop
+    }
+
+    /// Glass tint for a theme fill: the same hue, translucent so the blurred desktop shows through.
+    static func tint(_ fill: NSColor, dark: Bool) -> NSColor {
+        fill.withAlphaComponent(dark ? 0.55 : 0.6)
+    }
+
+    /// Makes (or reuses) a glass view as the bottom subview of `host`, or removes it when `enabled` is false.
+    static func sync(_ glass: inout NSGlassEffectView?, in host: NSView, enabled: Bool) {
+        if enabled {
+            if glass == nil {
+                let g = NSGlassEffectView()
+                host.addSubview(g, positioned: .below, relativeTo: nil)
+                glass = g
+            }
+        } else {
+            glass?.removeFromSuperview()
+            glass = nil
+        }
+    }
+}
+
 /// Layout constants (points). Set by eye.
 enum Metrics {
     /// Room around the content so card shadows are not clipped by the panel window.
@@ -22,17 +51,16 @@ enum Metrics {
     /// Gap between the header and the first card, between the search bar and the first result, and
     /// between cards.
     static let gap: CGFloat = 10
-    /// Card padding on every side. The footer is an overlay on hover, so it adds no height.
+    /// Card padding. The action column (right edge, on hover) has its own space, so it adds no height.
     static let cardPaddingX: CGFloat = 18
     static let cardPaddingTop: CGFloat = 18
     static let cardPaddingBottom: CGFloat = 18
     /// Height of the folded title row. Holds the title font (`UIFonts.title`) with its line height.
     static let cardTitleRowHeight: CGFloat = 22
     static let folderNameRowHeight: CGFloat = 18
-    /// Hover footer overlay: pinned to the bottom edge of the card.
-    static let footerHeight: CGFloat = 24
-    static let footerInsetX: CGFloat = 8
-    static let footerInsetBottom: CGFloat = 7
+    /// Action drawer (bottom-right, on hover): gap to the card's bottom edge and to the pin above it.
+    static let actionColumnInsetBottom: CGFloat = 6
+    static let actionColumnGap: CGFloat = 4
     /// Height of the search bar row (result count and scope toggle).
     static let scopeBarHeight: CGFloat = 26
     static let leftBarWidth: CGFloat = 4

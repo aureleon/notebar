@@ -18,7 +18,7 @@ Feature list, with scope:
 | Organize | Folders, note colors, drag reorder, pin notes & folders, fold notes, move to folder (⌘⇧M), search | In |
 | Content | Invisible Markdown, formatting toolbar, checklists, images, file & folder shortcuts, `#rrggbb` preview, code mode, snippets | In |
 | Look | Themes, light/dark mode | Light/dark + 1–2 built-in themes. Custom theme editor is optional. |
-| Data | Automatic backups, export note as image | In |
+| Data | Automatic backups | In |
 | Data | iCloud sync | **Out** |
 | Integrations | URL scheme, AppleScript | In |
 | Integrations | Share extension, native Shortcuts actions | **Out** (need Xcode). The Services menu and URL scheme cover the same needs. |
@@ -44,10 +44,12 @@ Feature list, with scope:
 - Rounded corners (about 16 pt), soft shadow, about 16 pt padding.
 - **Title = first line**, bold, tinted with a darker shade of the note color.
 - Body about 13 pt system font. Links are blue.
-- **Footer** (on hover or focus): left group `Aa` (format) · share · gear;
-  center calendar icon + date (`20/05/2026, 17:02`); right group export · trash.
+- **Hover chrome** (on hover or focus): the date (`20/05/2026, 17:02`) left of the pin, centered on
+  it; in the bottom-right corner a rounded drawer: `Aa` (format) · copy text · gear · trash.
+  On a short card the last slot that fits is "…" with the other actions in a menu. Folded cards show
+  only the date and the pin.
 - **Pin** button in the top-right corner on hover.
-- **Folded:** only the title row, with a "+ N lines" badge on the right. Click to expand.
+- **Folded:** only the title row, with a "+ N lines" badge on the right, left of the pin. Click the badge to expand.
 - **Colors:** none (white/dark) by default. Pastels: purple, yellow, blue, green, red/pink, cream.
   Show the color as the full background or as a left bar (setting).
 
@@ -176,7 +178,7 @@ Estimates are for one experienced Swift/AppKit developer.
 | **1. Panel MVP** | Inset panel with header pill, slide animation, hotkey, Hot Side, multi-display, full-screen support | 3–4 days |
 | **2. Notes MVP** | Folder list (with counts) → note cards, plain-text editor, title = first line, card footer, create/delete/reorder, colors, SQLite storage, search, daily backup | 4–6 days |
 | **3. Rich editor** | Invisible Markdown, checklists, formatting toolbar, gear menu (color + Standard/Plain/Code mode), fold with "+ N lines", pin, `#rrggbb` circles | 1.5–3 weeks |
-| **4. Attachments** | Paste/drag images, file shortcuts with Quick Look thumbnails, drop onto a card or the panel, export note as image | 3–5 days |
+| **4. Attachments** | Paste/drag images, file shortcuts with Quick Look thumbnails, drop onto a card or the panel | 3–5 days |
 | **5. Polish** | Settings window, light/dark themes, keyboard-first navigation, move menu + shortcuts, backup restore | 4–6 days |
 | **6. Integrations** | URL scheme, Services menu, AppleScript | 2–4 days |
 
