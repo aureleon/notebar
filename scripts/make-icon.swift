@@ -9,80 +9,83 @@ func rgb(_ hex: UInt32, _ a: CGFloat = 1) -> NSColor {
     NSColor(srgbRed: CGFloat(hex >> 16 & 0xFF) / 255, green: CGFloat(hex >> 8 & 0xFF) / 255, blue: CGFloat(hex & 0xFF) / 255, alpha: a)
 }
 
-/// Draws the icon into a 1024x1024 coordinate space.
+func withShadow(_ alpha: CGFloat, _ blur: CGFloat, _ dy: CGFloat, _ draw: () -> Void) {
+    NSGraphicsContext.saveGraphicsState()
+    let s = NSShadow()
+    s.shadowColor = NSColor.black.withAlphaComponent(alpha)
+    s.shadowBlurRadius = blur
+    s.shadowOffset = NSSize(width: 0, height: dy)
+    s.set()
+    draw()
+    NSGraphicsContext.restoreGraphicsState()
+}
+
+func pill(_ r: NSRect, _ c: NSColor) {
+    c.setFill()
+    NSBezierPath(roundedRect: r, xRadius: r.height / 2, yRadius: r.height / 2).fill()
+}
+
+func roundedStroke(_ r: NSRect, radius: CGFloat, _ c: NSColor) {
+    c.setStroke()
+    let p = NSBezierPath(roundedRect: r.insetBy(dx: 1.5, dy: 1.5), xRadius: radius - 1.5, yRadius: radius - 1.5)
+    p.lineWidth = 3
+    p.stroke()
+}
+
+/// Draws the icon into a 1024x1024 coordinate space: a dark desktop with the NoteBar glass panel on
+/// the right edge (dark header pill with title + settings / search / new, a yellow and a white note).
 func drawIcon() {
     // macOS icon grid: 824pt body centered in 1024, corner radius ~185.
     let body = NSRect(x: 100, y: 100, width: 824, height: 824)
     let bodyPath = NSBezierPath(roundedRect: body, xRadius: 185, yRadius: 185)
 
-    // Drop shadow.
-    NSGraphicsContext.saveGraphicsState()
-    let shadow = NSShadow()
-    shadow.shadowColor = NSColor.black.withAlphaComponent(0.35)
-    shadow.shadowBlurRadius = 28
-    shadow.shadowOffset = NSSize(width: 0, height: -12)
-    shadow.set()
-    rgb(0x1F2A44).setFill()
-    bodyPath.fill()
-    NSGraphicsContext.restoreGraphicsState()
+    withShadow(0.35, 28, -12) { rgb(0x1F2A44).setFill(); bodyPath.fill() }
 
-    // Background: a "desktop" gradient.
     NSGraphicsContext.saveGraphicsState()
     bodyPath.addClip()
-    NSGradient(colors: [rgb(0x3A7BD5), rgb(0x6A5ACD), rgb(0x9B59B6)], atLocations: [0, 0.6, 1],
-               colorSpace: .sRGB)!.draw(in: body, angle: -60)
+    NSGradient(colors: [rgb(0x101A33), rgb(0x23345E)], atLocations: [0, 1], colorSpace: .sRGB)!.draw(in: body, angle: -90)
 
-    // The side panel: frosted glass slab on the right edge.
-    let panel = NSRect(x: body.maxX - 430, y: body.minY - 20, width: 470, height: body.height + 40)
-    rgb(0xFFFFFF, 0.22).setFill()
-    NSBezierPath(rect: panel).fill()
-    rgb(0xFFFFFF, 0.45).setFill()
-    NSBezierPath(rect: NSRect(x: panel.minX, y: panel.minY, width: 5, height: panel.height)).fill()
+    // The glass panel.
+    let panel = NSRect(x: body.maxX - 470, y: body.minY + 70, width: 410, height: body.height - 140)
+    withShadow(0.4, 34, -8) {
+        rgb(0xFFFFFF, 0.16).setFill()
+        NSBezierPath(roundedRect: panel, xRadius: 70, yRadius: 70).fill()
+    }
+    roundedStroke(panel, radius: 70, rgb(0xFFFFFF, 0.38))
 
-    // Note cards in the panel.
-    let cardX = panel.minX + 42
-    let cardW: CGFloat = 330
-    let cards: [(y: CGFloat, h: CGFloat, color: NSColor, lines: Int)] = [
-        (body.maxY - 250, 170, rgb(0xFFE27A), 3),
-        (body.maxY - 450, 170, rgb(0xFFFFFF), 3),
-        (body.maxY - 640, 160, rgb(0xA8E6A1), 2),
-    ]
-    for c in cards {
-        let r = NSRect(x: cardX, y: c.y, width: cardW, height: c.h)
-        NSGraphicsContext.saveGraphicsState()
-        let s = NSShadow()
-        s.shadowColor = NSColor.black.withAlphaComponent(0.25)
-        s.shadowBlurRadius = 14
-        s.shadowOffset = NSSize(width: 0, height: -5)
-        s.set()
-        c.color.setFill()
-        NSBezierPath(roundedRect: r, xRadius: 34, yRadius: 34).fill()
-        NSGraphicsContext.restoreGraphicsState()
-        // Title bar + text lines.
-        rgb(0x2B2B2B, 0.85).setFill()
-        NSBezierPath(roundedRect: NSRect(x: r.minX + 34, y: r.maxY - 58, width: 180, height: 22), xRadius: 11, yRadius: 11).fill()
-        rgb(0x2B2B2B, 0.35).setFill()
-        for i in 0..<c.lines {
-            let w: CGFloat = i == c.lines - 1 ? 150 : 250
-            NSBezierPath(roundedRect: NSRect(x: r.minX + 34, y: r.maxY - 100 - CGFloat(i) * 32, width: w, height: 16),
-                         xRadius: 8, yRadius: 8).fill()
-        }
+    // Header pill: title, then settings / search / new.
+    let header = NSRect(x: panel.minX + 30, y: panel.maxY - 30 - 96, width: panel.width - 60, height: 96)
+    withShadow(0.3, 10, -3) {
+        rgb(0x16213D).setFill()
+        NSBezierPath(roundedRect: header, xRadius: 48, yRadius: 48).fill()
+    }
+    roundedStroke(header, radius: 48, rgb(0xFFFFFF, 0.14))
+    pill(NSRect(x: header.minX + 34, y: header.midY - 13, width: 120, height: 26), rgb(0xFFFFFF, 0.92))
+    for i in 0..<3 {
+        let d: CGFloat = 44
+        let cx = header.maxX - 30 - d / 2 - CGFloat(i) * 56
+        rgb(0xFFFFFF, i == 0 ? 0.85 : 0.3).setFill()
+        NSBezierPath(ovalIn: NSRect(x: cx - d / 2, y: header.midY - d / 2, width: d, height: d)).fill()
     }
 
-    // Open Bar tab on the panel's edge.
-    rgb(0xFFFFFF, 0.9).setFill()
-    NSBezierPath(roundedRect: NSRect(x: panel.minX - 34, y: body.midY - 80, width: 22, height: 160), xRadius: 11, yRadius: 11).fill()
-
-    // Gloss.
-    NSGradient(colors: [rgb(0xFFFFFF, 0.18), rgb(0xFFFFFF, 0)], atLocations: [0, 1], colorSpace: .sRGB)!
-        .draw(in: NSRect(x: body.minX, y: body.midY, width: body.width, height: body.height / 2), angle: -90)
+    // Two notes: yellow and white (default color).
+    let top = header.minY - 30
+    let h = (top - (panel.minY + 30) - 26) / 2
+    for (i, color) in [rgb(0xFFE27A), rgb(0xFFFFFF)].enumerated() {
+        let r = NSRect(x: panel.minX + 30, y: top - h - CGFloat(i) * (h + 26), width: panel.width - 60, height: h)
+        withShadow(0.25, 12, -4) {
+            color.setFill()
+            NSBezierPath(roundedRect: r, xRadius: 44, yRadius: 44).fill()
+        }
+        let t = r.insetBy(dx: 40, dy: 40)
+        pill(NSRect(x: t.minX, y: t.maxY - 28.6, width: 160, height: 28.6), rgb(0x2B2B2B, 0.85))
+        for (k, w) in [250, 250, 170].enumerated() {
+            pill(NSRect(x: t.minX, y: t.maxY - 28.6 - 34 - CGFloat(k) * 44, width: CGFloat(w), height: 22), rgb(0x2B2B2B, 0.32))
+        }
+    }
     NSGraphicsContext.restoreGraphicsState()
 
-    // Hairline border.
-    rgb(0xFFFFFF, 0.25).setStroke()
-    let border = NSBezierPath(roundedRect: body.insetBy(dx: 1.5, dy: 1.5), xRadius: 184, yRadius: 184)
-    border.lineWidth = 3
-    border.stroke()
+    roundedStroke(body, radius: 185, rgb(0xFFFFFF, 0.22))
 }
 
 func render(pixels: Int) -> Data {
