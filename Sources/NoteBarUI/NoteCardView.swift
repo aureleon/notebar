@@ -13,6 +13,7 @@ protocol NoteCardDelegate: AnyObject {
     func cardClicked(_ card: NoteCardView, event: NSEvent)
     func cardMenu(_ card: NoteCardView) -> NSMenu?
     func card(_ card: NoteCardView, drop payload: ImportPayload) -> Bool
+    func cardExpandToggled(_ card: NoteCardView)
 }
 
 /// One note card: rounded background with a soft shadow, the hosted editor (or a preview), a pin
@@ -29,8 +30,10 @@ final class NoteCardView: NSView {
     private let titleLabel = PassthroughLabel()
     private let badge = BadgeButton()
     private let pinButton = IconButton(symbol: "pin", size: 10.5, toolTip: "Pin")
-    /// For checks: the pin button frame and the preview (when there is no live editor).
+    private let expandButton = IconButton(symbol: "arrow.up.left.and.arrow.down.right", size: 10.5, toolTip: "Expand Card (⇧⌘E)")
+    /// For checks: the pin button frame, expand button frame, and the preview (when there is no live editor).
     var pinButtonFrame: NSRect { pinButton.frame }
+    var expandButtonFrame: NSRect { expandButton.frame }
     var previewForChecks: NotePreviewView? { preview }
     /// Created on first hover / focus (keeps long lists light).
     private(set) var footer: CardActionsView?
@@ -44,6 +47,7 @@ final class NoteCardView: NSView {
 
     /// Search results are always shown expanded.
     var forceUnfolded = false { didSet { if oldValue != forceUnfolded { foldStateChanged() } } }
+    var isExpanded = false { didSet { if oldValue != isExpanded { expandStateChanged() } } }
     /// Folder name shown above the text (search results across folders).
     var folderName: String? { didSet { if oldValue != folderName { updateFolderLabel() } } }
     /// Current search query (search results). Every result card marks its matches (see `highlightSearchMatch`).
@@ -83,6 +87,12 @@ final class NoteCardView: NSView {
             self.delegate?.actions.togglePin(self.note.id)
         }
         addSubview(pinButton)
+        expandButton.symbolWeight = .semibold
+        expandButton.onClick = { [weak self] _ in
+            guard let self else { return }
+            self.delegate?.cardExpandToggled(self)
+        }
+        addSubview(expandButton)
         registerForDraggedTypes(PasteboardImport.attachmentTypes)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -139,6 +149,12 @@ final class NoteCardView: NSView {
         pinButton.symbolName = pinned ? "pin.fill" : "pin"
         pinButton.toolTip = pinned ? "Unpin" : "Pin"
         pinButton.setAccessibilityLabel(pinned ? "Unpin note" : "Pin note")
+        let sym = isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+        let tip = isExpanded ? "Collapse Card (⇧⌘E)" : "Expand Card (⇧⌘E)"
+        let label = isExpanded ? "Collapse note" : "Expand note"
+        expandButton.symbolName = sym
+        expandButton.toolTip = tip
+        expandButton.setAccessibilityLabel(label)
         badge.text = UIFormat.linesBadge(note.linesAfterTitle)
         restyle()
         updateChrome(animated: false)
@@ -172,6 +188,19 @@ final class NoteCardView: NSView {
         updateChrome(animated: false)
         needsLayout = true
         delegate?.cardNeedsLayout(self)
+    }
+
+    private func expandStateChanged() {
+        let sym = isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+        let tip = isExpanded ? "Collapse Card (⇧⌘E)" : "Expand Card (⇧⌘E)"
+        let label = isExpanded ? "Collapse note" : "Expand note"
+        expandButton.symbolName = sym
+        expandButton.toolTip = tip
+        expandButton.setAccessibilityLabel(label)
+        restyle()
+        updateChrome(animated: false)
+        invalidateHeight()
+        needsLayout = true
     }
 
     // MARK: Editor / preview
@@ -353,11 +382,11 @@ final class NoteCardView: NSView {
 
     private var folderRowHeight: CGFloat { folderName == nil ? 0 : 16 + 6 }
 
-    static let minUnfoldedHeight: CGFloat = Metrics.pinButtonInset + Metrics.pinButtonSize + Metrics.actionColumnGap
+    static let minUnfoldedHeight: CGFloat = 6 + Metrics.pinButtonSize * 2 + 2 + 2
         + CardActionsView.minHeight + Metrics.actionColumnInsetBottom
 
     /// Height of the visible card (without the shadow pad) at the given card width.
-    func cardHeight(forWidth w: CGFloat) -> CGFloat {
+    func cardHeight(forWidth w: CGFloat, minHeight: CGFloat = 0) -> CGFloat {
         var h = Metrics.cardPaddingTop + folderRowHeight
         if isFolded {
             h += Metrics.cardTitleRowHeight
@@ -365,8 +394,8 @@ final class NoteCardView: NSView {
             h += contentHeight(forWidth: contentWidth(forCardWidth: w))
         }
         h = ceil(h + Metrics.cardPaddingBottom)
-        // Room for the pin and one action slot ("…" when nothing else fits).
-        return isFolded ? h : max(h, Self.minUnfoldedHeight)
+        let baseH = isFolded ? h : max(h, Self.minUnfoldedHeight)
+        return isExpanded ? max(baseH, minHeight) : baseH
     }
 
     // MARK: Layout
@@ -385,9 +414,9 @@ final class NoteCardView: NSView {
         if isFolded {
             let bw = badge.isHidden ? 0 : badge.intrinsicContentSize.width
             let rowH = Metrics.cardTitleRowHeight
-            // Pin on the far right, in the same column as on unfolded cards. Its slot is kept while it
-            // is hidden, so the badge does not move on hover.
-            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
+            // Expand button on the far right, pin button next to it.
+            expandButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
+            pinButton.frame = NSRect(x: expandButton.frame.minX - 4 - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
             badge.frame = NSRect(x: pinButton.frame.minX - 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
             var right = badge.isHidden ? pinButton.frame.minX - 4 : badge.frame.minX - 6
             if let dateLabel {
@@ -402,22 +431,28 @@ final class NoteCardView: NSView {
         } else {
             let w = contentWidth(forCardWidth: cr.width)
             let h = contentHeight(forWidth: w)
-            let r = NSRect(x: cr.minX + px, y: y, width: w, height: h)
+            let cardInnerH = cr.height - Metrics.cardPaddingTop - Metrics.cardPaddingBottom - folderRowHeight
+            let contentH = max(h, cardInnerH)
+            let r = NSRect(x: cr.minX + px, y: y, width: w, height: contentH)
             if let editor, editor.frame != r { editor.frame = r }
             if let preview, preview.frame != r { preview.frame = r }
-            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + Metrics.pinButtonInset,
+            // Expansion button at the top-right corner where pin was:
+            expandButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + 6,
+                                       width: pin, height: pin)
+            // Pin button shifted below the expansion button, inline in the right action column:
+            pinButton.frame = NSRect(x: expandButton.frame.minX, y: expandButton.frame.maxY + 2,
                                      width: pin, height: pin)
             let pf = pinButton.frame
-            let top = pf.maxY + Metrics.actionColumnGap
+            let top = pf.maxY + 2
             let cw = CardActionsView.width
             footer?.frame = NSRect(x: pf.midX - cw / 2, y: top, width: cw,
                                    height: max(0, cr.maxY - Metrics.actionColumnInsetBottom - top))
             if let dateLabel {
-                // Centered on the pin, ending where the text ends.
+                // Centered on the expand button, ending where the text ends.
                 let dw = dateReserve
-                dateLabel.frame = NSRect(x: r.maxX - dw, y: pf.midY - 8, width: dw, height: 16)
+                dateLabel.frame = NSRect(x: r.maxX - dw, y: expandButton.frame.midY - 8, width: dw, height: 16)
             }
-            y += h
+            y += contentH
         }
         glass?.frame = cr
         chrome?.frame = bounds
@@ -454,6 +489,10 @@ final class NoteCardView: NSView {
         pinButton.restingFill = note.isPinned ? nil : pillFill
         pinButton.hoverFill = c.hoverFill
         pinButton.pressedFill = c.pressedFill
+        expandButton.tint = isExpanded ? (colored ? env.themes.cardTitle(note.color, appearance: a) : c.accent) : tint
+        expandButton.restingFill = isExpanded ? nil : pillFill
+        expandButton.hoverFill = c.hoverFill
+        expandButton.pressedFill = c.pressedFill
         folderLabel?.textColor = c.secondaryText
         folderIcon?.contentTintColor = c.secondaryText
         if let preview { preview.configure(note: note, env: env, appearance: a) }
@@ -513,6 +552,7 @@ final class NoteCardView: NSView {
         let footer: CardActionsView
         if let existing = self.footer { footer = existing } else if show { footer = makeFooter() } else {
             pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
+            expandButton.isHidden = isFolded && !(hovering || isExpanded || menuOpen)
             badge.isHidden = !isFolded || note.linesAfterTitle == 0
             return
         }
@@ -541,6 +581,7 @@ final class NoteCardView: NSView {
         }
         let pinWasHidden = pinButton.isHidden
         pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
+        expandButton.isHidden = isFolded && !(hovering || isExpanded || menuOpen)
         badge.isHidden = !isFolded || note.linesAfterTitle == 0
         if pinWasHidden != pinButton.isHidden, isFolded { needsLayout = true }
     }
