@@ -33,7 +33,9 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// Note whose editor has keyboard focus.
     var focusedNoteID: NoteID?
     /// Focus requested before the view was in a window.
-    var pendingFocus: (id: NoteID, edit: Bool)?
+    var pendingFocus: (id: NoteID, edit: Bool, insert: Bool)?
+    /// Vim: ⌃W was pressed on the root view at this time (the next j / k picks a card).
+    var vimWindowArmedAt: Date?
     var isPanelFocused = true
     private var searchWork: DispatchWorkItem?
     /// Folder whose notes the list currently shows (nil: empty, or search results).
@@ -107,6 +109,11 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         header.onCloseSearch = { [weak self] in self?.endSearch(restore: true, focusRoot: true) }
         header.onSearchMoveDown = { [weak self] in self?.focusFirstResult(edit: false) }
         header.onSearchSubmit = { [weak self] in self?.focusFirstResult(edit: true) }
+        header.onSearchNavigateUp = { [weak self] in
+            guard let self, self.vimEnabled else { return false }
+            self.goBack()
+            return true
+        }
         header.onSpringBack = { [weak self] in
             guard let self, self.search == nil, case .folder = self.screen else { return }
             self.showFolderList()
@@ -315,6 +322,11 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     public func reveal(noteId: NoteID, edit: Bool) {
+        revealNote(noteId, edit: edit, insert: false)
+    }
+
+    /// `insert`: with vim keys on, the editor starts in Insert mode (new notes). Empty notes always do.
+    func revealNote(_ noteId: NoteID, edit: Bool, insert: Bool) {
         _ = view
         if pendingDeletion == noteId { undoDeletion() }
         guard var note = store.note(id: noteId) else { return }
@@ -324,12 +336,12 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             actions.setFolded(false, id: noteId)
             note = store.note(id: noteId) ?? note
         }
-        guard view.window != nil else { pendingFocus = (noteId, edit); return }
+        guard view.window != nil else { pendingFocus = (noteId, edit, insert); return }
         rootView.layoutSubtreeIfNeeded()
         guard let card = notesList.card(for: noteId) else { return }
         notesList.scrollToCard(card)
         if edit {
-            card.focusEditor(atEnd: true)
+            card.focusEditor(atEnd: true, insert: insert || note.body.isEmpty)
             notesList.selectedNoteID = noteId
         } else {
             select(noteId)
@@ -344,7 +356,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func applyPendingFocus() {
         guard let p = pendingFocus, view.window != nil else { return }
         pendingFocus = nil
-        reveal(noteId: p.id, edit: p.edit)
+        revealNote(p.id, edit: p.edit, insert: p.insert)
     }
 
     public func beginSearch() {
@@ -462,7 +474,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func createNewNote() {
         let fid = targetFolderForNewNote()
         let note = store.createNote(in: fid, body: "", mode: env.settings.defaultNoteMode, position: .top)
-        reveal(noteId: note.id, edit: true)
+        revealNote(note.id, edit: true, insert: true)
     }
 
     func createNote(from payload: ImportPayload, in folderId: FolderID? = nil) {
@@ -471,7 +483,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             showToast("Could not add that item")
             return
         }
-        reveal(noteId: note.id, edit: true)
+        revealNote(note.id, edit: true, insert: true)
     }
 
     func pasteAsNewNote() {
@@ -490,7 +502,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             showToast("Could not add that item")
             return nil
         }
-        reveal(noteId: note.id, edit: true)
+        revealNote(note.id, edit: true, insert: true)
         return note.id
     }
 

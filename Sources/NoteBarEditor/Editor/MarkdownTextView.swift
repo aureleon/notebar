@@ -27,7 +27,17 @@ final class MarkdownTextView: NSTextView {
             editor?.onEvent?(.commit)
             return
         }
+        if let editor, editor.vimHandleKeyDown(event) { return }
         super.keyDown(with: event)
+    }
+
+    // MARK: Vim block caret
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard let editor, let r = editor.blockCaretRect, r.intersects(dirtyRect) else { return }
+        editor.style.text.withAlphaComponent(0.4).setFill()
+        NSBezierPath(roundedRect: r, xRadius: 1.5, yRadius: 1.5).fill()
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

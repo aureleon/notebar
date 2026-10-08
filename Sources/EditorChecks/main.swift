@@ -17,6 +17,7 @@ MainActor.assumeIsolated {
     ListChecks.run()
     BehaviorChecks.run()
     PolishChecks.run()
+    VimChecks.run()
     PerfChecks.run(verbose: arguments.contains("--perf"))
 
     if let i = arguments.firstIndex(of: "--snapshot") {

@@ -552,6 +552,109 @@ MainActor.assumeIsolated {
     Check.equal(probe.backdropFrame.height, probe.rootContentHeight, "backdrop returns to initial height after collapse")
     NoteBarUIOptions.useGlass = false
 
+    // MARK: Vim keys
+    vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
+
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
+}
+
+@MainActor
+func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore, settings: AppSettings,
+               folders: (notes: Folder, work: Folder, ideas: Folder, empty: Folder), spin: () -> Void) {
+    func key(_ ch: String, _ code: UInt16 = 0, _ mods: NSEvent.ModifierFlags = []) { probe.press(keyCode: code, characters: ch, modifiers: mods) }
+
+    // Off (default): letters on the folder list type into search.
+    settings.vimKeybinds = false
+    vc.showFolderList()
+    probe.focusList()
+    key("j", 38)
+    Check.expect(probe.isSearching, "vim off: a letter on the folder list starts search")
+    probe.goBack()
+    Check.expect(!probe.isSearching, "search closed")
+
+    settings.vimKeybinds = true
+    vc.showFolderList()
+    probe.focusList()
+    let ids = probe.folderRowIDs
+    for _ in ids { key("k", 40) }
+    Check.expect(!probe.isSearching, "vim: j / k do not start search")
+    Check.equal(probe.selectedFolderID, ids.first, "vim: k moves the folder selection up to the top")
+    key("j", 38)
+    Check.equal(probe.selectedFolderID, ids[1], "vim: j moves the folder selection down")
+    key("k", 40)
+    Check.equal(probe.selectedFolderID, ids[0], "vim: k moves it back")
+    key("x", 7)
+    Check.expect(!probe.isSearching, "vim: other letters do nothing on the folder list")
+    key("R", 15, [.shift])
+    Check.equal(probe.renamingFolderID, ids[0], "vim: R renames the selected folder")
+    probe.endRename()
+    Check.equal(probe.renamingFolderID, nil, "rename ended")
+
+    // l opens; ⌃[ goes up; ⌘/ searches all folders.
+    guard let notesIndex = ids.firstIndex(of: folders.notes.id) else { Check.expect(false, "folder rows"); return }
+    for _ in 0..<notesIndex { key("j", 38) }
+    Check.equal(probe.selectedFolderID, folders.notes.id, "selected the Notes folder")
+    key("l", 37)
+    Check.equal(probe.headerTitle, "Notes", "vim: l opens the folder")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    key("\u{1b}", 33, [.control])
+    Check.expect(probe.folderRowsVisible, "vim: ⌃[ goes up to the folder list")
+    key("/", 44, [.command])
+    Check.expect(probe.isSearching, "⌘/ starts search")
+    Check.equal(probe.searchAllFolders, true, "⌘/ searches all folders")
+    probe.goBack()
+
+    // Notes list: j / k select, ⌃W J / K edit the neighbor card (folded cards unfold).
+    let vf = store.createFolder(name: "Vim Test")
+    let a = store.createNote(in: vf.id, body: "A note\nfirst", mode: .standard, position: .bottom)
+    var b = store.createNote(in: vf.id, body: "B note\nsecond", mode: .standard, position: .bottom)
+    b.isFolded = true
+    store.updateNote(b)
+    let c = store.createNote(in: vf.id, body: "C note\nthird", mode: .standard, position: .bottom)
+    vc.showFolder(vf.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.focusList()
+    key("j", 38)
+    Check.equal(probe.selectedNoteID, a.id, "vim: j selects the first card")
+    key("j", 38)
+    Check.equal(probe.selectedNoteID, b.id, "vim: j selects the next card")
+    key("k", 40)
+    Check.equal(probe.selectedNoteID, a.id, "vim: k selects the previous card")
+    key("w", 13, [.control])
+    key("j", 38)
+    Check.equal(probe.focusedNoteID, b.id, "⌃W J from the list edits the next card")
+    Check.equal(probe.isCardFolded(b.id), false, "⌃W J unfolds a folded card")
+    probe.vimCommand(.focusNextCard, on: b.id)
+    Check.equal(probe.focusedNoteID, c.id, "⌃W J in an editor edits the next card")
+    probe.vimCommand(.focusPreviousCard, on: c.id)
+    Check.equal(probe.focusedNoteID, b.id, "⌃W K edits the previous card")
+
+    // Card commands.
+    probe.vimCommand(.togglePin, on: b.id)
+    Check.expect(store.note(id: b.id)?.isPinned == true, "gp / :pin pins")
+    probe.vimCommand(.togglePin, on: b.id)
+    probe.vimCommand(.setColor(.blue), on: b.id)
+    Check.equal(store.note(id: b.id)?.color, .blue, ":color blue")
+    probe.vimCommand(.setMode(.code), on: b.id)
+    Check.equal(store.note(id: b.id)?.mode, .code, ":mode code")
+    probe.vimCommand(.toggleFold, on: b.id)
+    Check.equal(store.note(id: b.id)?.isFolded, true, "za folds")
+    Check.equal(probe.selectedNoteID, b.id, "the folded card stays selected")
+    Check.equal(probe.focusedNoteID, nil, "folding ends editing")
+    probe.vimCommand(.setFolded(false), on: b.id)
+    Check.equal(store.note(id: b.id)?.isFolded, false, ":unfold")
+    probe.vimCommand(.quit, on: b.id)
+    Check.equal(probe.selectedNoteID, b.id, ":q keeps the card selected")
+    probe.vimCommand(.moveToFolder("nosuchfolder"), on: b.id)
+    Check.equal(store.note(id: b.id)?.folderId, vf.id, ":move to an unknown folder does nothing")
+    Check.expect(probe.isToastVisible, ":move to an unknown folder shows a message")
+    probe.vimCommand(.moveToFolder("ide"), on: b.id)
+    Check.equal(store.note(id: b.id)?.folderId, folders.ideas.id, ":move ide → Ideas (prefix match)")
+    probe.vimCommand(.delete, on: c.id)
+    Check.equal(probe.pendingDeletion, c.id, "gx / :delete deletes with undo")
+    probe.undoDelete()
+    probe.vimCommand(.navigateUp, on: a.id)
+    Check.expect(probe.folderRowsVisible, "⌃[ in Normal mode goes up")
+    settings.vimKeybinds = false
 }

@@ -186,6 +186,7 @@ extension MarkdownNoteEditor {
     func handleCommand(_ sel: Selector) -> Bool {
         switch sel {
         case #selector(NSResponder.cancelOperation(_:)):
+            if vimHandleEscape() { return true }
             FormattingToolbar.shared.hide(for: self)
             onEvent?(.escape)
             return true
@@ -359,4 +360,52 @@ extension MarkdownNoteEditor {
     public func doCommandForTesting(_ selector: Selector) {
         if !handleCommand(selector) { textView.doCommand(by: selector) }
     }
+
+    /// Feeds keys through the vim layer like typing them. Plain characters are keys; `<Esc>`, `<CR>`,
+    /// `<BS>`, `<Tab>` and `<C-x>` are special keys. Keys the vim layer does not take are typed
+    /// as text (Insert mode), the same path `.` uses to replay a change. Returns false if any key was not handled by vim or typed.
+    @discardableResult
+    public func vimKeysForTesting(_ keys: String) -> Bool {
+        guard vimEnabled else { return false }
+        var ok = true
+        var rest = Substring(keys)
+        while let c = rest.first {
+            var key = VimKey.char(c)
+            if c == "<", let close = rest.firstIndex(of: ">") {
+                let name = rest[rest.index(after: rest.startIndex)..<close]
+                var special: VimKey?
+                switch name {
+                case "Esc": special = .escape
+                case "CR": special = .enter
+                case "BS": special = .backspace
+                case "Tab": special = .tab
+                default:
+                    if name.hasPrefix("C-"), name.count == 3, let ch = name.last { special = .ctrl(Character(ch.lowercased())) }
+                }
+                if let special { key = special; rest = rest[rest.index(after: close)...] } else { rest = rest.dropFirst() }
+            } else {
+                rest = rest.dropFirst()
+            }
+            if !feedVimKey(key) { ok = false }
+        }
+        return ok
+    }
+
+    /// The pasteboard yanks go to (default: the system clipboard). Checks set a private one.
+    public static var vimPasteboardForTesting: NSPasteboard {
+        get { VimRegister.pasteboard }
+        set { VimRegister.pasteboard = newValue }
+    }
+
+    /// The text shown in the vim `:` / `/` prompt (prefix included), or nil when it is closed.
+    public var vimPromptTextForTesting: String? {
+        guard let p = vim.prompt else { return nil }
+        return String(p.kind.rawValue) + p.text
+    }
+    /// The vim prompt view's frame in editor coordinates.
+    public var vimPromptFrameForTesting: NSRect? { vimPrompt?.frame }
+    /// The Normal-mode block caret rectangle (text view coordinates), or nil.
+    public var vimBlockCaretRectForTesting: NSRect? { blockCaretRect }
+    /// The caret / selection in storage characters.
+    public var selectedRangeForTesting: NSRange { textView.selectedRange() }
 }

@@ -258,11 +258,12 @@ final class NoteCardView: NSView {
         invalidateHeight()
     }
 
-    func focusEditor(atEnd: Bool) {
+    /// `insert`: with vim keys on, start in Insert mode (else Normal mode).
+    func focusEditor(atEnd: Bool, insert: Bool = false) {
         guard !isFolded else { return }
         if ensureEditor() { delegate?.cardNeedsLayout(self) }
         layoutSubtreeIfNeeded()
-        editor?.focus(atEnd: atEnd)
+        editor?.focus(atEnd: atEnd, insertMode: insert)
     }
 
     private func editorLayoutChanged() {

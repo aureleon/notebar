@@ -16,6 +16,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     var onSearchEscape: (() -> Void)?
     var onSearchMoveDown: (() -> Void)?
     var onSearchSubmit: (() -> Void)?
+    /// ⌃[ in the search field (vim: go up). Returns false when not used.
+    var onSearchNavigateUp: (() -> Bool)?
     var onCloseSearch: (() -> Void)?
     /// A note is dragged over the back button long enough (spring loading).
     var onSpringBack: (() -> Void)?
@@ -218,6 +220,11 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         case #selector(NSResponder.insertNewline(_:)):
             onSearchSubmit?(); return true
         default:
+            // ⌃[ arrives as noop: (no key binding).
+            if let e = NSApp.currentEvent, e.type == .keyDown, e.keyCode == 33,
+               e.modifierFlags.intersection([.command, .shift, .option, .control]) == [.control] {
+                return onSearchNavigateUp?() ?? false
+            }
             return false
         }
     }

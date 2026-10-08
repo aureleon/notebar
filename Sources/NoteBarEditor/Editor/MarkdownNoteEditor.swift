@@ -51,6 +51,9 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     private(set) var searchRanges: [NSRange] = []
     /// True while this editor has keyboard focus. Spell-check dots are shown only then.
     private var isSpellActive = false
+    /// Vim keys (`env.settings.vimKeybinds`): mode, pending keys, `:` / `/` prompt.
+    var vim = VimState()
+    var vimPrompt: VimPromptView?
 
     var style: EditorStyle { styler.style }
     var codecOptions: CodecOptions { .forMode(mode) }
@@ -165,7 +168,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
 
     private func applyColorsToTextView() {
         let st = style
-        textView.insertionPointColor = st.text
+        textView.insertionPointColor = hidesBarCaret ? .clear : st.text
         textView.linkTextAttributes = [.foregroundColor: st.link, .cursor: NSCursor.pointingHand]
         textView.typingAttributes = baseAttributes
         layoutManagerNB.hideMarkup = st.hideMarkup && mode == .standard
@@ -188,6 +191,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         })
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
+            if key == "vimKeybinds" { MainActor.assumeIsolated { self?.vimSettingsChanged() }; return }
             guard key == nil || key == "hideMarkup" else { return }
             MainActor.assumeIsolated { self?.rebuildStyle() }
         })
@@ -476,6 +480,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     public func textViewDidChangeSelection(_ notification: Notification) {
         guard !isApplyingInternal else { return }
         if !isTrackingMouse { updateReveal() }
+        if isVimNormal { textView.needsDisplay = true }
         scheduleToolbarUpdate()
     }
 
@@ -541,6 +546,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
 
     func focusDidChange(_ focused: Bool) {
         setSpellCheckingActive(focused)
+        vimFocusChanged(focused)
         if !focused { FormattingToolbar.shared.hide(for: self) }
         // Defer: the window's first responder is updated after become/resign returns.
         DispatchQueue.main.async { [weak self] in
@@ -624,7 +630,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     }
 
     public override var intrinsicContentSize: NSSize {
-        let h = measuredHeight(width: bounds.width)
+        let h = measuredHeight(width: bounds.width) + promptHeight
         if bounds.width > 1 { reportedHeight = h }
         return NSSize(width: NSView.noIntrinsicMetric, height: h)
     }
@@ -646,10 +652,14 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             container.size = NSSize(width: w, height: CGFloat.greatestFiniteMagnitude)
             cachedHeight = nil
         }
-        let h = max(bounds.height, measuredHeight(width: w))
+        let ph = promptHeight
+        let measured = measuredHeight(width: w)
+        let h = max(bounds.height - ph, measured)
         let f = NSRect(x: 0, y: 0, width: w, height: h)
         if textView.frame != f { textView.frame = f }
-        if abs(h - reportedHeight) > 0.5, reportedHeight >= 0 {
+        // The vim prompt sits at the bottom of the editor (of the card when it is expanded).
+        vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+        if abs(measured + ph - reportedHeight) > 0.5, reportedHeight >= 0 {
             // Width change altered the height: tell the host after this layout pass.
             DispatchQueue.main.async { [weak self] in self?.layoutDidChange() }
         }
@@ -658,11 +668,14 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// Recomputes the height and notifies the host when it changed.
     func layoutDidChange() {
         cachedHeight = nil
-        let h = measuredHeight(width: bounds.width)
+        let ph = promptHeight
+        let measured = measuredHeight(width: bounds.width)
+        let h = measured + ph
         let w = bounds.width
         if w > 1 {
-            let f = NSRect(x: 0, y: 0, width: w, height: max(bounds.height, h))
+            let f = NSRect(x: 0, y: 0, width: w, height: max(bounds.height - ph, measured))
             if textView.frame != f { textView.frame = f }
+            vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
         }
         if abs(h - reportedHeight) > 0.5 {
             reportedHeight = h

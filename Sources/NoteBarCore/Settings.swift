@@ -131,6 +131,7 @@ public final class AppSettings: ObservableObject {
         themeId = get("themeId", "default")
         hideMarkup = get("hideMarkup", true)
         defaultNoteMode = getEnum("defaultNoteMode", .standard)
+        vimKeybinds = get("vimKeybinds", false)
         backupsEnabled = get("backupsEnabled", true)
         backupRetention = get("backupRetention", 14)
         lastFolderId = (defaults.object(forKey: "lastFolderId") as? NSNumber)?.int64Value
@@ -179,6 +180,9 @@ public final class AppSettings: ObservableObject {
     /// true = invisible markdown (markers hidden when caret is elsewhere); false = dimmed markers.
     @Published public var hideMarkup: Bool { didSet { save("hideMarkup", hideMarkup) } }
     @Published public var defaultNoteMode: NoteMode { didSet { save("defaultNoteMode", defaultNoteMode.rawValue) } }
+    /// Vim keys: notes open in Normal mode (block caret), motions and operators, `/` search, `:` commands,
+    /// ⌃W J / ⌃W K between cards, j / k / l / R in the folder list. Off by default (opt-in).
+    @Published public var vimKeybinds: Bool { didSet { save("vimKeybinds", vimKeybinds) } }
 
     // MARK: Data
     @Published public var backupsEnabled: Bool { didSet { save("backupsEnabled", backupsEnabled) } }

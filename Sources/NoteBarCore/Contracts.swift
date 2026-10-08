@@ -15,6 +15,49 @@ public enum EditorEvent: Sendable {
     case focusPrevious, focusNext
     /// ⌘↩ or similar "done editing".
     case commit
+    /// A card-level command from the vim layer (direct keys such as `gp`, or `:` commands).
+    case vim(VimCardCommand)
+}
+
+/// Vim editing state of one editor.
+public enum VimMode: String, Sendable {
+    case normal, insert
+    /// `v` (characters) and `V` (whole lines).
+    case visual, visualLine
+}
+
+/// Card-level commands the vim layer sends to the host card. Text edits stay inside the editor.
+public enum VimCardCommand: Equatable, Sendable {
+    /// `gp`, `:pin`.
+    case togglePin
+    /// `za`, Tab in Normal mode.
+    case toggleFold
+    /// `:fold` / `:unfold`.
+    case setFolded(Bool)
+    /// `gc`, bare `:color` / `:mode`: the Color & Mode menu.
+    case showColorMenu
+    /// `:color <name>`.
+    case setColor(NoteColor)
+    /// `:mode <standard|code|plain>`.
+    case setMode(NoteMode)
+    /// `gm`, bare `:move`: the Move menu.
+    case showMoveMenu
+    /// `:move <folder>`: the host finds the folder by name.
+    case moveToFolder(String)
+    /// `gy`, `:copy`: copy the whole note, with a confirmation toast.
+    case copyNote
+    /// `gf`: the formatting menu.
+    case showFormatMenu
+    /// `gx`, `:delete`: delete with the undo toast.
+    case delete
+    /// `:q`, `:wq`, `:x`: stop editing, keep the card selected.
+    case quit
+    /// ⌃W J / ⌃W K.
+    case focusNextCard, focusPreviousCard
+    /// ⌃[ in Normal mode: go up (like ⌘[).
+    case navigateUp
+    /// The editor could not run a command (unknown `:` command, no match): the host shows `message`.
+    case message(String)
 }
 
 /// One editable note body. Created by a `NoteEditorFactory`, hosted inside a note card by NoteBarUI.
@@ -34,6 +77,11 @@ public protocol NoteEditing: NSView {
     /// if `note.body` equals the current text.
     func apply(note: Note)
     func focus(atEnd: Bool)
+    /// Like `focus(atEnd:)`. With vim keys on, `insertMode` starts in Insert mode instead of Normal
+    /// mode (new, empty notes).
+    func focus(atEnd: Bool, insertMode: Bool)
+    /// The vim mode, or nil when vim keys are off (or the editor has no vim support).
+    var vimMode: VimMode? { get }
     var isEditingFocused: Bool { get }
     func perform(_ action: FormatAction)
     /// Insert attachment tokens at the caret (or at the end if not focused) and render them.
@@ -43,6 +91,11 @@ public protocol NoteEditing: NSView {
     func highlightSearch(_ query: String)
     /// Scrolls to the first marked match and shows the find indicator. Call only on the first result.
     func revealFirstSearchMatch()
+}
+
+public extension NoteEditing {
+    func focus(atEnd: Bool, insertMode: Bool) { focus(atEnd: atEnd) }
+    var vimMode: VimMode? { nil }
 }
 
 @MainActor

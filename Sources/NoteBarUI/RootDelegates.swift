@@ -25,6 +25,8 @@ extension NotesRootViewController: NotesListDelegate {
             moveEditing(from: card, delta: -1)
         case .focusNext:
             moveEditing(from: card, delta: 1)
+        case .vim(let cmd):
+            handleVimCommand(cmd, card: card)
         }
     }
 

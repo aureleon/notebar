@@ -105,6 +105,16 @@ public final class NotesUIProbe {
         root.notesList(list, clicked: card, event: ev)
     }
     public func beginRename(_ folderId: FolderID) { root.beginRenameFolder(folderId) }
+    // Vim
+    /// Runs a card command as if the card's editor sent it (`EditorEvent.vim`).
+    public func vimCommand(_ cmd: VimCardCommand, on id: NoteID) {
+        guard let card = list.card(for: id) else { return }
+        root.notesList(list, card: card, editorEvent: .vim(cmd))
+    }
+    public var selectedFolderID: FolderID? { root.folderList.selectedFolderID }
+    public var renamingFolderID: FolderID? { root.folderList.renamingFolderID }
+    public var searchAllFolders: Bool? { root.search?.allFolders }
+    public func isEditorFocused(_ id: NoteID) -> Bool { list.card(for: id)?.isEditorFocused ?? false }
     public func endRename() { root.folderList.endRename() }
     public func showMoveMenuItems(for id: NoteID) -> [String] {
         guard let n = root.store.note(id: id) else { return [] }

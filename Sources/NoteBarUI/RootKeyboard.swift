@@ -22,6 +22,7 @@ extension NotesRootViewController {
     // MARK: Plain keys (root view is first responder)
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if handleVimRootKey(event) { return true }
         let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard mods.isEmpty || mods == [.shift] else { return false }
         switch event.keyCode {
@@ -160,6 +161,8 @@ extension NotesRootViewController {
                 createNoteFromShortcut(); return true
             case "f":
                 beginSearch(); return true
+            case "/":
+                beginGlobalSearch(); return true
             case "v":
                 guard !isEditingText else { return false }
                 pasteAsNewNote(); return true
@@ -189,6 +192,13 @@ extension NotesRootViewController {
                 actions.newFolder(); return true
             default: return false
             }
+        case [.control]:
+            // Vim: ⌃[ goes up and ⌃W starts a card chord. Text views (note editors, rename fields)
+            // handle these keys themselves (⌃[ in Insert mode = Escape).
+            guard vimEnabled, !isEditingText || header.isSearchFieldFocused else { return false }
+            if code == Key.leftBracket { goBack(); return true }
+            if key == "w", !isEditingText { vimWindowArmedAt = Date(); return true }
+            return false
         case [.command, .option]:
             if key == "m" || code == 46 {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
@@ -219,10 +229,7 @@ extension NotesRootViewController {
     }
 
     func showMoveMenu(for id: NoteID) {
-        guard let note = store.note(id: id), let card = notesList.card(for: id) else { return }
-        notesList.scrollToCard(card)
-        let menu = MenuBuilder.moveMenu(for: note, actions: actions)
-        let r = card.cardRect
-        menu.popUp(positioning: nil, at: NSPoint(x: r.minX + 12, y: min(r.maxY - 8, r.minY + 40)), in: card)
+        guard let note = store.note(id: id) else { return }
+        popUpCardMenu(MenuBuilder.moveMenu(for: note, actions: actions), for: id)
     }
 }
