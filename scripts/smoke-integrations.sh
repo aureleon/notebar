@@ -108,6 +108,17 @@ url "notebar://hide"
 url "notebar://new?text=Default+show+${STAMP}"
 check "notebar://new shows the panel by default" "true" "$(ascript 'panel visible')"
 url "notebar://hide"
+
+# Regression for the activation race: a programmatic show must survive the first second, even when the
+# previous app stays active (open -g). Ten runs in a row.
+STAYED=0
+for i in $(seq 1 10); do
+    open -g -a "$APP" "notebar://show"
+    sleep 1
+    [[ "$(ascript 'panel visible')" == "true" ]] && STAYED=$((STAYED + 1))
+    ascript 'hide notebar' >/dev/null; sleep 0.5
+done
+check "show survives 1 s, 10 times in a row" "10" "$STAYED"
 BEFORE="$(ascript 'search notes' | tr ',' '\n' | grep -c '[0-9]')"
 url "notebar://bogus?text=x"
 url "notebar://new?text=x&show=maybe"

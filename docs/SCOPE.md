@@ -7,14 +7,14 @@ No sync, no iOS app, no distribution.
 
 A notes panel that slides in from the edge of the screen. It floats above all
 apps, including full-screen apps and Stage Manager. You open it with a hotkey,
-a small "Open Bar" tab on the edge, or by moving the cursor to the edge
+the menu bar icon, or by moving the cursor to the edge
 ("Hot Side"). Notes are cards in a scrolling list, grouped into folders.
 
 Feature list, with scope:
 
 | Area | Features | NoteBar |
 |---|---|---|
-| Access | Always-on-top side panel, hotkey, Open Bar tab, Hot Side (mouse to edge), works over full screen / Stage Manager | In |
+| Access | Always-on-top side panel, hotkey, menu bar icon, Hot Side (mouse to edge), works over full screen / Stage Manager | In |
 | Organize | Folders, note colors, drag reorder, pin notes & folders, fold notes, move to folder (⌘⇧M), search | In |
 | Content | Invisible Markdown, formatting toolbar, checklists, images, file & folder shortcuts, `#rrggbb` preview, code mode, snippets | In |
 | Look | Themes, light/dark mode | Light/dark + 1–2 built-in themes. Custom theme editor is optional. |
@@ -27,12 +27,15 @@ Feature list, with scope:
 ## 1a. Design
 
 ### Panel layout
-- About 280–300 pt wide. Inset from the screen edge and the menu bar by about 8–10 pt.
+- Width follows the screen: about 27 % of the visible width, 380–600 pt (about 410 pt on a
+  1512 pt screen). The user can resize it with the handle on the inner edge; then the width stays fixed.
+  Limits for a user width: 280–720 pt. Inset from the screen edge and the menu bar by about 8–10 pt.
   There is no window frame. Cards float over the desktop with gaps between them.
+- **Blurred backdrop:** a blur behind the whole panel area, like Notification Center. It fills the
+  screen edge on the panel side and fades out toward the middle of the screen. It fades with the panel,
+  and it can be turned off in Settings › Appearance.
 - **Header pill** (separate rounded bar at the top): back chevron, folder title
   (bold, accent color), search button, `+` button.
-- **Open Bar:** a thin vertical pill on the inner side of the panel (left side when
-  the panel is on the right). Click to toggle. Right-click to change sides.
 - **Root view = folder list:** folder icon, name, note count on the right. Tap a folder
   to open it. The back chevron returns to the list.
 - On macOS 26, try `NSGlassEffectView` (Liquid Glass) for the header pill and toolbar.
@@ -71,7 +74,8 @@ Feature list, with scope:
 Dropping a file or image on an existing card adds it to that card.
 
 ### Ways to open
-Click the Open Bar · global shortcut (⌃⌥⌘ + key) · menu bar icon · Hot Side.
+Global shortcut (⌥⌘N by default) · menu bar icon · Hot Side · URL scheme and AppleScript.
+The panel side changes in the menu bar icon menu and in Settings › General.
 
 ## 2. Stack
 
@@ -110,11 +114,10 @@ Only Command Line Tools are installed (Swift 6.4). That is enough for the full s
   Pick the screen that has the cursor (external displays). Watch `didChangeScreenParametersNotification`.
 - Left or right edge, user-set width, auto-hide when focus goes elsewhere (optional pin-open mode).
 
-### 3.2 Hot Side and Open Bar (low–medium)
+### 3.2 Hot Side (low–medium)
 - Put a 1–2 px transparent window on the edge with an `NSTrackingArea`.
   This needs no permissions. (A global `mouseMoved` monitor also works but costs more CPU.)
 - Add a short delay so the panel does not open by accident. Ignore the edge while a mouse button is down (window drags).
-- Open Bar = a small visible tab window on the same edge.
 
 ### 3.3 Global hotkey (low)
 - Carbon `RegisterEventHotKey` (via `KeyboardShortcuts`). This needs no Accessibility permission.
@@ -170,7 +173,7 @@ Estimates are for one experienced Swift/AppKit developer.
 | Phase | Deliverable | Estimate |
 |---|---|---|
 | **0. Setup** | SwiftPM package, `build-app.sh`, menu bar item, agent app, launch at login | 0.5 day |
-| **1. Panel MVP** | Inset panel with header pill, slide animation, hotkey, Hot Side, Open Bar (right-click to change sides), multi-display, full-screen support | 3–4 days |
+| **1. Panel MVP** | Inset panel with header pill, slide animation, hotkey, Hot Side, multi-display, full-screen support | 3–4 days |
 | **2. Notes MVP** | Folder list (with counts) → note cards, plain-text editor, title = first line, card footer, create/delete/reorder, colors, SQLite storage, search, daily backup | 4–6 days |
 | **3. Rich editor** | Invisible Markdown, checklists, formatting toolbar, gear menu (color + Standard/Plain/Code mode), fold with "+ N lines", pin, `#rrggbb` circles | 1.5–3 weeks |
 | **4. Attachments** | Paste/drag images, file shortcuts with Quick Look thumbnails, drop onto a card or the panel, export note as image | 3–5 days |
