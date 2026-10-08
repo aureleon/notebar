@@ -24,6 +24,28 @@ public enum AppearanceMode: String, CaseIterable, Codable, Sendable {
     }
 }
 
+public enum HotSideArea: String, CaseIterable, Codable, Sendable {
+    case corner, quadrant, edge, dynamic
+
+    public var displayName: String {
+        switch self {
+        case .corner: "Corner"
+        case .quadrant: "Quadrant"
+        case .edge: "Edge"
+        case .dynamic: "Dynamic"
+        }
+    }
+
+    public var description: String {
+        switch self {
+        case .corner: "Only the upper corner of the screen"
+        case .quadrant: "Upper half of the screen side"
+        case .edge: "Full side of the screen"
+        case .dynamic: "Matches the current height of NoteBar"
+        }
+    }
+}
+
 public enum AppPaths {
     /// `~/Library/Application Support/NoteBar`, or `$NOTEBAR_DATA_DIR` if set (use it for tests / smoke runs).
     public static var supportDirectory: URL {
@@ -61,6 +83,8 @@ public enum PanelWidth {
 public extension Notification.Name {
     /// userInfo["key"] = the property name that changed (String).
     static let appSettingsDidChange = Notification.Name("NoteBar.appSettingsDidChange")
+    /// Posted when NoteBar's content height changes (dynamic hot side).
+    static let contentExtentDidChange = Notification.Name("NoteBar.contentExtentDidChange")
 }
 
 /// User preferences, persisted in UserDefaults. SwiftUI: use `@ObservedObject var settings: AppSettings`
@@ -93,7 +117,12 @@ public final class AppSettings: ObservableObject {
         // A saved width without the flag was set by the user before automatic width existed: keep it fixed.
         panelWidthIsAutomatic = get("panelWidthIsAutomatic", defaults.object(forKey: "panelWidth") == nil)
         blurBackdrop = get("blurBackdrop", true)
-        hotSideEnabled = get("hotSideEnabled", true)
+        if !defaults.bool(forKey: "migratedHotSideOptIn") {
+            defaults.removeObject(forKey: "hotSideEnabled")
+            defaults.set(true, forKey: "migratedHotSideOptIn")
+        }
+        hotSideEnabled = get("hotSideEnabled", false)
+        hotSideArea = getEnum("hotSideArea", .edge)
         hotSideDelay = get("hotSideDelay", 0.3)
         autoHide = get("autoHide", true)
         pinnedOpen = get("pinnedOpen", false)
@@ -125,6 +154,7 @@ public final class AppSettings: ObservableObject {
     /// Set to false when the user resizes the panel or picks a width.
     @Published public var panelWidthIsAutomatic: Bool { didSet { save("panelWidthIsAutomatic", panelWidthIsAutomatic) } }
     @Published public var hotSideEnabled: Bool { didSet { save("hotSideEnabled", hotSideEnabled) } }
+    @Published public var hotSideArea: HotSideArea { didSet { save("hotSideArea", hotSideArea.rawValue) } }
     /// Seconds the cursor must rest on the edge before the panel opens.
     @Published public var hotSideDelay: Double { didSet { save("hotSideDelay", hotSideDelay) } }
     /// Blur the screen area behind the panel (Notification Center style). Off = no backdrop.

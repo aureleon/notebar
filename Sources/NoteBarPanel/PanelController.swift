@@ -64,6 +64,7 @@ public final class PanelController {
             guard let self else { return false }
             return self.isVisible && self.screenID == screen.nbDisplayID
         }
+        hotSide.contentHeight = { [weak self] in self?.env.presenter?.contentHeight }
         // Passive: the cursor resting on the edge must not take focus from the app the user types in.
         hotSide.onTrigger = { [weak self] screen in self?.show(on: screen, makeKey: false) }
 
@@ -74,8 +75,7 @@ public final class PanelController {
         passive.mayHide = { [weak self] in self?.autoHide.isEnabled ?? false }
         passive.onLeave = { [weak self] in self?.hide() }
         passive.panelFrame = { [weak self] in
-            guard let self, let screen = self.currentScreen else { return nil }
-            return self.geometry(for: screen).shownFrame
+            self?.passiveZone().first
         }
         passive.zone = { [weak self] in self?.passiveZone() ?? [] }
 
@@ -140,6 +140,8 @@ public final class PanelController {
             notifyVisibility(true)
         } else if makeKey {
             autoHide.noteFocusGained()
+        } else if !autoHide.panelHasFocus {
+            passive.start()
         }
     }
 
@@ -155,20 +157,31 @@ public final class PanelController {
     /// not stale after the user clicks a window of the already-active app.
     public var panelHasFocus: Bool { isVisible && autoHide.panelHasFocus }
 
-    /// Area that counts as "at the panel" for a passive open: the panel, child windows,
-    /// and the band between them and the screen edge (where the Hot Side cursor rests).
+    /// Area that counts as "at the panel" for a passive open: the active rendered region of the bar,
+    /// child windows, and the strip between the rendered bar and the screen edge.
     private func passiveZone() -> [CGRect] {
         guard let screen = currentScreen else { return [] }
         let g = geometry(for: screen)
         let core = g.shownFrame
         let sf = screen.frame
-        let band: CGRect
+        let ch = env.presenter?.contentHeight ?? 0
+        let renderedHeight = ch > 0 ? min(ch, core.height) : core.height
+        let renderedY = core.maxY - renderedHeight
+        let pad: CGFloat = 8
+
+        let activeRegion: CGRect
         if g.side == .right {
-            band = CGRect(x: core.minX, y: sf.minY, width: max(sf.maxX - core.minX, 0), height: sf.height)
+            activeRegion = CGRect(x: core.minX - pad,
+                                  y: max(renderedY - pad, sf.minY),
+                                  width: max(sf.maxX - core.minX + pad, 0),
+                                  height: min(renderedHeight + 2 * pad, sf.height))
         } else {
-            band = CGRect(x: sf.minX, y: sf.minY, width: max(core.maxX - sf.minX, 0), height: sf.height)
+            activeRegion = CGRect(x: sf.minX,
+                                  y: max(renderedY - pad, sf.minY),
+                                  width: max(core.maxX - sf.minX + pad, 0),
+                                  height: min(renderedHeight + 2 * pad, sf.height))
         }
-        return [band] + (window.childWindows ?? []).filter(\.isVisible).map(\.frame)
+        return [activeRegion] + (window.childWindows ?? []).filter(\.isVisible).map(\.frame)
     }
 
     public func hide(animated: Bool = true) {

@@ -14,7 +14,10 @@ final class HotSideController {
     private let settings: AppSettings
     private var windows: [HotSideWindow] = []
     private var settingsObserver: NSObjectProtocol?
+    private var contentObserver: NSObjectProtocol?
 
+    /// Returns NoteBar's current content height for the dynamic trigger mode.
+    var contentHeight: () -> CGFloat? = { nil }
     /// Asked to open the panel on a screen.
     var onTrigger: ((NSScreen) -> Void)?
     /// True while the panel is visible on the given screen (then the edge is ignored there).
@@ -24,9 +27,19 @@ final class HotSideController {
         self.settings = settings
         settingsObserver = NotificationCenter.default.addObserver(forName: .appSettingsDidChange, object: nil, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
-            guard key == nil || key == "hotSideEnabled" || key == "panelSide" else { return }
+            guard key == nil || key == "hotSideEnabled" || key == "panelSide" || key == "hotSideArea" else { return }
             MainActor.assumeIsolated { self?.rebuild() }
         }
+        contentObserver = NotificationCenter.default.addObserver(forName: .contentExtentDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if self?.settings.hotSideArea == .dynamic { self?.rebuild() }
+            }
+        }
+    }
+
+    deinit {
+        if let settingsObserver { NotificationCenter.default.removeObserver(settingsObserver) }
+        if let contentObserver { NotificationCenter.default.removeObserver(contentObserver) }
     }
 
     /// Re-creates the strips for the current screens and settings.
@@ -39,7 +52,9 @@ final class HotSideController {
         for screen in screens {
             let others = screens.filter { $0 != screen }.map(\.frame)
             let segments = PanelGeometry.hotSideSegments(screenFrame: screen.frame, visibleFrame: screen.visibleFrame,
-                                                         side: side, otherScreenFrames: others)
+                                                         side: side, otherScreenFrames: others,
+                                                         area: settings.hotSideArea,
+                                                         contentHeight: contentHeight())
             for rect in segments {
                 let w = HotSideWindow(frame: rect, side: side, displayID: screen.nbDisplayID)
                 w.dwell.delay = { [weak self] in max(0, self?.settings.hotSideDelay ?? 0.3) }

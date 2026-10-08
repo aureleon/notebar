@@ -20,6 +20,7 @@ enum PanelMetrics {
     static let hotSideBottomExclusion: CGFloat = 16
     static let hotSideMinTopExclusion: CGFloat = 28
     static let hotSideMinSegment: CGFloat = 60
+    static let hotSideCornerLength: CGFloat = 120
 }
 
 /// The panel width rule. Shared by the panel, the snapshot mode and (through `PanelMetrics`) the Hot Side.
@@ -84,13 +85,28 @@ struct PanelGeometry: Equatable {
     /// Hot Side strips for a screen: the side edge minus the menu bar area, the bottom corner, and any
     /// part of the edge that touches another display (the cursor does not stop there).
     static func hotSideSegments(screenFrame: CGRect, visibleFrame: CGRect, side: PanelSide,
-                                otherScreenFrames: [CGRect]) -> [CGRect] {
+                                otherScreenFrames: [CGRect],
+                                area: HotSideArea = .edge,
+                                contentHeight: CGFloat? = nil) -> [CGRect] {
         let topExclusion = max(screenFrame.maxY - visibleFrame.maxY, PanelMetrics.hotSideMinTopExclusion) + 4
-        var ranges: [ClosedRange<CGFloat>] = []
-        let lo = screenFrame.minY + PanelMetrics.hotSideBottomExclusion
+        let fullLo = screenFrame.minY + PanelMetrics.hotSideBottomExclusion
         let hi = screenFrame.maxY - topExclusion
+        guard hi > fullLo else { return [] }
+
+        let lo: CGFloat
+        switch area {
+        case .edge:
+            lo = fullLo
+        case .quadrant:
+            lo = max(fullLo, (fullLo + hi) / 2)
+        case .corner:
+            lo = max(fullLo, hi - PanelMetrics.hotSideCornerLength)
+        case .dynamic:
+            let h = max(contentHeight ?? 240, PanelMetrics.hotSideMinSegment)
+            lo = max(fullLo, hi - h)
+        }
         guard hi > lo else { return [] }
-        ranges = [lo...hi]
+        var ranges: [ClosedRange<CGFloat>] = [lo...hi]
 
         let edgeX = side == .right ? screenFrame.maxX : screenFrame.minX
         for other in otherScreenFrames {

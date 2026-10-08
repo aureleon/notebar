@@ -86,11 +86,25 @@ struct GeneralPane: View {
 
             Section("Opening") {
                 Toggle(isOn: $settings.hotSideEnabled) {
-                    Text("Hot Side")
+                    Text("Swipe to edge")
                     Text("Open the panel when the pointer rests on the screen edge.")
                 }
+                .toggleStyle(.checkbox)
 
-                LabeledContent("Hot Side delay") {
+                Picker("Active area", selection: $settings.hotSideArea) {
+                    Text("Corner").tag(HotSideArea.corner)
+                    Text("Quadrant").tag(HotSideArea.quadrant)
+                    Text("Edge").tag(HotSideArea.edge)
+                    Text("Dynamic").tag(HotSideArea.dynamic)
+                }
+                .pickerStyle(.segmented)
+                .disabled(!settings.hotSideEnabled)
+
+                Text(settings.hotSideArea.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                LabeledContent("Swipe to edge delay") {
                     HStack(spacing: 10) {
                         Slider(value: delayBinding, in: 0...1.5)
                             .frame(maxWidth: 220)

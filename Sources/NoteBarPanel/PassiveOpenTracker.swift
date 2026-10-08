@@ -10,8 +10,8 @@ import AppKit
 /// strip between it and the screen edge (where the Hot Side cursor rests).
 @MainActor
 final class PassiveOpenTracker {
-    static let leaveDelay: TimeInterval = 0.5
-    private static let pollInterval: TimeInterval = 0.1
+    static let leaveDelay: TimeInterval = 0.25
+    private static let pollInterval: TimeInterval = 0.05
 
     /// Rects (global coordinates) that count as "near the panel".
     var zone: () -> [CGRect] = { [] }
@@ -37,7 +37,7 @@ final class PassiveOpenTracker {
         let t = Timer(timeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        t.tolerance = 0.03
+        t.tolerance = 0.01
         RunLoop.main.add(t, forMode: .common)   // keep polling during drag sessions / menu tracking
         timer = t
     }

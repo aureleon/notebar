@@ -642,9 +642,24 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     var isEditingText: Bool { view.window?.firstResponder is NSText }
 
+    public var contentHeight: CGFloat {
+        guard let v = rootView else { return 0 }
+        let m = Metrics.outerMargin
+        let bottom: CGFloat
+        if notesList != nil, !notesList.isHidden {
+            bottom = notesList.frame.minY + notesList.contentBottom
+        } else if folderList != nil, !folderList.isHidden {
+            bottom = folderList.frame.minY + folderList.contentBottom
+        } else {
+            bottom = m + Metrics.headerHeight
+        }
+        return min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m)
+    }
+
     /// Fits the backdrop to the visible elements: the header down to the bottom of the shown list's
     /// last element, with `outerMargin` around them.
     func updateBackdrop() {
+        NotificationCenter.default.post(name: .contentExtentDidChange, object: self)
         guard let v = rootView, header != nil else { return }
         backdrop.isHidden = !CardGlass.isEnabled(env)
         guard !backdrop.isHidden else { return }

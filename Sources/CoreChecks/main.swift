@@ -31,5 +31,18 @@ MainActor.assumeIsolated {
     Check.equal(s.folders().map(\.id), [f.id, f2.id], "folder reorder stays below pinned")
     Check.equal(s.search("TWO", in: nil).map(\.id), [n2.id], "search")
     Check.equal(KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option).displayString, "⌥⌘N")
+
+    let testDefaults = UserDefaults(suiteName: "local.dhguz.NoteBar.testSettings")!
+    testDefaults.removePersistentDomain(forName: "local.dhguz.NoteBar.testSettings")
+    let testSettings = AppSettings(defaults: testDefaults)
+    Check.expect(!testSettings.hotSideEnabled, "hot side is opt-in (disabled by default)")
+    Check.equal(testSettings.hotSideArea, .edge, "default area is edge")
+    testSettings.hotSideArea = .corner
+    Check.equal(testSettings.hotSideArea, .corner, "corner area persists")
+    testSettings.hotSideArea = .quadrant
+    Check.equal(testSettings.hotSideArea, .quadrant, "quadrant area persists")
+    testSettings.hotSideArea = .dynamic
+    Check.equal(testSettings.hotSideArea, .dynamic, "dynamic area persists")
+    testDefaults.removePersistentDomain(forName: "local.dhguz.NoteBar.testSettings")
 }
 Check.finish()

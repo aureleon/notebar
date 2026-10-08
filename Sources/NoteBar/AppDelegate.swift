@@ -210,9 +210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
     private func seedWelcomeNote(in store: NoteStore, settings: AppSettings) {
         guard let folder = store.folders().first, store.noteCount(in: folder.id) == 0 else { return }
         let toggle = settings.hotkeys[.togglePanel]?.displayString ?? "the menu bar icon"
+        let edgeHint = settings.hotSideEnabled ? ", the menu bar icon or by resting the pointer on the screen edge." : " or the menu bar icon."
         let body = """
             Welcome to NoteBar
-            Show or hide this panel with **\(toggle)**, the menu bar icon or by resting the pointer on the screen edge.
+            Show or hide this panel with **\(toggle)**\(edgeHint)
             - [ ] Press **+** or ⌘N for a new note
             - [ ] Drop text, images or files on the panel
             - [ ] Use the gear button for colors and *Code* mode

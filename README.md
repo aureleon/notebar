@@ -10,7 +10,7 @@ NoteBar is a personal tool. It runs on macOS 26 on Apple Silicon only. It has no
 - **Ways to open the panel:**
   - the global hotkey (⌥⌘N by default)
   - the menu bar icon
-  - Hot Side: move the pointer to the panel edge of the screen
+  - Swipe to edge (Hot Side): move the pointer to the panel edge of the screen (opt-in; enable in Settings › General)
   - the URL scheme and AppleScript
 - **Notes:** the first line is the title. The editor hides the Markdown marks (bold, italic, code,
   highlight, headings, quotes, lists and checklists). Each note has a mode: Standard (Markdown),
@@ -52,7 +52,7 @@ NoteBar can run at a time.
 
 | Action | How |
 |---|---|
-| Show or hide the panel | ⌥⌘N, the menu bar icon, or Hot Side |
+| Show or hide the panel | ⌥⌘N, the menu bar icon, or swipe to edge (if enabled) |
 | New note | `+`, ⌘N, or ⌃⌥⌘N from any app |
 | New note from the clipboard | ⌃⌥⌘V from any app |
 | Search | ⌘F, or ⌃⌥⌘F from any app |
