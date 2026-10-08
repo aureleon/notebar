@@ -333,6 +333,15 @@ extension MarkdownNoteEditor {
 extension MarkdownNoteEditor {
     /// The underlying text view (for checks and snapshot tooling).
     public var textViewForTesting: NSTextView { textView }
+    /// Checks: does the pointer get the pointing hand over character `i` (not being edited too)?
+    public func pointerIsLinkForTesting(atCharacter i: Int) -> Bool {
+        let lm = layoutManagerNB
+        lm.ensureLayout(for: container)
+        let g = lm.glyphIndexForCharacter(at: i)
+        let r = lm.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: container)
+        let o = textView.textContainerOrigin
+        return textView.isLink(at: NSPoint(x: r.midX + o.x, y: r.midY + o.y))
+    }
     /// Whether spell checking is on for this editor's text view (on only while focused, never for code notes).
     public var spellCheckingEnabledForTesting: Bool { textView.isContinuousSpellCheckingEnabled }
     /// Whether spell checking skips this storage range (code, URLs, hex colors, tags, attachments, markers).

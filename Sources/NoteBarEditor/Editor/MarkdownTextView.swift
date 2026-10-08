@@ -82,7 +82,20 @@ final class MarkdownTextView: NSTextView {
         editor?.updateCodeCopyButton(at: p)
         // super.mouseMoved sets the I-beam; the copy button on the text gets the arrow.
         if let b = editor?.codeCopyButton, !b.isHidden, b.frame.contains(p) { NSCursor.arrow.set(); return }
-        if editor?.clickableAttachment(at: p) == true { NSCursor.pointingHand.set() }
+        // Links and file attachments get the pointing hand. NSTextView sets it only through cursor rects,
+        // which do not run in a card that is not being edited (and not while another app is active).
+        if editor?.clickableAttachment(at: p) == true || isLink(at: p) { NSCursor.pointingHand.set() }
+    }
+
+    /// True when `p` (view coordinates) is on the text of a link.
+    func isLink(at p: NSPoint) -> Bool {
+        guard let lm = layoutManager, let tc = textContainer, let ts = textStorage, ts.length > 0 else { return false }
+        let pt = NSPoint(x: p.x - textContainerOrigin.x, y: p.y - textContainerOrigin.y)
+        let g = lm.glyphIndex(for: pt, in: tc, fractionOfDistanceThroughGlyph: nil)
+        guard g < lm.numberOfGlyphs,
+              lm.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: tc).contains(pt) else { return false }
+        let ci = lm.characterIndexForGlyph(at: g)
+        return ci < ts.length && ts.attribute(.link, at: ci, effectiveRange: nil) != nil
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {

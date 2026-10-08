@@ -67,6 +67,15 @@ enum BehaviorChecks {
             Check.equal(h.body, body, "editor keeps body")
         }
 
+        // Links get the pointing hand, also in a card that is not being edited.
+        do {
+            let h = Harness("See [docs](https://example.com) and http://x.com now")
+            let s = h.tv.string as NSString
+            Check.expect(h.editor.pointerIsLinkForTesting(atCharacter: s.range(of: "docs").location + 1), "link text: pointing hand (not editing)")
+            Check.expect(h.editor.pointerIsLinkForTesting(atCharacter: s.range(of: "x.com").location), "bare URL: pointing hand")
+            Check.expect(!h.editor.pointerIsLinkForTesting(atCharacter: s.range(of: "See").location), "plain text: no pointing hand")
+        }
+
         // Height grows with content; layout callback fires.
         let h1 = Harness("one line")
         let hA = h1.editor.intrinsicContentSize.height
