@@ -462,6 +462,13 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if w.firstResponder !== rootView { w.makeFirstResponder(rootView) }
     }
 
+    /// Keyboard navigation (arrows, j / k, ⌃W J / K) hides the hover of the card or folder under a
+    /// still pointer, so only the selection is highlighted. Moving the mouse or a click shows it again.
+    func setMouseHoverSuppressed(_ on: Bool) {
+        if notesList?.hoverSuppressed != on { notesList?.hoverSuppressed = on }
+        if folderList?.hoverSuppressed != on { folderList?.hoverSuppressed = on }
+    }
+
     func select(_ id: NoteID?) {
         notesList.selectedNoteID = id
         if let id, let card = notesList.card(for: id) { notesList.scrollToCard(card) }
@@ -797,7 +804,13 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     private func installClickMonitor() {
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .mouseMoved]) { [weak self] event in
             MainActor.assumeIsolated {
-                if event.type == .mouseMoved { self?.resetCursorIfNeeded(event) } else { self?.handleClickOff(event) }
+                if event.type == .mouseMoved {
+                    if event.deltaX != 0 || event.deltaY != 0 { self?.setMouseHoverSuppressed(false) }
+                    self?.resetCursorIfNeeded(event)
+                } else {
+                    self?.setMouseHoverSuppressed(false)
+                    self?.handleClickOff(event)
+                }
             }
             return event
         }

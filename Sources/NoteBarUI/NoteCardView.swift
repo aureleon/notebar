@@ -60,6 +60,12 @@ final class NoteCardView: NSView {
     var isDragSource = false { didSet { alphaValue = isDragSource ? 0.35 : 1 } }
     private(set) var isEditorFocused = false
     private var hovering = false { didSet { if oldValue != hovering { updateChrome(animated: true) } } }
+    /// The pointer is over the card. `hovering` = this, unless keyboard navigation hides the hover.
+    private var mouseInside = false { didSet { refreshHover() } }
+    /// Set by the list while the keyboard moves the selection; cleared when the mouse moves again.
+    /// Without it, the card under a still pointer keeps its hover chrome next to the selected card.
+    var hoverSuppressed = false { didSet { if oldValue != hoverSuppressed { refreshHover() } } }
+    private func refreshHover() { hovering = mouseInside && !hoverSuppressed }
     private var menuOpen = false { didSet { updateChrome(animated: false) } }
     private var tracking: NSTrackingArea?
     private var mouseDownEvent: NSEvent?
@@ -588,7 +594,8 @@ final class NoteCardView: NSView {
     }
 
     /// Forces the hover chrome on/off (snapshots).
-    func setHoveredForSnapshot(_ on: Bool) { hovering = on }
+    func setHoveredForSnapshot(_ on: Bool) { mouseInside = on }
+    var isShowingHoverForTesting: Bool { hovering }
 
     private func updateFolderLabel() {
         if let name = folderName {
@@ -687,14 +694,14 @@ final class NoteCardView: NSView {
         tracking = t
         if let w = window {
             let p = convert(w.mouseLocationOutsideOfEventStream, from: nil)
-            hovering = cardRect.contains(p) && isMouseInsideVisibleArea(p)
+            mouseInside = cardRect.contains(p) && isMouseInsideVisibleArea(p)
         }
     }
 
     private func isMouseInsideVisibleArea(_ p: NSPoint) -> Bool { visibleRect.contains(p) }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseEntered(with event: NSEvent) { mouseInside = true }
+    override func mouseExited(with event: NSEvent) { mouseInside = false }
 
     override func mouseDown(with event: NSEvent) {
         mouseDownEvent = event

@@ -51,6 +51,12 @@ public final class NotesUIProbe {
 
     public func createAllEditors() { list.createAllEditors() }
     public func setHovered(_ id: NoteID, _ on: Bool) { list.card(for: id)?.setHoveredForSnapshot(on) }
+    /// Whether the card shows its mouse-hover chrome (false while keyboard navigation hides it).
+    public func cardShowsHover(_ id: NoteID) -> Bool { list.card(for: id)?.isShowingHoverForTesting ?? false }
+    public func folderRowShowsHover(_ id: FolderID) -> Bool { root.folderList.row(for: id)?.isShowingHoverForTesting ?? false }
+    public func setFolderRowHovered(_ id: FolderID, _ on: Bool) { root.folderList.row(for: id)?.setHoveredForSnapshot(on) }
+    /// A real mouse move (what the panel's event monitor sees).
+    public func mouseMoved() { root.setMouseHoverSuppressed(false) }
     /// Number of card actions in the "…" menu (nil if the card has no action column yet).
     public func hiddenActionCount(_ id: NoteID) -> Int? {
         guard let card = list.card(for: id), let f = card.footer else { return nil }

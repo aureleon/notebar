@@ -25,6 +25,8 @@ final class NotesListView: NSView, NoteCardDelegate {
     let scrollView = NSScrollView()
     private let doc: NotesDocView
     private(set) var cards: [NoteCardView] = []
+    /// Keyboard navigation hides the mouse hover on every card until the mouse moves.
+    var hoverSuppressed = false { didSet { if oldValue != hoverSuppressed { cards.forEach { $0.hoverSuppressed = hoverSuppressed } } } }
     private var cardsByID: [NoteID: NoteCardView] = [:]
     private let emptyView = EmptyStateView()
     private let dropHint = DropHintView()
@@ -126,6 +128,7 @@ final class NotesListView: NSView, NoteCardDelegate {
             } else {
                 card = NoteCardView(note: n, env: env)
                 card.delegate = self
+                card.hoverSuppressed = hoverSuppressed
                 inserted.append(card)
             }
             card.forceUnfolded = forceUnfolded

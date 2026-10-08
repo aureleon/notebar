@@ -99,6 +99,7 @@ extension NotesRootViewController {
     }
 
     func moveSelection(_ delta: Int) {
+        setMouseHoverSuppressed(true)
         if notesVisible {
             let ids = notesList.noteIDs
             guard !ids.isEmpty else { return }

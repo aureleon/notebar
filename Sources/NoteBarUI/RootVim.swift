@@ -47,8 +47,8 @@ extension NotesRootViewController {
             }
         } else {
             switch ch {
-            case "j": folderList.moveSelection(1); return true
-            case "k": folderList.moveSelection(-1); return true
+            case "j": moveSelection(1); return true
+            case "k": moveSelection(-1); return true
             case "l": activateSelection(); return true
             case "R", "r":
                 guard let id = folderList.selectedFolderID else { NSSound.beep(); return true }
@@ -80,6 +80,7 @@ extension NotesRootViewController {
         let j = i.map { $0 + delta } ?? (delta > 0 ? 0 : cards.count - 1)
         guard j >= 0, j < cards.count else { NSSound.beep(); return }
         let target = cards[j]
+        setMouseHoverSuppressed(true)
         if target.isFolded {
             actions.setFolded(false, id: target.note.id)
             rootView.layoutSubtreeIfNeeded()

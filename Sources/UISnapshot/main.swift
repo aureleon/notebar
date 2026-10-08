@@ -577,6 +577,42 @@ MainActor.assumeIsolated {
         probe.setHovered(cid, false)
     }
 
+    // MARK: Keyboard selection hides the hover of the card under a still pointer
+    do {
+        let ids = probe.displayedNoteIDs
+        if ids.count >= 2 {
+            probe.select(nil)
+            probe.mouseMoved()   // earlier checks used the keyboard
+            probe.setHovered(ids[0], true)
+            Check.equal(probe.cardShowsHover(ids[0]), true, "hover: pointer over the first card")
+            _ = probe.press(keyCode: 125, characters: "\u{F701}")   // ↓
+            _ = probe.press(keyCode: 125, characters: "\u{F701}")
+            Check.equal(probe.selectedNoteID, ids[1], "hover: ↓ selected the second card")
+            Check.equal(probe.cardShowsHover(ids[0]), false, "hover: keyboard selection hides the hover on the first card")
+            probe.mouseMoved()
+            Check.equal(probe.cardShowsHover(ids[0]), true, "hover: a mouse move shows it again")
+            settings.vimKeybinds = true
+            probe.focusList()
+            _ = probe.press(keyCode: 38, characters: "j")
+            Check.equal(probe.cardShowsHover(ids[0]), false, "hover: vim j hides it too")
+            settings.vimKeybinds = false
+            probe.mouseMoved()
+            probe.setHovered(ids[0], false)
+            probe.select(nil)
+        } else { Check.expect(false, "hover: two notes") }
+        vc.showFolderList()
+        probe.layoutNow(); spin(); probe.layoutNow()
+        let fids = probe.folderRowIDs
+        probe.setFolderRowHovered(fids[0], true)
+        Check.equal(probe.folderRowShowsHover(fids[0]), true, "hover: pointer over the first folder")
+        _ = probe.press(keyCode: 125, characters: "\u{F701}")
+        _ = probe.press(keyCode: 125, characters: "\u{F701}")
+        Check.equal(probe.folderRowShowsHover(fids[0]), false, "hover: ↓ on the folder list hides the folder hover")
+        probe.mouseMoved()
+        Check.equal(probe.folderRowShowsHover(fids[0]), true, "hover: mouse move shows the folder hover again")
+        probe.setFolderRowHovered(fids[0], false)
+    }
+
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
 }

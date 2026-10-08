@@ -23,6 +23,8 @@ final class FolderListView: NSView {
     let scrollView = NSScrollView()
     private let doc: FolderListDocView
     private(set) var rows: [FolderRowView] = []
+    /// See NotesListView.hoverSuppressed.
+    var hoverSuppressed = false { didSet { if oldValue != hoverSuppressed { rows.forEach { $0.hoverSuppressed = hoverSuppressed } } } }
     var selectedFolderID: FolderID? { didSet { if oldValue != selectedFolderID { updateRowStates() } } }
     /// Shows the keyboard selection ring (the list has keyboard focus).
     var showsSelection = false { didSet { if oldValue != showsSelection { updateRowStates() } } }
@@ -82,6 +84,7 @@ final class FolderListView: NSView {
 
     private func makeRow(_ f: Folder) -> FolderRowView {
         let row = FolderRowView(folder: f, env: env)
+        row.hoverSuppressed = hoverSuppressed
         row.owner = self
         return row
     }
@@ -406,6 +409,12 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
     private let pinMark = NSImageView()
     private var renameField: NSTextField?
     private var hovering = false { didSet { if oldValue != hovering { needsDisplay = true } } }
+    private var mouseInside = false { didSet { refreshHover() } }
+    /// See NoteCardView.hoverSuppressed.
+    var hoverSuppressed = false { didSet { if oldValue != hoverSuppressed { refreshHover() } } }
+    private func refreshHover() { hovering = mouseInside && !hoverSuppressed }
+    var isShowingHoverForTesting: Bool { hovering }
+    func setHoveredForSnapshot(_ on: Bool) { mouseInside = on }
     var isSelected = false { didSet { if oldValue != isSelected { needsDisplay = true } } }
     var isDropTarget = false { didSet { if oldValue != isDropTarget { needsDisplay = true } } }
     private var tracking: NSTrackingArea?
@@ -508,8 +517,8 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
         tracking = t
     }
 
-    override func mouseEntered(with event: NSEvent) { hovering = true }
-    override func mouseExited(with event: NSEvent) { hovering = false }
+    override func mouseEntered(with event: NSEvent) { mouseInside = true }
+    override func mouseExited(with event: NSEvent) { mouseInside = false }
 
     override func mouseDown(with event: NSEvent) {
         guard !isRenaming else { return }
