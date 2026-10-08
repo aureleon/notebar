@@ -57,6 +57,9 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// Copy button on the hovered code block, and that block's storage range.
     var codeCopyButton: NSButton?
     var codeCopyBlock: NSRange?
+    /// Standard notes: the caret is in code (block or `span`), so autocorrect / text replacement /
+    /// smart insert are off. nil = not decided yet.
+    private var caretInCodeState: Bool?
 
     var style: EditorStyle { styler.style }
     var codecOptions: CodecOptions { .forMode(mode) }
@@ -148,6 +151,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             tv.isAutomaticTextCompletionEnabled = false
             tv.isContinuousSpellCheckingEnabled = isSpellActive
             tv.smartInsertDeleteEnabled = true
+            caretInCodeState = nil
+            updateCodeTypingSettings()
         case .plain:
             tv.isAutomaticQuoteSubstitutionEnabled = NSSpellChecker.isAutomaticQuoteSubstitutionEnabled
             tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
@@ -486,6 +491,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !isApplyingInternal else { return }
         if !isTrackingMouse { updateReveal() }
         if isVimNormal { textView.needsDisplay = true }
+        updateCodeTypingSettings()
         scheduleToolbarUpdate()
     }
 
@@ -559,6 +565,34 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             self.updateReveal()
         }
         onFocusChange?(focused)
+    }
+
+    /// Standard notes: no autocorrect, text replacement or smart insert while the caret is in code
+    /// (a fenced block or an inline `code` span). They come back outside code.
+    func updateCodeTypingSettings() {
+        guard mode == .standard else { return }
+        let inCode = caretIsInCode()
+        guard inCode != caretInCodeState else { return }
+        caretInCodeState = inCode
+        let tv = textView
+        tv.isAutomaticSpellingCorrectionEnabled = !inCode && NSSpellChecker.isAutomaticSpellingCorrectionEnabled
+        tv.isAutomaticTextReplacementEnabled = !inCode && NSSpellChecker.isAutomaticTextReplacementEnabled
+        tv.smartInsertDeleteEnabled = !inCode
+    }
+
+    func caretIsInCode() -> Bool {
+        let lines = currentLines()
+        guard !lines.isEmpty else { return false }
+        let sel = textView.selectedRange()
+        let line = lines[BlockScanner.lineIndex(in: lines, containing: sel.location)]
+        if line.isCode { return true }
+        guard line.contentRange.length > 0, line.contentRange.end <= textStorage.length else { return false }
+        let s = textStorage.string as NSString
+        for span in InlineParser.parse(s, in: line.contentRange) where span.kind == .code {
+            // Inside the span, between its backticks.
+            if sel.location > span.range.location, sel.location < span.range.end { return true }
+        }
+        return false
     }
 
     // MARK: Invisible markdown

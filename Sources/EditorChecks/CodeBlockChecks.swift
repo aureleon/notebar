@@ -9,6 +9,7 @@ enum CodeBlockChecks {
         renderingChecks()
         copyButtonChecks()
         editingChecks()
+        typingChecks()
     }
 
     static func index(of needle: String, in h: BehaviorChecks.Harness) -> Int {
@@ -128,5 +129,27 @@ enum CodeBlockChecks {
         h.editor.doCommandForTesting(#selector(NSResponder.deleteBackward(_:)))
         Check.equal(h.body, "Title\n```\nlet a\n```\nafter", "editor: Backspace keeps the block")
         Check.equal(h.tv.selectedRange().location, 5, "editor: caret at the end of the title line")
+    }
+
+    // MARK: E: no autocorrect in code
+
+    static func typingChecks() {
+        let h = BehaviorChecks.Harness("Title\nsome text `span` more\n```\ncode here\n```")
+        h.focus(at: 0)
+        func at(_ needle: String, _ offset: Int = 1) {
+            h.tv.setSelectedRange(NSRange(location: index(of: needle, in: h) + offset, length: 0))
+            BehaviorChecks.spin()
+        }
+        Check.expect(h.tv.smartInsertDeleteEnabled, "smart insert on in text")
+        at("code here")
+        Check.expect(!h.tv.smartInsertDeleteEnabled, "smart insert off in a code block")
+        Check.expect(!h.tv.isAutomaticSpellingCorrectionEnabled, "autocorrect off in a code block")
+        Check.expect(!h.tv.isAutomaticTextReplacementEnabled, "text replacement off in a code block")
+        at("some")
+        Check.expect(h.tv.smartInsertDeleteEnabled, "smart insert back on outside code")
+        Check.equal(h.tv.isAutomaticSpellingCorrectionEnabled, NSSpellChecker.isAutomaticSpellingCorrectionEnabled,
+                    "autocorrect follows the system setting outside code")
+        at("span", 1)
+        Check.expect(!h.tv.smartInsertDeleteEnabled, "smart insert off inside an inline code span")
     }
 }
