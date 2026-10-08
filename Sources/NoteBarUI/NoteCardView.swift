@@ -35,6 +35,7 @@ final class NoteCardView: NSView {
     /// For checks: the pin button frame, expand button frame, and the preview (when there is no live editor).
     var pinButtonFrame: NSRect { pinButton.frame }
     var expandButtonFrame: NSRect { expandButton.frame }
+    var isExpandButtonShown: Bool { !expandButton.isHidden }
     /// Fold button below the pin (unfolded cards, on hover), when the card is tall enough to keep a
     /// slot for the action column under it. Otherwise Fold stays in the gear / "…" menu only.
     private let foldButton = IconButton(symbol: "chevron.up", size: 10.5, toolTip: "Fold (⌥⌘←)")
@@ -436,11 +437,12 @@ final class NoteCardView: NSView {
         if isFolded {
             let bw = badge.isHidden ? 0 : badge.intrinsicContentSize.width
             let rowH = Metrics.cardTitleRowHeight
-            // Expand button on the far right, pin button next to it.
-            expandButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
-            pinButton.frame = NSRect(x: expandButton.frame.minX - 4 - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
-            badge.frame = NSRect(x: pinButton.frame.minX - 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
-            var right = badge.isHidden ? pinButton.frame.minX - 4 : badge.frame.minX - 6
+            // Pin on the far right (the same column as on unfolded cards), the expand button next to it.
+            // Both slots are kept while the buttons are hidden, so the badge does not move on hover.
+            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
+            expandButton.frame = NSRect(x: pinButton.frame.minX - 4 - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
+            badge.frame = NSRect(x: expandButton.frame.minX - 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
+            var right = badge.isHidden ? expandButton.frame.minX - 4 : badge.frame.minX - 6
             if let dateLabel {
                 let dw = dateReserve
                 dateLabel.frame = NSRect(x: right - dw, y: y + (rowH - 16) / 2, width: dw, height: 16)
@@ -460,13 +462,12 @@ final class NoteCardView: NSView {
             let r = NSRect(x: cr.minX + px, y: y, width: w, height: contentH)
             if let editor, editor.frame != r { editor.frame = r }
             if let preview, preview.frame != r { preview.frame = r }
-            // Expansion button at the top-right corner where pin was:
-            expandButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + 6,
-                                       width: pin, height: pin)
-            // Pin button shifted below the expansion button, inline in the right action column:
-            pinButton.frame = NSRect(x: expandButton.frame.minX, y: expandButton.frame.maxY + 2,
+            // Right column, top to bottom: pin (in the corner), expand, fold, then the action drawer.
+            pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: cr.minY + 6,
                                      width: pin, height: pin)
-            let pf = pinButton.frame
+            expandButton.frame = NSRect(x: pinButton.frame.minX, y: pinButton.frame.maxY + 2,
+                                        width: pin, height: pin)
+            let pf = expandButton.frame
             let foldFrame = NSRect(x: pf.minX, y: pf.maxY + 2, width: pin, height: pin)
             foldFits = !forceUnfolded
                 && cr.maxY - Metrics.actionColumnInsetBottom - (foldFrame.maxY + 2) >= CardActionsView.minHeight
@@ -477,9 +478,9 @@ final class NoteCardView: NSView {
             footer?.frame = NSRect(x: pf.midX - cw / 2, y: top, width: cw,
                                    height: max(0, cr.maxY - Metrics.actionColumnInsetBottom - top))
             if let dateLabel {
-                // Centered on the expand button, ending where the text ends.
+                // Centered on the pin, ending where the text ends.
                 let dw = dateReserve
-                dateLabel.frame = NSRect(x: r.maxX - dw, y: expandButton.frame.midY - 8, width: dw, height: 16)
+                dateLabel.frame = NSRect(x: r.maxX - dw, y: pinButton.frame.midY - 8, width: dw, height: 16)
             }
             y += contentH
         }
@@ -585,7 +586,7 @@ final class NoteCardView: NSView {
         let footer: CardActionsView
         if let existing = self.footer { footer = existing } else if show { footer = makeFooter() } else {
             pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
-            expandButton.isHidden = isFolded && !(hovering || isExpanded || menuOpen)
+            expandButton.isHidden = !(hovering || isExpanded || menuOpen)
             badge.isHidden = !isFolded || note.linesAfterTitle == 0
             return
         }
@@ -613,8 +614,8 @@ final class NoteCardView: NSView {
             dateLabel?.isHidden = !show
         }
         let pinWasHidden = pinButton.isHidden
-        pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
-        expandButton.isHidden = isFolded && !(hovering || isExpanded || menuOpen)
+        pinButton.isHidden = !(footerVisible || note.isPinned)
+        expandButton.isHidden = !(footerVisible || isExpanded)
         badge.isHidden = !isFolded || note.linesAfterTitle == 0
         if pinWasHidden != pinButton.isHidden, isFolded { needsLayout = true }
         updateFoldButton()

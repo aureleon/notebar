@@ -199,6 +199,7 @@ public final class NotesUIProbe {
     }
 
     public var expandedNoteID: NoteID? { list.expandedNoteID }
+    public func isExpandButtonShown(_ id: NoteID) -> Bool { list.card(for: id)?.isExpandButtonShown ?? false }
     public func isExpanded(_ id: NoteID) -> Bool { list.card(for: id)?.isExpanded ?? false }
     public func toggleExpand(_ id: NoteID) { root.toggleExpand(id) }
     public var backdropFrame: NSRect { root.backdropFrame }

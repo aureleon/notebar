@@ -501,13 +501,18 @@ MainActor.assumeIsolated {
     vc.showFolder(expFolder.id)
     probe.layoutNow(); spin(); probe.layoutNow()
 
-    // 1. Expand button exists at top right, pin button is below it in the same column
+    // 1. Pin in the top-right corner, the expand button below it in the same column (hover only).
     if let pin = probe.pinFrame(of: noteMid.id), let exp = probe.expandButtonFrame(of: noteMid.id) {
-        Check.expect(pin.minY >= exp.maxY, "pin button is shifted below the expand button (\(pin.minY) >= \(exp.maxY))")
+        Check.expect(exp.minY >= pin.maxY, "expand button sits below the pin (\(exp.minY) >= \(pin.maxY))")
         Check.equal(pin.minX, exp.minX, "pin and expand buttons are in the same action column")
     } else {
         Check.expect(false, "expand / pin button frames exist")
     }
+    probe.mouseMoved()
+    Check.equal(probe.isExpandButtonShown(noteMid.id), false, "expand button hidden without hover")
+    probe.setHovered(noteMid.id, true)
+    Check.equal(probe.isExpandButtonShown(noteMid.id), true, "expand button shown on hover")
+    probe.setHovered(noteMid.id, false)
 
     let unexpandedH = probe.cardVisibleHeight(noteMid.id) ?? 0
     Check.expect(unexpandedH < 200, "middle note starts with natural height (\(unexpandedH) < 200)")
@@ -522,6 +527,7 @@ MainActor.assumeIsolated {
     probe.layoutNow(); spin(); probe.layoutNow()
     Check.expect(probe.isExpanded(noteMid.id), "isExpanded is true after toggle")
     Check.equal(probe.expandedNoteID, noteMid.id, "expandedNoteID is noteMid")
+    Check.equal(probe.isExpandButtonShown(noteMid.id), true, "an expanded card keeps its collapse button without hover")
     let expandedH = probe.cardVisibleHeight(noteMid.id) ?? 0
     Check.expect(expandedH > unexpandedH + 300, "card height expanded to fill viewport (\(expandedH) > \(unexpandedH + 300))")
 
