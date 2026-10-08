@@ -14,8 +14,9 @@ extension NotesRootViewController {
     var notesVisible: Bool { search != nil || screen != .folders }
 
     func rootFocusChanged(_ focused: Bool) {
-        notesList?.showsSelection = focused
-        folderList?.showsSelection = focused
+        let active = focused && isPanelFocused
+        notesList?.showsSelection = active
+        folderList?.showsSelection = active
     }
 
     // MARK: Plain keys (root view is first responder)
@@ -75,6 +76,10 @@ extension NotesRootViewController {
     /// editing or a selected card → no card; search → closes; otherwise the panel hides.
     func handleEscape() {
         if header.isSearchFieldFocused { searchFieldEscape(); return }
+        if notesVisible, notesList.expandedNoteID != nil {
+            notesList.setExpandedNoteID(nil, animated: true)
+            return
+        }
         if isEditingText {
             // Text view that did not handle Escape itself: leave the card.
             leaveCard()
@@ -158,6 +163,9 @@ extension NotesRootViewController {
             case "v":
                 guard !isEditingText else { return false }
                 pasteAsNewNote(); return true
+            case "e":
+                guard !isEditingText, let id = activeNoteID else { return false }
+                toggleExpand(id); return true
             case "1", "2", "3", "4", "5", "6", "7", "8", "9":
                 // The root runs before its subviews. While text is being edited, the editor gets ⌘digit
                 // first (⌘1–⌘3 = headings in Standard mode). Only keys it does not use switch folders.
@@ -169,6 +177,10 @@ extension NotesRootViewController {
             default: return false
             }
         case [.command, .shift]:
+            if key == "e" || code == 14 {
+                guard let id = activeNoteID else { NSSound.beep(); return true }
+                toggleExpand(id); return true
+            }
             switch key {
             case "m":
                 guard let id = activeNoteID else { NSSound.beep(); return true }
@@ -184,6 +196,14 @@ extension NotesRootViewController {
             }
             return false
         case [.command, .option, .shift]:
+            if key == "n" || code == 0x2D {
+                if let controller = env.controller {
+                    controller.toggleFloatPanel()
+                } else {
+                    env.settings.pinnedOpen.toggle()
+                }
+                return true
+            }
             guard code == Key.up || code == Key.down else { return false }
             guard search == nil, let id = activeNoteID else { NSSound.beep(); return true }
             actions.move(id, code == Key.up ? .up : .down)

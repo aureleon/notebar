@@ -241,6 +241,11 @@ enum MenuBuilder {
         m.addItem(ClosureMenuItem(note.isFolded ? "Unfold" : "Fold", key: "", symbol: note.isFolded ? "rectangle.expand.vertical" : "rectangle.compress.vertical") {
             actions.toggleFold(note.id)
         })
+        let isExpanded = actions.root?.notesList.expandedNoteID == note.id
+        m.addItem(ClosureMenuItem(isExpanded ? "Collapse" : "Expand", key: "e", modifiers: [.command, .shift],
+                                  symbol: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
+            actions.toggleExpand(note.id)
+        })
         let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
         colorItem.image = Symbols.image("paintpalette", size: 13)
         colorItem.submenu = colorSubmenu(current: note.color, env: env) { actions.setColor($0, for: note.id) }
