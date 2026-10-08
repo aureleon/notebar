@@ -199,6 +199,10 @@ extension MarkdownNoteEditor {
         case #selector(NSResponder.insertNewline(_:)):
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
             return handleNewline()
+        case #selector(NSResponder.deleteBackward(_:)):
+            return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.backspace)
+        case #selector(NSResponder.deleteForward(_:)):
+            return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.forwardDelete)
         case #selector(NSResponder.insertTab(_:)):
             return handleTab(outdent: false)
         case #selector(NSResponder.insertBacktab(_:)):
@@ -214,12 +218,25 @@ extension MarkdownNoteEditor {
         let sel = markdownSelection
         let r: TextEditResult?
         switch mode {
-        case .standard: r = ListEditing.newline(text: md, selection: sel)
+        case .standard: r = CodeBlockEditing.newline(text: md, selection: sel) ?? ListEditing.newline(text: md, selection: sel)
         case .code: r = sel.length == 0 ? ListEditing.newlineKeepingIndent(text: md, selection: sel) : nil
         case .plain: r = nil
         }
         guard let r else { return false }
         replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Typing")
+        textView.scrollRangeToVisible(textView.selectedRange())
+        return true
+    }
+
+    /// Runs a `CodeBlockEditing` rule. True = the key was used (the text may be unchanged: caret moved
+    /// or key blocked).
+    private func applyCodeBlockEdit(_ f: (String, NSRange) -> TextEditResult?) -> Bool {
+        guard !textView.hasMarkedText(), let r = f(markdown, markdownSelection) else { return false }
+        if r.text == markdown {
+            setMarkdownSelection(r.selection)
+        } else {
+            replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Typing")
+        }
         textView.scrollRangeToVisible(textView.selectedRange())
         return true
     }
