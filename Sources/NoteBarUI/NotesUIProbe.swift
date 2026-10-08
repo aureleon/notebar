@@ -23,6 +23,7 @@ public final class NotesUIProbe {
     public var focusedNoteID: NoteID? { root.focusedNoteID }
     public var pendingDeletion: NoteID? { root.pendingDeletion }
     public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
+    public var isSettingsButtonVisible: Bool { !root.header.settingsButton.isHidden }
 
     public func cardIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id).map { ObjectIdentifier($0) } }
     public func editorIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id)?.editor.map { ObjectIdentifier($0) } }

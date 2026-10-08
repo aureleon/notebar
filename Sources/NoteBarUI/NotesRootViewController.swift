@@ -98,6 +98,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     private func wireHeader() {
         header.onBack = { [weak self] in self?.goBack() }
+        header.onSettings = { [weak self] in self?.env.controller?.openSettings() }
         header.onSearch = { [weak self] in self?.beginSearch() }
         header.onPlus = { [weak self] in self?.plusPressed() }
         header.onQueryChange = { [weak self] q in self?.searchQueryChanged(q) }
@@ -253,9 +254,9 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func updateHeader() {
         switch screen {
         case .folders:
-            header.setTitle("NoteBar", accent: false, showsBack: false, plusToolTip: "New Folder")
+            header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder")
         case .folder(let id):
-            header.setTitle(store.folder(id: id)?.name ?? "Notes", accent: true, showsBack: true, plusToolTip: "New Note (⌘N)")
+            header.setTitle(store.folder(id: id)?.name ?? "Notes", accent: true, showsBack: true, showsSettings: false, plusToolTip: "New Note (⌘N)")
         }
     }
 

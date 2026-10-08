@@ -8,6 +8,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     static let shadowPad: CGFloat = 6
 
     var onBack: (() -> Void)?
+    var onSettings: (() -> Void)?
     var onSearch: (() -> Void)?
     var onPlus: (() -> Void)?
     var onQueryChange: ((String) -> Void)?
@@ -23,6 +24,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     private var glass: NSGlassEffectView?
     private let content = FlippedView()
     let backButton = IconButton(symbol: "chevron.left", size: 13, toolTip: "Back (⌘[)")
+    let settingsButton = IconButton(symbol: "gearshape", size: 12.5, toolTip: "Settings (⌘,)")
     let searchButton = IconButton(symbol: "magnifyingglass", size: 12.5, toolTip: "Search (⌘F)")
     let plusButton = IconButton(symbol: "plus", size: 13, toolTip: "New Note (⌘N)")
     private let closeSearchButton = IconButton(symbol: "xmark", size: 11, toolTip: "Close Search (Esc)")
@@ -31,6 +33,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     private(set) var isSearching = false
     private var showsBack = false
+    private var showsSettings = false
     private var title = "NoteBar"
     private var titleIsAccent = false
     private var springTimer: Timer?
@@ -49,7 +52,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         }
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         titleLabel.lineBreakMode = .byTruncatingTail
-        for b in [backButton, searchButton, plusButton, closeSearchButton] {
+        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton] {
             b.symbolWeight = .semibold
             content.addSubview(b)
         }
@@ -66,6 +69,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         searchField.action = #selector(searchFieldAction(_:))
         closeSearchButton.isHidden = true
         backButton.onClick = { [weak self] _ in self?.onBack?() }
+        settingsButton.onClick = { [weak self] _ in self?.onSettings?() }
         searchButton.onClick = { [weak self] _ in self?.onSearch?() }
         plusButton.onClick = { [weak self] _ in self?.onPlus?() }
         closeSearchButton.onClick = { [weak self] _ in self?.onCloseSearch?() }
@@ -83,10 +87,11 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     // MARK: State
 
-    func setTitle(_ title: String, accent: Bool, showsBack: Bool, plusToolTip: String) {
+    func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, plusToolTip: String) {
         self.title = title
         self.titleIsAccent = accent
         self.showsBack = showsBack
+        self.showsSettings = showsSettings
         plusButton.toolTip = plusToolTip
         plusButton.setAccessibilityLabel(plusToolTip)
         update()
@@ -116,6 +121,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         titleLabel.stringValue = title
         titleLabel.isHidden = isSearching
         backButton.isHidden = isSearching || !showsBack
+        settingsButton.isHidden = isSearching || !showsSettings
         searchButton.isHidden = isSearching
         plusButton.isHidden = isSearching
         searchField.isHidden = !isSearching
@@ -129,7 +135,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         searchField.font = UIFonts.headerSearch(env.themes.fontSize)
         titleLabel.textColor = titleIsAccent ? c.accent : c.text
-        for b in [backButton, searchButton, plusButton, closeSearchButton] {
+        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton] {
             b.onTint = c.accent
             b.tint = c.text.withAlphaComponent(0.85)
             b.restingFill = c.headerButtonFill
@@ -157,9 +163,11 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         backButton.frame = NSRect(x: 8, y: y, width: s, height: s)
         plusButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         searchButton.frame = NSRect(x: plusButton.frame.minX - 6 - s, y: y, width: s, height: s)
+        settingsButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
         let titleX: CGFloat = showsBack ? backButton.frame.maxX + 8 : 16
         let th = ceil(titleLabel.intrinsicContentSize.height)
-        titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, searchButton.frame.minX - 8 - titleX), height: th)
+        let rightLimit = (!settingsButton.isHidden) ? settingsButton.frame.minX : searchButton.frame.minX
+        titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, rightLimit - 8 - titleX), height: th)
         closeSearchButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         let fh: CGFloat = min(28, h - 12)
         searchField.frame = NSRect(x: 10, y: (h - fh) / 2, width: max(40, closeSearchButton.frame.minX - 8 - 10), height: fh)

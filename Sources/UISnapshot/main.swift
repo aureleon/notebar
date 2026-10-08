@@ -121,11 +121,13 @@ MainActor.assumeIsolated {
     Check.expect(probe.folderRowsVisible, "folder list visible at root")
     Check.equal(probe.folderRowIDs.first, folders.work.id, "pinned folder first")
     Check.equal(probe.headerTitle, "NoteBar", "root title")
+    Check.expect(probe.isSettingsButtonVisible, "settings button visible at root")
 
     // MARK: Notes list
     vc.showFolder(folders.notes.id)
     Check.equal(settings.lastFolderId, folders.notes.id, "lastFolderId remembered")
     Check.equal(probe.headerTitle, "Notes", "folder title")
+    Check.expect(!probe.isSettingsButtonVisible, "settings button hidden in folder")
     let ids = store.notes(in: folders.notes.id).map(\.id)
     Check.equal(probe.displayedNoteIDs, ids, "cards follow store order")
     render("03-notes-light")
