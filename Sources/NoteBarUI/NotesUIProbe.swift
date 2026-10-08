@@ -24,6 +24,8 @@ public final class NotesUIProbe {
     public var pendingDeletion: NoteID? { root.pendingDeletion }
     public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
     public var isSettingsButtonVisible: Bool { !root.header.settingsButton.isHidden }
+    public var showsSelection: Bool { list.showsSelection }
+    public func panelFocusChanged(_ focused: Bool) { root.panelFocusChanged(focused) }
 
     public func cardIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id).map { ObjectIdentifier($0) } }
     public func editorIdentity(of id: NoteID) -> ObjectIdentifier? { list.card(for: id)?.editor.map { ObjectIdentifier($0) } }
@@ -127,6 +129,17 @@ public final class NotesUIProbe {
     public func pinFrame(of id: NoteID) -> NSRect? {
         list.card(for: id).map { $0.convert($0.pinButtonFrame, to: root.view) }
     }
+
+    /// Expand button frame in the root view (nil if no card).
+    public func expandButtonFrame(of id: NoteID) -> NSRect? {
+        list.card(for: id).map { $0.convert($0.expandButtonFrame, to: root.view) }
+    }
+
+    public var expandedNoteID: NoteID? { list.expandedNoteID }
+    public func isExpanded(_ id: NoteID) -> Bool { list.card(for: id)?.isExpanded ?? false }
+    public func toggleExpand(_ id: NoteID) { root.toggleExpand(id) }
+    public var backdropFrame: NSRect { root.backdropFrame }
+    public var rootContentHeight: CGFloat { root.contentHeight }
 
     /// Used rect of the card's first text line in the root view: from the live editor's text view,
     /// else from the preview.

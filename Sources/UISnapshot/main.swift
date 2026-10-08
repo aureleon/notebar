@@ -137,7 +137,7 @@ MainActor.assumeIsolated {
     let hello = ids[1]
     probe.setHovered(hello, true)
     render("05-hover-footer-light")
-    Check.equal(probe.hiddenActionCount(hello), 0, "tall card shows every action")
+    Check.equal(probe.hiddenActionCount(hello), 2, "medium card shows top actions with rest in … menu")
     probe.setHovered(hello, false)
     // One-line card: only the pin and "…" fit; every action is in the menu.
     let short = store.createNote(in: folders.notes.id, body: "One line", mode: .standard, position: .top)
@@ -456,6 +456,101 @@ MainActor.assumeIsolated {
     if let pin = probe.pinFrame(of: farNote.id), let line = probe.firstLineFrame(of: farNote.id) {
         Check.expect(line.maxX <= pin.minX, "preview first line ends before the pin (\(line.maxX) <= \(pin.minX))")
     } else { Check.expect(false, "preview pin / first line frames") }
+
+    // MARK: Unfocused open and focus change
+    Check.expect(probe.showsSelection, "shows selection when focused")
+    probe.panelFocusChanged(false)
+    Check.expect(!probe.showsSelection, "unfocused hides selection ring")
+    probe.panelFocusChanged(true)
+    Check.expect(probe.showsSelection, "focused restores selection ring")
+    probe.press(keyCode: 0x2D, characters: "n", modifiers: [.command, .option, .shift])
+    Check.expect(settings.pinnedOpen, "⌥⇧⌘N toggles pinnedOpen = true")
+    probe.press(keyCode: 0x2D, characters: "n", modifiers: [.command, .option, .shift])
+    Check.expect(!settings.pinnedOpen, "⌥⇧⌘N toggles pinnedOpen = false")
+
+    // MARK: Card Expansion
+    let expFolder = store.createFolder(name: "Expansion Test")
+    let noteTop = store.createNote(in: expFolder.id, body: "Top Note\nShort note above", mode: .standard, position: .bottom)
+    let noteMid = store.createNote(in: expFolder.id, body: "Middle Note\nThis note will be expanded to fill the viewport height.", mode: .standard, position: .bottom)
+    let noteBot = store.createNote(in: expFolder.id, body: "Bottom Note\nShort note below", mode: .standard, position: .bottom)
+    vc.showFolder(expFolder.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+
+    // 1. Expand button exists at top right, pin button is below it in the same column
+    if let pin = probe.pinFrame(of: noteMid.id), let exp = probe.expandButtonFrame(of: noteMid.id) {
+        Check.expect(pin.minY >= exp.maxY, "pin button is shifted below the expand button (\(pin.minY) >= \(exp.maxY))")
+        Check.equal(pin.minX, exp.minX, "pin and expand buttons are in the same action column")
+    } else {
+        Check.expect(false, "expand / pin button frames exist")
+    }
+
+    let unexpandedH = probe.cardVisibleHeight(noteMid.id) ?? 0
+    Check.expect(unexpandedH < 200, "middle note starts with natural height (\(unexpandedH) < 200)")
+    Check.expect(!probe.isExpanded(noteMid.id), "not expanded initially")
+
+    // Context menu offers "Expand"
+    let menuItemsInitial = probe.cardMenuItems(for: noteMid.id)
+    Check.expect(menuItemsInitial.contains("Expand"), "context menu contains 'Expand'")
+
+    // 2. Expand noteMid
+    probe.toggleExpand(noteMid.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(probe.isExpanded(noteMid.id), "isExpanded is true after toggle")
+    Check.equal(probe.expandedNoteID, noteMid.id, "expandedNoteID is noteMid")
+    let expandedH = probe.cardVisibleHeight(noteMid.id) ?? 0
+    Check.expect(expandedH > unexpandedH + 300, "card height expanded to fill viewport (\(expandedH) > \(unexpandedH + 300))")
+
+    // Context menu offers "Collapse"
+    let menuItemsExpanded = probe.cardMenuItems(for: noteMid.id)
+    Check.expect(menuItemsExpanded.contains("Collapse"), "context menu contains 'Collapse'")
+
+    // Top note is pushed above middle note, bottom note is pushed below
+    if let topF = probe.cardFrame(of: noteTop.id),
+       let midF = probe.cardFrame(of: noteMid.id),
+       let botF = probe.cardFrame(of: noteBot.id) {
+        Check.expect(topF.maxY <= midF.minY + 10, "top note is pushed above middle note")
+        Check.expect(botF.minY >= midF.maxY - 10, "bottom note is pushed below middle note")
+    }
+
+    render("22-card-expanded-light")
+
+    // 3. Toggle via keyboard shortcut ⇧⌘E
+    probe.select(noteMid.id)
+    probe.press(keyCode: 14, characters: "e", modifiers: [.command, .shift])
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(!probe.isExpanded(noteMid.id), "⇧⌘E collapses the note")
+    Check.equal(probe.cardVisibleHeight(noteMid.id), unexpandedH, "restored natural height")
+
+    // 4. Re-expand via ⇧⌘E and collapse via Escape
+    probe.press(keyCode: 14, characters: "e", modifiers: [.command, .shift])
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(probe.isExpanded(noteMid.id), "⇧⌘E re-expands the note")
+    probe.pressEscape()
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(!probe.isExpanded(noteMid.id), "Escape collapses expanded note")
+
+    // Single note test
+    NoteBarUIOptions.useGlass = true
+    settings.blurBackdrop = true
+    let singleFolder = store.createFolder(name: "Single Note Test")
+    let singleNote = store.createNote(in: singleFolder.id, body: "Single Note\nSome content", mode: .standard, position: .top)
+    vc.showFolder(singleFolder.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    print("Initial rootContentHeight:", probe.rootContentHeight)
+    print("Initial backdrop height:", probe.backdropFrame.height)
+    print("Initial cardVisibleHeight:", probe.cardVisibleHeight(singleNote.id) ?? 0)
+    probe.toggleExpand(singleNote.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    print("Expanded rootContentHeight:", probe.rootContentHeight)
+    print("Expanded backdrop height:", probe.backdropFrame.height)
+    print("Expanded cardVisibleHeight:", probe.cardVisibleHeight(singleNote.id) ?? 0)
+    probe.toggleExpand(singleNote.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    print("Contracted rootContentHeight:", probe.rootContentHeight)
+    print("Contracted backdrop height:", probe.backdropFrame.height)
+    print("Contracted cardVisibleHeight:", probe.cardVisibleHeight(singleNote.id) ?? 0)
+    Check.equal(probe.backdropFrame.height, probe.rootContentHeight, "backdrop returns to initial height after collapse")
+    NoteBarUIOptions.useGlass = false
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
