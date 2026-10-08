@@ -56,6 +56,8 @@ public final class NotesUIProbe {
     public func folderRowShowsHover(_ id: FolderID) -> Bool { root.folderList.row(for: id)?.isShowingHoverForTesting ?? false }
     public func setFolderRowHovered(_ id: FolderID, _ on: Bool) { root.folderList.row(for: id)?.setHoveredForSnapshot(on) }
     /// A real mouse move (what the panel's event monitor sees).
+    /// Menus the root would pop up go here instead (nil: pop up as usual).
+    public func captureMenus(_ f: ((NSMenu) -> Void)?) { root.menuPopUpHook = f }
     public func mouseMoved() { root.setMouseHoverSuppressed(false) }
     /// Number of card actions in the "…" menu (nil if the card has no action column yet).
     public func hiddenActionCount(_ id: NoteID) -> Int? {

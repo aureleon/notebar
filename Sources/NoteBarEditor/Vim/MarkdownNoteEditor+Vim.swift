@@ -355,6 +355,8 @@ extension MarkdownNoteEditor {
         if vim.pendingZ {
             vim.pendingZ = false
             if key == .char("a") { send(.toggleFold) }
+            if key == .char("c") { send(.setFolded(true)) }
+            if key == .char("o") { send(.setFolded(false)) }
             vim.resetPending()
             return true
         }

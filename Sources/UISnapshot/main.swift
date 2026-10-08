@@ -714,6 +714,62 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     probe.undoDelete()
     probe.vimCommand(.navigateUp, on: a.id)
     Check.expect(probe.folderRowsVisible, "⌃[ in Normal mode goes up")
+
+    // Card keys on the folder list.
+    var menus: [NSMenu] = []
+    probe.captureMenus { menus.append($0) }
+    probe.focusList()
+    key("G"); Check.equal(probe.selectedFolderID, probe.folderRowIDs.last, "vim: G selects the last folder")
+    key("g"); key("g"); Check.equal(probe.selectedFolderID, probe.folderRowIDs.first, "vim: gg selects the first folder")
+    while probe.selectedFolderID != vf.id { key("j") }
+    key("g"); key("p"); Check.equal(store.folder(id: vf.id)?.isPinned, true, "vim: gp pins the folder")
+    key("g"); key("p"); Check.equal(store.folder(id: vf.id)?.isPinned, false, "vim: gp again unpins it")
+    key("g"); key("c")
+    Check.equal(menus.count, 1, "vim: gc pops up the folder color menu")
+    Check.equal(menus.last?.items.first?.title, "Color", "vim: gc menu is the color menu")
+    key("c"); key("w"); Check.equal(probe.renamingFolderID, vf.id, "vim: cw renames the folder")
+    probe.endRename()
+    probe.focusList()
+    let before = Set(probe.folderRowIDs)
+    key("o")
+    let added = Set(probe.folderRowIDs).subtracting(before)
+    Check.equal(added.count, 1, "vim: o adds a folder")
+    Check.equal(probe.renamingFolderID, added.first, "vim: o starts renaming the new folder")
+    probe.endRename()
+    probe.focusList()
+    if let nf = added.first {
+        key("g"); key("g")
+        for _ in 0..<(probe.folderRowIDs.firstIndex(of: nf) ?? 0) { key("j") }
+        Check.equal(probe.selectedFolderID, nf, "vim: selected the new folder")
+        probe.confirmDestructiveAlerts(true)
+        key("d"); key("d")
+        Check.expect(store.folder(id: nf) == nil, "vim: dd deletes the folder (after the alert)")
+        probe.confirmDestructiveAlerts(nil)
+    }
+
+    // Card keys on a selected note (no editing).
+    vc.showFolder(vf.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.focusList()
+    key("g"); key("g"); Check.equal(probe.selectedNoteID, a.id, "vim: gg selects the first note")
+    key("G"); Check.equal(probe.selectedNoteID, c.id, "vim: G selects the last note")
+    key("g"); key("p"); Check.equal(store.note(id: c.id)?.isPinned, true, "vim: gp pins the selected note")
+    key("g"); key("p")
+    key("z"); key("a"); Check.equal(store.note(id: c.id)?.isFolded, true, "vim: za folds the selected note")
+    key("z"); key("o"); Check.equal(store.note(id: c.id)?.isFolded, false, "vim: zo unfolds it")
+    key("z"); key("c"); Check.equal(store.note(id: c.id)?.isFolded, true, "vim: zc folds it")
+    key("z"); key("o")
+    Check.equal(probe.isEditorFocused(c.id), false, "vim: list keys do not start editing")
+    menus = []
+    key("g"); key("c"); Check.equal(menus.count, 1, "vim: gc pops up the note color menu")
+    key("g"); key("m"); Check.equal(menus.count, 2, "vim: gm pops up the move menu")
+    key("d"); key("d"); Check.equal(probe.pendingDeletion, c.id, "vim: dd deletes the selected note (with undo)")
+    probe.undoDelete()
+    probe.focusList()
+    probe.select(a.id)
+    key("g"); key("j")   // not a command: beeps, does nothing
+    Check.equal(probe.selectedNoteID, a.id, "vim: an unknown g command does nothing")
+    probe.captureMenus(nil)
     settings.vimKeybinds = false
 }
 

@@ -49,6 +49,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var pendingFocus: (id: NoteID, edit: Bool, insert: Bool)?
     /// Vim: ⌃W was pressed on the root view at this time (the next j / k picks a card).
     var vimWindowArmedAt: Date?
+    /// First key of a two-key vim command on the lists (g, d, c, z) and when it was typed.
+    var vimListPrefix: (key: String, at: Date)?
+    /// Tests: called instead of popping up a card / folder menu (menus are modal).
+    var menuPopUpHook: ((NSMenu) -> Void)?
     var isPanelFocused = true
     private var searchWork: DispatchWorkItem?
     /// Folder whose notes the list currently shows (nil: empty, or search results).

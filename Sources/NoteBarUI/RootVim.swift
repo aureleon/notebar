@@ -5,8 +5,11 @@ import NoteBarCore
 /// (`EditorEvent.vim`).
 ///
 /// Root view (no text being edited):
-/// - Folder list: j / k select, l / ↩ open, R / r rename. Letters no longer type into search.
-/// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←).
+/// - Folder list: j / k select, l / ↩ open, R / r / cw rename, o new folder, gg / G first / last,
+///   gp pin, gc color menu, gx / dd delete (with the usual alert, undoable). Letters no longer type
+///   into search.
+/// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←), gg / G, and the
+///   card keys on the selected note without editing it: gp gc gm gy gx dd za zc zo.
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 extension NotesRootViewController {
     static let vimWindowChordTimeout: TimeInterval = 1.5
@@ -33,8 +36,24 @@ extension NotesRootViewController {
             if lower == "w" { vimWindowArmedAt = Date(); return true }
             return false
         }
-        guard mods.isEmpty || mods == [.shift], let ch = event.characters, ch.count == 1 else { return false }
+        guard mods.isEmpty || mods == [.shift], let ch = event.characters, ch.count == 1 else {
+            vimListPrefix = nil
+            return false
+        }
+        if let prefix = vimListPrefix {
+            vimListPrefix = nil
+            if Date().timeIntervalSince(prefix.at) <= Self.vimWindowChordTimeout,
+               ch.unicodeScalars.allSatisfy({ CharacterSet.letters.contains($0) }) {
+                if !runVimListChord(prefix.key + ch) { NSSound.beep() }
+                return true
+            }
+        }
         if ch == "/" { beginSearch(); return true }
+        if ["g", "d", "z"].contains(ch) || (ch == "c" && !notesVisible) {
+            vimListPrefix = (ch, Date())
+            return true
+        }
+        if ch == "G" { moveSelection(10_000); return true }
         if notesVisible {
             switch ch {
             case "j": moveSelection(1); return true
@@ -54,6 +73,9 @@ extension NotesRootViewController {
                 guard let id = folderList.selectedFolderID else { NSSound.beep(); return true }
                 beginRenameFolder(id)
                 return true
+            case "o", "O":
+                actions.newFolder()
+                return true
             default: break
             }
         }
@@ -62,6 +84,50 @@ extension NotesRootViewController {
             return true
         }
         return false
+    }
+
+    /// Two-key commands on the selected note / folder. False: not a command here (beep).
+    func runVimListChord(_ chord: String) -> Bool {
+        if chord == "gg" { moveSelection(-10_000); return true }
+        if notesVisible {
+            guard let id = notesList.selectedNoteID, let note = store.note(id: id) else { return false }
+            switch chord {
+            case "gp": actions.togglePin(id)
+            case "gc": popUpCardMenu(MenuBuilder.gearMenu(for: note, actions: actions), for: id)
+            case "gm": showMoveMenu(for: id)
+            case "gy": actions.copyText(id)
+            case "gx", "dd": actions.delete(id, confirm: false)
+            case "za": actions.toggleFold(id)
+            case "zc": actions.setFolded(true, id: id)
+            case "zo": actions.setFolded(false, id: id)
+            default: return false
+            }
+            return true
+        }
+        guard let id = folderList.selectedFolderID, let folder = store.folder(id: id) else { return false }
+        switch chord {
+        case "gp": actions.togglePinFolder(id)
+        case "gc":
+            let m = NSMenu()
+            m.autoenablesItems = false
+            m.addItem(.sectionHeader(title: "Color"))
+            m.addItem(MenuBuilder.colorRowItem(current: folder.color, env: env) { [weak self] c in
+                self?.actions.setFolderColor(c, id)
+            })
+            popUpFolderMenu(m, for: id)
+        case "gx", "dd": actions.deleteFolder(id)
+        case "cw": beginRenameFolder(id)
+        default: return false
+        }
+        return true
+    }
+
+    /// Pops a menu up at the left of a folder row.
+    func popUpFolderMenu(_ menu: NSMenu, for id: FolderID) {
+        if let hook = menuPopUpHook { hook(menu); return }
+        guard let row = folderList.row(for: id) else { return }
+        folderList.scrollToVisible(row)
+        menu.popUp(positioning: nil, at: NSPoint(x: 12, y: row.isFlipped ? row.bounds.maxY - 4 : row.bounds.minY + 4), in: row)
     }
 
     /// The card ⌃W J / K starts from: the edited card, else the selected one (nil: none).
@@ -154,6 +220,7 @@ extension NotesRootViewController {
 
     /// Pops a menu up at the top-left of the card (like ⇧⌘M).
     func popUpCardMenu(_ menu: NSMenu, for id: NoteID) {
+        if let hook = menuPopUpHook { hook(menu); return }
         guard let card = notesList.card(for: id) else { return }
         notesList.scrollToCard(card)
         let r = card.cardRect

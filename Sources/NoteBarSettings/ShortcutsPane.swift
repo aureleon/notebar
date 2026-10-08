@@ -67,13 +67,15 @@ struct ShortcutsPane: View {
     /// Only the NoteBar-specific keys. Standard vim keys (modes, motions, edits, search, ⌃W J / K, :q) work as usual.
     static let vimKeys: [(String, String)] = [
         ("Pin note", "gp · :pin"),
-        ("Fold note", "za · Tab · :fold · :unfold"),
+        ("Fold note", "za · zc · zo · Tab · :fold · :unfold"),
         ("Color & Mode", "gc · :color [name] · :mode [name]"),
         ("Move to folder", "gm · :move [folder]"),
         ("Copy note", "gy · :copy"),
         ("Formatting menu", "gf"),
-        ("Delete note", "gx · :delete"),
-        ("Folder list", "j k · l or ↩ open · R rename"),
+        ("Delete note", "gx · dd (selected note) · :delete"),
+        ("Selected note, not editing", "gp gc gm gy gx za · gg G"),
+        ("Folder list", "j k · gg G · l or ↩ open · o new"),
+        ("Folder: rename, pin, color, delete", "R or cw · gp · gc · gx or dd"),
         ("Go up to the folder list", "⌃["),
     ]
 
