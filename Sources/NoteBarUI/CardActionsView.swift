@@ -1,21 +1,20 @@
 import AppKit
 import NoteBarCore
 
-/// The card's action drawer in the bottom-right corner, under the pin column: Aa · copy · gear · trash,
-/// top to bottom, in a rounded tray that hugs the bottom of the view. When the card is too short for
-/// all four, the last slot that fits becomes a "…" button with the rest in a menu (`hiddenActions`).
+/// The card's action tray in the bottom-right corner: copy · gear · trash, left to right, in a rounded
+/// tray that hugs the right end of the view. (Aa is on the card's bottom-left, in the same row.)
+/// When the card is too narrow for all three, the last slot that fits becomes a "…" button with the rest in a menu (`hiddenActions`).
 /// Shown on hover / focus, like the date.
 @MainActor
 final class CardActionsView: NSView {
-    enum Action: CaseIterable { case format, copy, colorAndMode, delete }
+    enum Action: CaseIterable { case copy, colorAndMode, delete }
 
-    let formatButton = IconButton(symbol: "textformat", size: 11, toolTip: "Format")
     let copyButton = IconButton(symbol: "doc.on.doc", size: 11, toolTip: "Copy Note Text")
     let gearButton = IconButton(symbol: "gearshape", size: 11, toolTip: "Color & Mode")
     let trashButton = IconButton(symbol: "trash", size: 11, toolTip: "Delete Note")
     let moreButton = IconButton(symbol: "ellipsis", size: 11, toolTip: "More")
     private let pill = PillView()
-    private var actionButtons: [IconButton] { [formatButton, copyButton, gearButton, trashButton] }
+    private var actionButtons: [IconButton] { [copyButton, gearButton, trashButton] }
     /// Actions that do not fit and are in the "…" menu. Set by `layout`.
     private(set) var hiddenActions: [Action] = []
 
@@ -23,14 +22,11 @@ final class CardActionsView: NSView {
     /// Padding inside the drawer around the buttons.
     static let padding: CGFloat = 2
     static let cornerRadius: CGFloat = 7
-    static let width: CGFloat = buttonSize + 2 * padding
-    /// Smallest view height that holds one button.
+    /// Height of the tray (one row of buttons).
     static let minHeight: CGFloat = buttonSize + 2 * padding
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        formatButton.text = "Aa"
-        formatButton.textFont = UIFonts.footerButton(14)  // set from the theme by setFontSize
         pill.cornerRadius = Self.cornerRadius
         addSubview(pill)
         for b in actionButtons + [moreButton] {
@@ -45,10 +41,6 @@ final class CardActionsView: NSView {
 
     override var isFlipped: Bool { true }
 
-    func setFontSize(_ fs: CGFloat) {
-        formatButton.textFont = UIFonts.footerButton(fs)
-    }
-
     func style(tint: NSColor, pillFill: NSColor, pillStroke: NSColor, hoverFill: NSColor, pressedFill: NSColor) {
         for b in actionButtons + [moreButton] {
             b.tint = tint
@@ -59,14 +51,14 @@ final class CardActionsView: NSView {
         pill.stroke = pillStroke
     }
 
-    /// Number of button slots that fit in `height`.
-    static func slots(forHeight height: CGFloat) -> Int { max(0, Int((height - 2 * padding + 0.5) / buttonSize)) }
+    /// Number of button slots that fit in `width`.
+    static func slots(forWidth width: CGFloat) -> Int { max(0, Int((width - 2 * padding + 0.5) / buttonSize)) }
 
-    /// Bottom-aligned: the drawer ends at the bottom of the view and grows up as far as the buttons need.
+    /// Right-aligned: the tray ends at the right of the view and grows left as far as the buttons need.
     override func layout() {
         super.layout()
         let b = Self.buttonSize
-        let slots = Self.slots(forHeight: bounds.height)
+        let slots = Self.slots(forWidth: bounds.width)
         let all = actionButtons
         let visible: [IconButton]
         if slots >= all.count {
@@ -82,10 +74,10 @@ final class CardActionsView: NSView {
         for v in all + [moreButton] { v.isHidden = !visible.contains { $0 === v } }
         pill.isHidden = visible.isEmpty
         let p = Self.padding
-        let ph = CGFloat(visible.count) * b + 2 * p
-        pill.frame = NSRect(x: (bounds.width - Self.width) / 2, y: bounds.height - ph, width: Self.width, height: ph)
+        let pw = CGFloat(visible.count) * b + 2 * p
+        pill.frame = NSRect(x: bounds.width - pw, y: (bounds.height - Self.minHeight) / 2, width: pw, height: Self.minHeight)
         for (i, v) in visible.enumerated() {
-            v.frame = NSRect(x: p, y: p + CGFloat(i) * b, width: b, height: b)
+            v.frame = NSRect(x: p + CGFloat(i) * b, y: p, width: b, height: b)
         }
     }
 

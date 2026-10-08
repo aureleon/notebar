@@ -40,6 +40,11 @@ final class NoteCardView: NSView {
     /// slot for the action column under it. Otherwise Fold stays in the gear / "…" menu only.
     private let foldButton = IconButton(symbol: "chevron.up", size: 10.5, toolTip: "Fold (⌥⌘←)")
     private var foldFits = false
+    /// Formatting menu, always shown at the bottom-left of an unfolded card.
+    private let formatButton = IconButton(symbol: "textformat", size: 11, toolTip: "Format")
+    var formatButtonFrame: NSRect? { formatButton.isHidden ? nil : formatButton.frame }
+    /// Extra space under the text for the bottom row (Aa, and the action tray on hover).
+    static let formatRowHeight: CGFloat = 14
     var foldButtonFrame: NSRect? { foldButton.isHidden ? nil : foldButton.frame }
     func clickFoldForTesting() { foldButton.onClick?(foldButton) }
     var previewForChecks: NotePreviewView? { preview }
@@ -115,6 +120,17 @@ final class NoteCardView: NSView {
             self.delegate?.cardFoldClicked(self)
         }
         addSubview(foldButton)
+        formatButton.text = "Aa"
+        formatButton.textFont = UIFonts.footerButton(env.themes.fontSize)
+        formatButton.symbolWeight = .medium
+        formatButton.shape = .circle
+        formatButton.setAccessibilityLabel("Format")
+        formatButton.onClick = { [weak self] b in
+            guard let self else { return }
+            let menu = MenuBuilder.formatMenu { [weak self] action in self?.performFormat(action) }
+            self.popUp(menu, from: b)
+        }
+        addSubview(formatButton)
         registerForDraggedTypes(PasteboardImport.attachmentTypes)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -414,7 +430,7 @@ final class NoteCardView: NSView {
         if isFolded {
             h += Metrics.cardTitleRowHeight
         } else {
-            h += contentHeight(forWidth: contentWidth(forCardWidth: w))
+            h += contentHeight(forWidth: contentWidth(forCardWidth: w)) + Self.formatRowHeight
         }
         h = ceil(h + Metrics.cardPaddingBottom)
         let baseH = isFolded ? h : max(h, Self.minUnfoldedHeight)
@@ -449,6 +465,7 @@ final class NoteCardView: NSView {
                 if footerVisible { right = dateLabel.frame.minX - 6 }
             }
             footer?.frame = .zero
+            formatButton.isHidden = true
             foldFits = false
             updateFoldButton()
             let th = ceil(titleLabel.intrinsicContentSize.height)
@@ -458,6 +475,7 @@ final class NoteCardView: NSView {
             let w = contentWidth(forCardWidth: cr.width)
             let h = contentHeight(forWidth: w)
             let cardInnerH = cr.height - Metrics.cardPaddingTop - Metrics.cardPaddingBottom - folderRowHeight
+                - Self.formatRowHeight
             let contentH = max(h, cardInnerH)
             let r = NSRect(x: cr.minX + px, y: y, width: w, height: contentH)
             if let editor, editor.frame != r { editor.frame = r }
@@ -473,10 +491,15 @@ final class NoteCardView: NSView {
                 && cr.maxY - Metrics.actionColumnInsetBottom - (foldFrame.maxY + 2) >= CardActionsView.minHeight
             foldButton.frame = foldFrame
             updateFoldButton()
-            let top = (foldFits ? foldFrame.maxY : pf.maxY) + 2
-            let cw = CardActionsView.width
-            footer?.frame = NSRect(x: pf.midX - cw / 2, y: top, width: cw,
-                                   height: max(0, cr.maxY - Metrics.actionColumnInsetBottom - top))
+            // Bottom row: Aa on the left (always), the action tray on the right (hover), centered on one line.
+            let fb = CardActionsView.buttonSize
+            let rowH = CardActionsView.minHeight
+            let rowY = cr.maxY - Metrics.actionColumnInsetBottom - rowH
+            formatButton.isHidden = false
+            formatButton.frame = NSRect(x: cr.minX + px - 4, y: rowY + (rowH - fb) / 2, width: fb, height: fb)
+            let trayRight = pf.maxX + CardActionsView.padding
+            let trayLeft = formatButton.frame.maxX + 8
+            footer?.frame = NSRect(x: trayLeft, y: rowY, width: max(0, trayRight - trayLeft), height: rowH)
             if let dateLabel {
                 // Centered on the pin, ending where the text ends.
                 let dw = dateReserve
@@ -504,7 +527,7 @@ final class NoteCardView: NSView {
         titleLabel.textColor = env.themes.cardTitle(note.color, appearance: a)
         let fs = env.themes.fontSize
         updateGlass()
-        footer?.setFontSize(fs)
+        formatButton.textFont = UIFonts.footerButton(fs)
         badge.font = UIFonts.badge(fs)
         folderLabel?.font = UIFonts.small(fs)
         let tint = colored ? env.themes.cardTitle(note.color, appearance: a).withAlphaComponent(0.8) : c.secondaryText
@@ -523,6 +546,10 @@ final class NoteCardView: NSView {
         expandButton.restingFill = isExpanded ? nil : pillFill
         expandButton.hoverFill = c.hoverFill
         expandButton.pressedFill = c.pressedFill
+        formatButton.tint = tint
+        formatButton.restingFill = nil
+        formatButton.hoverFill = c.hoverFill
+        formatButton.pressedFill = c.pressedFill
         foldButton.tint = tint
         foldButton.restingFill = pillFill
         foldButton.hoverFill = c.hoverFill
@@ -801,11 +828,6 @@ final class NoteCardView: NSView {
             guard let self, let footer = self.footer else { return }
             self.popUp(self.moreMenu(footer.hiddenActions), from: b)
         }
-        footer.formatButton.onClick = { [weak self] b in
-            guard let self else { return }
-            let menu = MenuBuilder.formatMenu { [weak self] action in self?.performFormat(action) }
-            self.popUp(menu, from: b)
-        }
         footer.copyButton.onClick = { [weak self] _ in
             guard let self, let actions = self.delegate?.actions else { return }
             actions.copyText(self.note.id)
@@ -826,11 +848,6 @@ final class NoteCardView: NSView {
         m.autoenablesItems = false
         for action in hidden {
             switch action {
-            case .format:
-                let item = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
-                item.image = Symbols.image("textformat", size: 13)
-                item.submenu = MenuBuilder.formatMenu { [weak self] a in self?.performFormat(a) }
-                m.addItem(item)
             case .copy:
                 m.addItem(ClosureMenuItem("Copy Note Text", key: "", symbol: "doc.on.doc") { [weak self] in
                     guard let self else { return }

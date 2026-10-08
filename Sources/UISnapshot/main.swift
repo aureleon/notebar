@@ -137,7 +137,14 @@ MainActor.assumeIsolated {
     let hello = ids[1]
     probe.setHovered(hello, true)
     render("05-hover-footer-light")
-    Check.equal(probe.hiddenActionCount(hello), 3, "medium card shows top actions with rest in … menu")
+    Check.equal(probe.hiddenActionCount(hello), 0, "the bottom tray holds copy, color and delete")
+    if let aa = probe.formatButtonFrame(of: hello), let tray = probe.actionTrayFrame(of: hello),
+       let line = probe.firstLineFrame(of: hello), let card = probe.cardFrame(of: hello) {
+        Check.expect(abs(aa.midY - tray.midY) < 0.5, "Aa and the action tray share the bottom row")
+        Check.expect(aa.minX < tray.minX && tray.maxX > card.midX, "Aa on the left, the tray on the right")
+        Check.expect(aa.minX - card.minX < 30, "Aa sits at the left edge of the text")
+        _ = line
+    } else { Check.expect(false, "Aa and tray frames") }
     // Fold button below the pin, on hover only.
     if let fold = probe.foldButtonFrame(of: hello), let pin = probe.pinFrame(of: hello) {
         Check.expect(abs(fold.midX - pin.midX) < 0.5 && fold.minY > pin.minY, "fold button sits below the pin")
@@ -145,12 +152,15 @@ MainActor.assumeIsolated {
     probe.setHovered(hello, false)
     probe.layoutNow()
     Check.equal(probe.foldButtonFrame(of: hello), nil, "fold button hidden without hover")
-    // One-line card: only the pin and "…" fit; every action is in the menu.
+    probe.layoutNow()
+    Check.expect(probe.formatButtonFrame(of: hello) != nil, "Aa is visible without hover")
+    Check.equal(probe.actionTrayFrame(of: hello), nil, "the action tray is hidden without hover")
+    // One-line card: the bottom row still has the whole tray; no room for the fold button.
     let short = store.createNote(in: folders.notes.id, body: "One line", mode: .standard, position: .top)
     probe.setHovered(short.id, true)
     render("05b-hover-short-light")
     Check.equal(probe.foldButtonFrame(of: short.id), nil, "one-line card: no room for the fold button (Fold is in the … menu)")
-    Check.equal(probe.hiddenActionCount(short.id), 4, "one-line card puts actions in the … menu")
+    Check.equal(probe.hiddenActionCount(short.id), 0, "one-line card: the tray fits in the bottom row")
     probe.setHovered(short.id, false)
     store.deleteNote(id: short.id)
 

@@ -70,8 +70,9 @@ When the pointer is on a card, the card shows these controls:
 - The date and the pin button in the top-right corner, with the expand and fold buttons below the
   pin. A pinned note always shows its pin, and an expanded note always shows its collapse button. A folded
   note shows a `+ N lines` button: click it to unfold the note.
-- A column of actions, in the bottom-right corner: format (`Aa`), copy the text, color and mode (gear),
-  and delete. On a short card, the actions that do not fit go into a `…` menu.
+- A row of actions in the bottom-right corner: copy the text, color and mode (gear), and delete.
+
+The format button (`Aa`) is always shown in the bottom-left corner of an unfolded card.
 
 ### Undo and deleted items
 
