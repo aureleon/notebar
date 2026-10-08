@@ -11,8 +11,9 @@ final class SearchScopeBar: NSView {
 
     init(env: AppEnvironment) {
         self.env = env
-        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 26))
-        countLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        super.init(frame: NSRect(x: 0, y: 0, width: 280, height: Metrics.scopeBarHeight))
+        countLabel.font = UIFonts.scope(env.themes.fontSize)
+        toggle.font = UIFonts.scope(env.themes.fontSize)
         addSubview(countLabel)
         addSubview(toggle)
         toggle.onChange = { [weak self] idx in self?.onToggle?(idx == 1) }
@@ -22,7 +23,7 @@ final class SearchScopeBar: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     override var isFlipped: Bool { true }
-    override var fittingSize: NSSize { NSSize(width: frame.width, height: 26) }
+    override var fittingSize: NSSize { NSSize(width: frame.width, height: Metrics.scopeBarHeight) }
 
     /// `folderName == nil` hides the toggle (searching from the folder list always covers all folders).
     func update(resultCount: Int?, allFolders: Bool, folderName: String?) {
@@ -41,6 +42,8 @@ final class SearchScopeBar: NSView {
 
     func restyle() {
         let c = env.themes.ui(effectiveAppearance)
+        countLabel.font = UIFonts.scope(env.themes.fontSize)
+        toggle.font = UIFonts.scope(env.themes.fontSize)
         countLabel.textColor = c.text
         toggle.colors = c
         needsDisplay = true
@@ -54,7 +57,9 @@ final class SearchScopeBar: NSView {
     override func layout() {
         super.layout()
         let tw = toggle.isHidden ? 0 : min(toggle.intrinsicContentSize.width, bounds.width * 0.65)
-        toggle.frame = NSRect(x: bounds.width - tw, y: 1, width: tw, height: 24)
+        // The chip and the toggle share one height, centered on the bar.
+        let h = Metrics.scopeBarHeight
+        toggle.frame = NSRect(x: bounds.width - tw, y: (bounds.height - h) / 2, width: tw, height: h)
         let lh = ceil(countLabel.intrinsicContentSize.height)
         countLabel.frame = NSRect(x: 8, y: (bounds.height - lh) / 2, width: max(0, toggle.frame.minX - 16), height: lh)
     }
@@ -63,7 +68,7 @@ final class SearchScopeBar: NSView {
         // Soft backing so the count is readable over any desktop.
         let c = env.themes.ui(effectiveAppearance)
         let lw = ceil(countLabel.intrinsicContentSize.width) + 16
-        let r = NSRect(x: 0, y: 1, width: min(lw, bounds.width), height: 24)
+        let r = NSRect(x: 0, y: (bounds.height - Metrics.scopeBarHeight) / 2, width: min(lw, bounds.width), height: Metrics.scopeBarHeight)
         c.folderRowBackground.withAlphaComponent(0.85).setFill()
         NSBezierPath(roundedRect: r, xRadius: 12, yRadius: 12).fill()
     }
@@ -76,7 +81,7 @@ final class SegmentToggle: NSView {
     var selectedIndex = 0 { didSet { needsDisplay = true } }
     var colors: UIColors? { didSet { needsDisplay = true } }
     var onChange: ((Int) -> Void)?
-    private let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    var font = UIFonts.scope(14) { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
 
     override var isFlipped: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -86,7 +91,7 @@ final class SegmentToggle: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: titles.indices.map(segmentWidth).reduce(0, +) + 4, height: 24)
+        NSSize(width: titles.indices.map(segmentWidth).reduce(0, +) + 4, height: Metrics.scopeBarHeight)
     }
 
     private func segmentRects() -> [NSRect] {

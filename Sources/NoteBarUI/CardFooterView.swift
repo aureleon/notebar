@@ -18,7 +18,7 @@ final class CardFooterView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         formatButton.text = "Aa"
-        formatButton.textFont = .systemFont(ofSize: 10.5, weight: .semibold)
+        formatButton.textFont = UIFonts.footerButton(14)  // set from the theme by setFontSize
         addSubview(leftPill)
         addSubview(rightPill)
         addSubview(dateView)
@@ -29,6 +29,12 @@ final class CardFooterView: NSView {
             b.shape = .circle
         }
         dateView.text = UIFormat.footerDate.string(from: date)
+    }
+
+    /// Footer and date text follow the theme font size.
+    func setFontSize(_ fs: CGFloat) {
+        for b in [formatButton] { b.textFont = UIFonts.footerButton(fs) }
+        dateView.font = UIFonts.footer(fs)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -75,13 +81,14 @@ final class CardFooterView: NSView {
 final class FooterDateView: NSView {
     var text = "" { didSet { needsDisplay = true } }
     var color: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
+    var font: NSFont = UIFonts.footer(14) { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
     private let icon = Symbols.image("calendar", size: 9.5, weight: .medium)
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
-        let attrs: [NSAttributedString.Key: Any] = [.font: UIFonts.footer, .foregroundColor: color]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
         let s = (text as NSString).size(withAttributes: attrs)
         let iconW: CGFloat = icon == nil ? 0 : 13
         var total = s.width + iconW
@@ -104,6 +111,7 @@ final class FooterDateView: NSView {
 final class BadgeButton: NSView {
     var text = "" { didSet { invalidateIntrinsicContentSize(); needsDisplay = true; setAccessibilityLabel(text) } }
     var textColor: NSColor = .secondaryLabelColor { didSet { needsDisplay = true } }
+    var font: NSFont = UIFonts.badge(14) { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
     var fill: NSColor = .clear { didSet { needsDisplay = true } }
     var hoverFill: NSColor = .clear
     var onClick: (() -> Void)?
@@ -122,7 +130,7 @@ final class BadgeButton: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override var intrinsicContentSize: NSSize {
-        let s = (text as NSString).size(withAttributes: [.font: UIFonts.badge])
+        let s = (text as NSString).size(withAttributes: [.font: font])
         return NSSize(width: ceil(s.width) + 18, height: 20)
     }
 
@@ -130,7 +138,7 @@ final class BadgeButton: NSView {
         let p = NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2)
         fill.setFill(); p.fill()
         if hovering { hoverFill.setFill(); p.fill() }
-        let attrs: [NSAttributedString.Key: Any] = [.font: UIFonts.badge, .foregroundColor: textColor]
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textColor]
         let s = (text as NSString).size(withAttributes: attrs)
         (text as NSString).draw(at: NSPoint(x: (bounds.width - s.width) / 2, y: (bounds.height - s.height) / 2), withAttributes: attrs)
     }

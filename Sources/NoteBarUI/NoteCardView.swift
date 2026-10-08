@@ -36,6 +36,8 @@ final class NoteCardView: NSView {
     var previewForChecks: NotePreviewView? { preview }
     /// Created on first hover / focus (keeps long lists light).
     private(set) var footer: CardFooterView?
+    /// Card-colored fade under the footer overlay, so the text under it does not show through.
+    private var footerBacking: FooterBackingView?
     private var folderLabel: PassthroughLabel?
     private var folderIcon: NSImageView?
 
@@ -43,9 +45,10 @@ final class NoteCardView: NSView {
     var forceUnfolded = false { didSet { if oldValue != forceUnfolded { foldStateChanged() } } }
     /// Folder name shown above the text (search results across folders).
     var folderName: String? { didSet { if oldValue != folderName { updateFolderLabel() } } }
-    /// Current search query (search results). Highlighting is requested by the list for one card at a
-    /// time, because `highlightSearch` also scrolls the match into view.
+    /// Current search query (search results). Every result card marks its matches (see `highlightSearchMatch`).
     var searchQuery = ""
+    /// The query whose marks are in this card's editor now ("" = none).
+    private(set) var highlightedQuery = ""
 
     var isSelected = false { didSet { if oldValue != isSelected { needsDisplay = true; updateChrome(animated: true) } } }
     var isDropTarget = false { didSet { if oldValue != isDropTarget { needsDisplay = true } } }
@@ -66,8 +69,8 @@ final class NoteCardView: NSView {
         self.note = note
         self.env = env
         self.isExport = isExport
-        super.init(frame: NSRect(x: 0, y: 0, width: 290, height: 80))
-        titleLabel.font = UIFonts.title(env.themes.fontSize)
+        super.init(frame: NSRect(x: 0, y: 0, width: PanelSizing.defaultWidth, height: 80))
+        titleLabel.font = titleFont
         addSubview(titleLabel)
         badge.onClick = { [weak self] in
             guard let self else { return }
@@ -95,6 +98,11 @@ final class NoteCardView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     var cardRect: NSRect { bounds.insetBy(dx: Metrics.cardShadowPad, dy: Metrics.cardShadowPad) }
+    /// The card title font: the same size and weight as the editor's title line, so the folded and the
+    /// expanded title match.
+    var titleFont: NSFont { UIFonts.title(env.themes.fontSize + 2) }
+    /// For checks: the title label's frame in card coordinates.
+    var titleFrameForChecks: NSRect { titleLabel.frame }
     var isFolded: Bool { note.isFolded && !forceUnfolded }
     var hasEditor: Bool { editor != nil }
 
@@ -194,6 +202,12 @@ final class NoteCardView: NSView {
         preview?.removeFromSuperview()
         preview = nil
         invalidateHeight()
+        // A search that is running marks the new editor too (cards whose editor loads later).
+        if !isFolded, !highlightedQuery.isEmpty || !searchQuery.isEmpty {
+            // The marks for the current query go into the new editor.
+            highlightedQuery = ""
+            highlightSearchMatch()
+        }
         return true
     }
 
@@ -202,6 +216,7 @@ final class NoteCardView: NSView {
         guard let e = editor, !e.isEditingFocused else { return }
         e.removeFromSuperview()
         editor = nil
+        highlightedQuery = ""
         invalidateHeight()
         if !isFolded { ensurePreview() }
     }
@@ -247,11 +262,20 @@ final class NoteCardView: NSView {
         delegate?.card(self, editorFocusChanged: focused)
     }
 
-    /// Asks the editor to mark the first match of `searchQuery`.
+    /// Marks every match of `searchQuery` in this card's editor, and clears the marks when the query is
+    /// empty or the card is folded. Cards without an editor are marked when `ensureEditor` creates one,
+    /// so a search does not create an editor for every result.
     func highlightSearchMatch() {
-        guard !searchQuery.isEmpty, !isFolded else { return }
-        if ensureEditor() { delegate?.cardNeedsLayout(self) }
-        editor?.highlightSearch(searchQuery)
+        let q = isFolded ? "" : searchQuery
+        guard q != highlightedQuery else { return }
+        highlightedQuery = q
+        // No editor yet: `ensureEditor` applies `highlightedQuery` when it creates one.
+        editor?.highlightSearch(q)
+    }
+
+    /// Scrolls to the first search match and shows the find indicator. Call only on the first result card.
+    func revealFirstSearchMatch() {
+        editor?.revealFirstSearchMatch()
     }
 
     // MARK: Measuring
@@ -329,11 +353,8 @@ final class NoteCardView: NSView {
 
     private var folderRowHeight: CGFloat { folderName == nil ? 0 : 16 + 6 }
 
-    private var footerBlockHeight: CGFloat {
-        isExport ? Metrics.cardPaddingTop : Metrics.footerGap + Metrics.footerHeight + Metrics.footerInsetBottom
-    }
-
-    /// Height of the visible card (without the shadow pad) at the given card width.
+    /// Height of the visible card (without the shadow pad) at the given card width. The footer is an
+    /// overlay (it does not take space), so the card ends at its text plus the bottom padding.
     func cardHeight(forWidth w: CGFloat) -> CGFloat {
         var h = Metrics.cardPaddingTop + folderRowHeight
         if isFolded {
@@ -341,7 +362,7 @@ final class NoteCardView: NSView {
         } else {
             h += contentHeight(forWidth: contentWidth(forCardWidth: w))
         }
-        return ceil(h + footerBlockHeight)
+        return ceil(h + Metrics.cardPaddingBottom)
     }
 
     // MARK: Layout
@@ -359,12 +380,13 @@ final class NoteCardView: NSView {
         let pin = Metrics.pinButtonSize
         if isFolded {
             let bw = badge.isHidden ? 0 : badge.intrinsicContentSize.width
-            badge.frame = NSRect(x: cr.maxX - px + 4 - bw, y: y, width: bw, height: 20)
+            let rowH = Metrics.cardTitleRowHeight
+            badge.frame = NSRect(x: cr.maxX - px + 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
             let pinX = (badge.isHidden ? cr.maxX - px + 4 : badge.frame.minX - 4) - pin
-            pinButton.frame = NSRect(x: pinX, y: y - 1, width: pin, height: pin)
+            pinButton.frame = NSRect(x: pinX, y: y + (rowH - pin) / 2, width: pin, height: pin)
             let right = pinButton.isHidden ? (badge.isHidden ? cr.maxX - px : badge.frame.minX - 6) : pinButton.frame.minX - 4
             let th = ceil(titleLabel.intrinsicContentSize.height)
-            titleLabel.frame = NSRect(x: cr.minX + px, y: y + (Metrics.cardTitleRowHeight - th) / 2, width: max(0, right - cr.minX - px), height: th)
+            titleLabel.frame = NSRect(x: cr.minX + px, y: y + (rowH - th) / 2, width: max(0, right - cr.minX - px), height: th)
             y += Metrics.cardTitleRowHeight
         } else {
             let w = contentWidth(forCardWidth: cr.width)
@@ -377,8 +399,14 @@ final class NoteCardView: NSView {
             y += h
         }
         if let footer {
-            footer.frame = NSRect(x: cr.minX + Metrics.footerInsetX, y: y + Metrics.footerGap,
+            // Overlay on the bottom edge of the card (hover / focus only). It does not move the text.
+            footer.frame = NSRect(x: cr.minX + Metrics.footerInsetX, y: cr.maxY - Metrics.footerInsetBottom - Metrics.footerHeight,
                                   width: max(0, cr.width - 2 * Metrics.footerInsetX), height: Metrics.footerHeight)
+        }
+        if let footerBacking {
+            // Taller than the footer: a soft fade over the last text line, then solid under the footer.
+            let bh = Metrics.footerHeight + Metrics.footerInsetBottom + 26
+            footerBacking.frame = NSRect(x: cr.minX, y: cr.maxY - bh, width: cr.width, height: bh)
         }
     }
 
@@ -394,8 +422,14 @@ final class NoteCardView: NSView {
         let a = effectiveAppearance
         let c = env.themes.ui(a)
         let colored = colorStyle == .background && note.color != .none
-        titleLabel.font = UIFonts.title(env.themes.fontSize)
+        titleLabel.font = titleFont
         titleLabel.textColor = env.themes.cardTitle(note.color, appearance: a)
+        let fs = env.themes.fontSize
+        footerBacking?.color = backgroundColor
+        footerBacking?.cornerRadius = env.themes.cornerRadius
+        footer?.setFontSize(fs)
+        badge.font = UIFonts.badge(fs)
+        folderLabel?.font = UIFonts.small(fs)
         let tint = colored ? env.themes.cardTitle(note.color, appearance: a).withAlphaComponent(0.8) : c.secondaryText
         let pillFill = colored ? (c.isDark ? NSColor.white.withAlphaComponent(0.08) : NSColor.white.withAlphaComponent(0.5)) : c.hoverFill
         footer?.style(tint: tint, pillFill: pillFill, pillStroke: .clear, hoverFill: c.hoverFill, pressedFill: c.pressedFill,
@@ -452,21 +486,39 @@ final class NoteCardView: NSView {
             badge.isHidden = !isFolded || note.linesAfterTitle == 0
             return
         }
+        // A folded card has its title row under the overlay: fade the title row out while the footer shows.
+        let rowTarget: CGFloat = show && isFolded ? 0 : 1
+        if animated && NoteBarUIOptions.animations {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = show ? 0.12 : 0.2
+                titleLabel.animator().alphaValue = rowTarget
+                badge.animator().alphaValue = rowTarget
+            })
+        } else {
+            titleLabel.alphaValue = rowTarget
+            badge.alphaValue = rowTarget
+        }
         if footer.alphaValue != target {
             if animated && NoteBarUIOptions.animations {
-                if show { footer.isHidden = false }
+                if show { footer.isHidden = false; footerBacking?.isHidden = false }
                 NSAnimationContext.runAnimationGroup({ ctx in
                     ctx.duration = show ? 0.12 : 0.2
                     footer.animator().alphaValue = target
+                    footerBacking?.animator().alphaValue = target
                 }, completionHandler: {
-                    MainActor.assumeIsolated { if !self.footerVisible { self.footer?.isHidden = true } }
+                    MainActor.assumeIsolated {
+                        if !self.footerVisible { self.footer?.isHidden = true; self.footerBacking?.isHidden = true }
+                    }
                 })
             } else {
                 footer.alphaValue = target
                 footer.isHidden = !show
+                footerBacking?.alphaValue = target
+                footerBacking?.isHidden = !show
             }
         } else {
             footer.isHidden = !show
+            footerBacking?.isHidden = !show
         }
         let pinWasHidden = pinButton.isHidden
         pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
@@ -481,7 +533,7 @@ final class NoteCardView: NSView {
         if let name = folderName {
             if folderLabel == nil {
                 let l = PassthroughLabel()
-                l.font = UIFonts.small
+                l.font = UIFonts.small(env.themes.fontSize)
                 let icon = NSImageView()
                 icon.image = Symbols.image("folder", size: 10, weight: .medium)
                 icon.imageScaling = .scaleProportionallyDown
@@ -613,6 +665,11 @@ final class NoteCardView: NSView {
     // MARK: Footer
 
     private func makeFooter() -> CardFooterView {
+        let backing = FooterBackingView()
+        backing.alphaValue = 0
+        backing.isHidden = true
+        addSubview(backing)
+        footerBacking = backing
         let f = CardFooterView()
         f.alphaValue = 0
         f.isHidden = true
@@ -696,5 +753,23 @@ extension NSView {
             queue.append(contentsOf: v.subviews)
         }
         return nil
+    }
+}
+
+/// The fade behind the card footer: transparent at the top, the card color at the bottom. Draws the
+/// card color only where the footer overlay sits, so the text under it fades out. Never takes clicks.
+final class FooterBackingView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Set by the card (its current background and corner radius).
+    var color: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
+    var cornerRadius: CGFloat = 16 { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let g = NSGradient(colors: [color.withAlphaComponent(0), color, color]) else { return }
+        // Clip to the card's rounded shape, so the bottom corners stay round.
+        NSBezierPath(roundedRect: bounds, xRadius: cornerRadius, yRadius: cornerRadius).addClip()
+        g.draw(in: bounds, angle: 90)
     }
 }

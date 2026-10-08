@@ -37,7 +37,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     init(env: AppEnvironment) {
         self.env = env
-        super.init(frame: NSRect(x: 0, y: 0, width: 290, height: Metrics.headerHeight + 2 * Self.shadowPad))
+        super.init(frame: NSRect(x: 0, y: 0, width: PanelSizing.defaultWidth, height: Metrics.headerHeight + 2 * Self.shadowPad))
         if NoteBarUIOptions.useGlass {
             let g = NSGlassEffectView()
             g.cornerRadius = Metrics.headerCornerRadius
@@ -47,7 +47,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         } else {
             addSubview(content)
         }
-        titleLabel.font = UIFonts.headerTitle
+        titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         titleLabel.lineBreakMode = .byTruncatingTail
         for b in [backButton, searchButton, plusButton, closeSearchButton] {
             b.symbolWeight = .semibold
@@ -56,7 +56,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         content.addSubview(titleLabel)
         content.addSubview(searchField)
         searchField.placeholderString = "Search"
-        searchField.font = .systemFont(ofSize: 13)
+        searchField.font = UIFonts.headerSearch(env.themes.fontSize)
         searchField.focusRingType = .none
         searchField.delegate = self
         searchField.sendsSearchStringImmediately = true
@@ -126,6 +126,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     func restyle() {
         let c = env.themes.ui(effectiveAppearance)
+        titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
+        searchField.font = UIFonts.headerSearch(env.themes.fontSize)
         titleLabel.textColor = titleIsAccent ? c.accent : c.text
         for b in [backButton, searchButton, plusButton, closeSearchButton] {
             b.onTint = c.accent
@@ -159,7 +161,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         let th = ceil(titleLabel.intrinsicContentSize.height)
         titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, searchButton.frame.minX - 8 - titleX), height: th)
         closeSearchButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
-        let fh: CGFloat = 26
+        let fh: CGFloat = min(28, h - 12)
         searchField.frame = NSRect(x: 10, y: (h - fh) / 2, width: max(40, closeSearchButton.frame.minX - 8 - 10), height: fh)
     }
 

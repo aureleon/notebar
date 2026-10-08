@@ -15,20 +15,26 @@ public enum NoteBarUIOptions {
 enum Metrics {
     /// Room around the content so card shadows are not clipped by the panel window.
     static let outerMargin: CGFloat = 6
-    static let headerHeight: CGFloat = 46
-    static let headerCornerRadius: CGFloat = 20
-    static let headerButtonSize: CGFloat = 30
-    /// Gap between the header and the first card, and between cards.
+    /// Header pill height. Grows with the panel width (46 pt at 290 pt wide, now about 54 pt at 410 pt).
+    static let headerHeight: CGFloat = 54
+    static let headerCornerRadius: CGFloat = 22
+    static let headerButtonSize: CGFloat = 32
+    /// Gap between the header and the first card, between the search bar and the first result, and
+    /// between cards.
     static let gap: CGFloat = 10
-    static let cardPaddingX: CGFloat = 16
-    static let cardPaddingTop: CGFloat = 14
-    static let cardTitleRowHeight: CGFloat = 20
+    /// Card padding on every side. The footer is an overlay on hover, so it adds no height.
+    static let cardPaddingX: CGFloat = 18
+    static let cardPaddingTop: CGFloat = 18
+    static let cardPaddingBottom: CGFloat = 18
+    /// Height of the folded title row. Holds the title font (`UIFonts.title`) with its line height.
+    static let cardTitleRowHeight: CGFloat = 22
     static let folderNameRowHeight: CGFloat = 18
+    /// Hover footer overlay: pinned to the bottom edge of the card.
     static let footerHeight: CGFloat = 24
     static let footerInsetX: CGFloat = 8
     static let footerInsetBottom: CGFloat = 7
-    /// Space between the editor and the footer strip.
-    static let footerGap: CGFloat = 5
+    /// Height of the search bar row (result count and scope toggle).
+    static let scopeBarHeight: CGFloat = 26
     static let leftBarWidth: CGFloat = 4
     static let folderRowHeight: CGFloat = 34
     static let folderListPadding: CGFloat = 6
@@ -65,7 +71,17 @@ struct UIColors {
     var shadowOpacity: Float { isDark ? 0.45 : 0.16 }
     var hairline: NSColor { isDark ? NSColor.white.withAlphaComponent(0.07) : NSColor.black.withAlphaComponent(0.04) }
     var iconTint: NSColor { secondaryText }
-    var folderIcon: NSColor { isDark ? NSColor(srgbRed: 0.42, green: 0.66, blue: 1, alpha: 1) : NSColor(srgbRed: 0.18, green: 0.45, blue: 0.86, alpha: 1) }
+    /// Folder icons use the theme accent, the same as the header folder title.
+    var folderIcon: NSColor { accent }
+}
+
+/// Default panel width for the current screen (the panel window sets the real width). Uses the
+/// automatic rule from `PanelWidth` (about 27 % of the visible width, 380...600 pt).
+@MainActor
+enum PanelSizing {
+    static var defaultWidth: CGFloat {
+        PanelWidth.automatic(visibleWidth: NSScreen.main?.visibleFrame.width ?? 0)
+    }
 }
 
 @MainActor
@@ -96,14 +112,24 @@ extension NSAppearance {
     var isDark: Bool { bestMatch(from: [.aqua, .darkAqua]) == .darkAqua }
 }
 
+/// Every UI font is relative to the theme font size (`env.themes.fontSize`, 14 by default). The offsets
+/// keep the proportions of the old 13 pt design. The card title is `title(fontSize)`, the same size and
+/// weight as the editor's title line (`fontSize + 2`).
 enum UIFonts {
+    /// Card title (folded row and the preview). Pass `fontSize + 2` to match the editor's title line.
     static func title(_ size: CGFloat) -> NSFont { .systemFont(ofSize: size, weight: .bold) }
-    static let headerTitle = NSFont.systemFont(ofSize: 15, weight: .bold)
-    static let footer = NSFont.monospacedDigitSystemFont(ofSize: 10.5, weight: .medium)
-    static let badge = NSFont.systemFont(ofSize: 11, weight: .semibold)
-    static let folderName = NSFont.systemFont(ofSize: 13, weight: .regular)
-    static let folderCount = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
-    static let small = NSFont.systemFont(ofSize: 11, weight: .medium)
+    static func headerTitle(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs + 2, weight: .bold) }
+    static func headerSearch(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs) }
+    static func footer(_ fs: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: fs - 2.5, weight: .medium) }
+    static func footerButton(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2.5, weight: .semibold) }
+    static func badge(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .semibold) }
+    static func folderName(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs, weight: .regular) }
+    static func folderCount(_ fs: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: fs - 2, weight: .regular) }
+    static func small(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .medium) }
+    static func scope(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .semibold) }
+    /// Secondary line / hint text (empty state, drop hint, toast).
+    static func caption(_ fs: CGFloat, weight: NSFont.Weight = .regular) -> NSFont { .systemFont(ofSize: fs - 1, weight: weight) }
+    static func emptyTitle(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs + 1, weight: .semibold) }
 }
 
 enum UIFormat {

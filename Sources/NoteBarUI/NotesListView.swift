@@ -29,8 +29,6 @@ final class NotesListView: NSView, NoteCardDelegate {
     private let emptyView = EmptyStateView()
     private let dropHint = DropHintView()
     private var lastSize: NSSize = .zero
-    private var lastHighlightedQuery = ""
-    private var lastHighlightedID: NoteID?
     private var isLayingOut = false
     private var liveEditorsScheduled = false
 
@@ -77,6 +75,8 @@ final class NotesListView: NSView, NoteCardDelegate {
         emptyView.isHidden = true
         let themes = env.themes
         emptyView.colorsProvider = { a in themes.ui(a) }
+        emptyView.fontSize = themes.fontSize
+        dropHint.fontSize = themes.fontSize
         addSubview(emptyView)
         dropHint.isHidden = true
         addSubview(dropHint)
@@ -141,18 +141,9 @@ final class NotesListView: NSView, NoteCardDelegate {
         updateSelection()
         let animate = animated && NoteBarUIOptions.animations && window != nil
         layoutCards(animated: animate, fadeIn: Set(inserted.map { ObjectIdentifier($0) }))
-        if !query.isEmpty, query != lastHighlightedQuery || cards.first?.note.id != lastHighlightedID {
-            lastHighlightedQuery = query
-            lastHighlightedID = cards.first?.note.id
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let first = self.cards.first, first.searchQuery == query else { return }
-                first.highlightSearchMatch()
-                self.scrollToTop()
-            }
-        } else if query.isEmpty {
-            lastHighlightedQuery = ""
-            lastHighlightedID = nil
-        }
+        // Every card marks all its matches (cards whose editor is created later mark it then). An empty
+        // query clears the marks. The find indicator is shown only for the first match of the first card.
+        for card in newCards { card.highlightSearchMatch() }
         // The edited note left the list (moved / deleted elsewhere): keep keyboard focus in the panel.
         if lostFocus { delegate?.notesListBackgroundClicked(self) }
     }
@@ -186,7 +177,7 @@ final class NotesListView: NSView, NoteCardDelegate {
         scrollView.frame = bounds
         applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2)
         let visibleTop = topInset
-        let accessoryH: CGFloat = topAccessory == nil ? 0 : 30
+        let accessoryH: CGFloat = topAccessory == nil ? 0 : Metrics.scopeBarHeight + Metrics.gap
         emptyView.frame = NSRect(x: Metrics.outerMargin, y: visibleTop + accessoryH + 24, width: max(0, bounds.width - 2 * Metrics.outerMargin), height: 80)
         dropHint.frame = NSRect(x: Metrics.outerMargin, y: max(0, topInset - Metrics.gap), width: max(0, bounds.width - 2 * Metrics.outerMargin),
                                 height: max(0, bounds.height - topInset + Metrics.gap - Metrics.outerMargin))
@@ -201,6 +192,9 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     /// Positions every card. Keeps the first visible card in place (scroll anchoring) unless the list is
     /// scrolled to the top.
+    /// Height of all cards plus margins, from the last layout pass (used by snapshots).
+    private(set) var lastContentHeight: CGFloat = 0
+
     func layoutCards(animated: Bool, fadeIn: Set<ObjectIdentifier> = []) {
         guard !isLayingOut else { return }
         isLayingOut = true
@@ -223,9 +217,9 @@ final class NotesListView: NSView, NoteCardDelegate {
 
         var y: CGFloat = 0
         if let acc = topAccessory {
-            let h = acc.fittingSize.height > 0 ? acc.fittingSize.height : 26
+            let h = acc.fittingSize.height > 0 ? acc.fittingSize.height : Metrics.scopeBarHeight
             acc.frame = NSRect(x: m, y: y, width: cw, height: h)
-            y += h + 4
+            y += h + Metrics.gap
         }
         var targets: [(NoteCardView, NSRect)] = []
         for card in cards {
@@ -235,6 +229,7 @@ final class NotesListView: NSView, NoteCardDelegate {
             y += h + Metrics.gap
         }
         let contentH = (cards.isEmpty ? y : y - Metrics.gap) + Metrics.gap + m
+        lastContentHeight = contentH
         let visibleH = max(0, scrollView.contentSize.height - topInset)
         doc.frame = NSRect(x: 0, y: 0, width: width, height: max(contentH, visibleH))
 
@@ -516,6 +511,8 @@ final class EmptyStateView: NSView {
     var title = "" { didSet { needsDisplay = true } }
     var subtitle = "" { didSet { needsDisplay = true } }
     var colorsProvider: ((NSAppearance) -> UIColors)?
+    /// Theme font size (set by the owner).
+    var fontSize: CGFloat = 14 { didSet { needsDisplay = true } }
 
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -534,9 +531,10 @@ final class EmptyStateView: NSView {
         let para = NSMutableParagraphStyle()
         para.alignment = .center
         // The panel is transparent: give the text a soft backing so it reads on any desktop.
-        let t = NSAttributedString(string: title, attributes: [.font: NSFont.systemFont(ofSize: 14, weight: .semibold),
+        let fs = fontSize
+        let t = NSAttributedString(string: title, attributes: [.font: UIFonts.emptyTitle(fs),
                                                                .foregroundColor: main.withAlphaComponent(0.85), .paragraphStyle: para])
-        let s = NSAttributedString(string: subtitle, attributes: [.font: NSFont.systemFont(ofSize: 12),
+        let s = NSAttributedString(string: subtitle, attributes: [.font: UIFonts.caption(fs),
                                                                   .foregroundColor: main.withAlphaComponent(0.6), .paragraphStyle: para])
         let w = bounds.width - 24
         let th = ceil(t.boundingRect(with: NSSize(width: w, height: 100), options: .usesLineFragmentOrigin).height)
@@ -555,6 +553,8 @@ final class EmptyStateView: NSView {
 @MainActor
 final class DropHintView: NSView {
     var colors: UIColors? { didSet { needsDisplay = true } }
+    /// Theme font size (set by the owner).
+    var fontSize: CGFloat = 14 { didSet { needsDisplay = true } }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -569,7 +569,7 @@ final class DropHintView: NSView {
         p.setLineDash([6, 5], count: 2, phase: 0)
         p.stroke()
         let label = NSAttributedString(string: "Drop to create a new note", attributes: [
-            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: c.isDark ? NSColor.black : NSColor.white,
+            .font: UIFonts.caption(fontSize, weight: .semibold), .foregroundColor: c.isDark ? NSColor.black : NSColor.white,
         ])
         let s = label.size()
         let pill = NSRect(x: (bounds.width - s.width) / 2 - 12, y: 14, width: s.width + 24, height: s.height + 10)

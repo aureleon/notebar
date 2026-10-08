@@ -16,7 +16,7 @@ final class IconButton: NSView {
     var shape: Shape = .circle { didSet { needsDisplay = true } }
     /// Optional text drawn instead of the symbol (e.g. "Aa").
     var text: String? { didSet { needsDisplay = true } }
-    var textFont: NSFont = .systemFont(ofSize: 11, weight: .semibold)
+    var textFont: NSFont = UIFonts.footerButton(14)
     var isOn = false { didSet { needsDisplay = true } }
     var onTint: NSColor?
     var isEnabled = true { didSet { needsDisplay = true } }

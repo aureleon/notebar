@@ -29,6 +29,15 @@ public final class NotesUIProbe {
     public func editor(of id: NoteID) -> (any NoteEditing)? { list.card(for: id)?.editor }
     public func cardFrame(of id: NoteID) -> NSRect? { list.card(for: id).map { $0.convert($0.cardRect, to: root.view) } }
     public func isCardFolded(_ id: NoteID) -> Bool? { list.card(for: id)?.isFolded }
+    /// Visible card height (without the shadow pad) and the title's frame / font size (card coordinates).
+    public func cardVisibleHeight(_ id: NoteID) -> CGFloat? { list.card(for: id).map { $0.cardRect.height } }
+    public func cardTitleOrigin(_ id: NoteID) -> NSPoint? { list.card(for: id)?.titleFrameForChecks.origin }
+    /// Query whose marks each card has asked its editor for ("" = none). Every result card should have it.
+    public func cardHighlightedQuery(_ id: NoteID) -> String? { list.card(for: id)?.highlightedQuery }
+    public func cardTitlePointSize(_ id: NoteID) -> CGFloat? { list.card(for: id)?.titleFont.pointSize }
+
+    /// Height of the note list content (all cards), for sizing snapshots.
+    public var contentHeight: CGFloat { list.lastContentHeight }
 
     public func layoutNow() {
         root.view.layoutSubtreeIfNeeded()

@@ -68,7 +68,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     // MARK: View
 
     public override func loadView() {
-        let v = NotesRootView(frame: NSRect(x: 0, y: 0, width: 290, height: 700))
+        let v = NotesRootView(frame: NSRect(x: 0, y: 0, width: PanelSizing.defaultWidth, height: 700))
         v.controller = self
         rootView = v
         view = v
@@ -82,6 +82,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         scopeBar = SearchScopeBar(env: env)
         scopeBar.onToggle = { [weak self] all in self?.setSearchAllFolders(all) }
         toast = ToastView(frame: .zero)
+        toast.fontSize = env.themes.fontSize
         for sub in [notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
         wireHeader()
         observeChanges()
@@ -547,7 +548,9 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if edit {
             notesList.scrollToCard(first)
             first.focusEditor(atEnd: false)
-            first.editor?.highlightSearch(search?.query ?? "")
+            first.highlightSearchMatch()
+            // Only the first result shows the find indicator and scrolls to its first match.
+            first.revealFirstSearchMatch()
         } else {
             select(first.note.id)
         }
@@ -616,7 +619,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     // MARK: Misc used by actions
 
     func exportContext() -> (width: CGFloat, appearance: NSAppearance) {
-        let w = max(200, (notesList?.bounds.width ?? 290) - 2 * Metrics.outerMargin)
+        let w = max(200, (notesList?.bounds.width ?? PanelSizing.defaultWidth) - 2 * Metrics.outerMargin)
         return (w, view.effectiveAppearance)
     }
 

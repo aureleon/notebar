@@ -353,8 +353,6 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
         super.init(frame: .zero)
         icon.imageScaling = .scaleProportionallyDown
         pinMark.imageScaling = .scaleProportionallyDown
-        nameLabel.font = UIFonts.folderName
-        countLabel.font = UIFonts.folderCount
         countLabel.alignment = .right
         for v in [icon, pinMark] as [NSView] { v.unregisterDraggedTypes() }
         addSubview(icon)
@@ -385,6 +383,8 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
 
     func restyle() {
         let c = env.themes.ui(effectiveAppearance)
+        nameLabel.font = UIFonts.folderName(env.themes.fontSize)
+        countLabel.font = UIFonts.folderCount(env.themes.fontSize)
         let tint = folder.color == .none ? c.folderIcon : env.themes.barColor(folder.color, appearance: effectiveAppearance)
         icon.image = Symbols.image(folder.isPinned ? "folder.fill" : "folder", size: 14, weight: .regular)
         icon.contentTintColor = tint
@@ -405,7 +405,7 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
         super.layout()
         let h = bounds.height
         icon.frame = NSRect(x: 8, y: (h - 18) / 2, width: 20, height: 18)
-        let cw = max(18, ceil((countLabel.stringValue as NSString).size(withAttributes: [.font: UIFonts.folderCount]).width) + 6)
+        let cw = max(18, ceil((countLabel.stringValue as NSString).size(withAttributes: [.font: countLabel.font as Any]).width) + 6)
         countLabel.frame = NSRect(x: bounds.width - 8 - cw, y: (h - 15) / 2, width: cw, height: 15)
         var right = countLabel.frame.minX - 6
         if !pinMark.isHidden {
@@ -480,7 +480,7 @@ final class FolderRowView: NSView, NSTextFieldDelegate {
     func beginRename() {
         guard renameField == nil else { return }
         let f = RenameField(string: folder.name)
-        f.font = UIFonts.folderName
+        f.font = UIFonts.folderName(env.themes.fontSize)
         f.isBordered = false
         f.isBezeled = true
         f.bezelStyle = .roundedBezel

@@ -85,7 +85,8 @@ MainActor.assumeIsolated {
     vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
-    let panelSize = NSSize(width: 290, height: 720)
+    // Same default width as the panel on a 1512 pt wide screen (about 27 %, clamped to 380...600).
+    let panelSize = NSSize(width: PanelWidth.automatic(visibleWidth: 1512 * 0.9), height: 720)
     let backdrop = Backdrop(frame: NSRect(x: 0, y: 0, width: panelSize.width + 30, height: panelSize.height + 20))
     vc.view.frame = NSRect(x: 15, y: 10, width: panelSize.width, height: panelSize.height)
     backdrop.addSubview(vc.view)
@@ -146,11 +147,19 @@ MainActor.assumeIsolated {
     let goalsID = store.notes(in: folders.notes.id).first { $0.title == "Today's Goals" }!.id
     Check.equal(probe.isCardFolded(goalsID), true, "folded card")
     Check.expect(probe.editor(of: goalsID) == nil, "folded card has no editor")
+    // Folded card = title row + padding only; title matches the expanded card's title.
+    let foldedH = probe.cardVisibleHeight(goalsID) ?? 0
+    Check.expect(foldedH <= 58, "folded card is short (\(foldedH) pt)")
+    let foldedSize = probe.cardTitlePointSize(goalsID) ?? 0
+    let foldedX = probe.cardTitleOrigin(goalsID)?.x ?? -1
     probe.setHovered(goalsID, true)
     render("08-folded-hover-light")
     probe.setHovered(goalsID, false)
     probe.clickCard(goalsID)
     Check.equal(store.note(id: goalsID)?.isFolded, false, "click unfolds")
+    let openSize = probe.cardTitlePointSize(goalsID) ?? 0
+    Check.equal(foldedSize, openSize, "folded and open titles have the same size")
+    Check.equal(foldedX, probe.cardTitleOrigin(goalsID)?.x ?? -2, "folded and open titles have the same x")
     var g = store.note(id: goalsID)!; g.isFolded = true; store.updateNote(g)
 
     // Selection ring.
@@ -265,11 +274,18 @@ MainActor.assumeIsolated {
     probe.setSearchQuery("note", allFolders: true)
     Check.expect(probe.isSearching, "search active")
     Check.expect(probe.cardCount >= 3, "search results across folders (\(probe.cardCount))")
+    // Every result card asks for its marks (not only the first card).
+    let resultIDs = probe.displayedNoteIDs
+    Check.expect(resultIDs.count >= 2, "several results to mark")
+    Check.expect(resultIDs.allSatisfy { probe.cardHighlightedQuery($0) == "note" }, "every result card marks the query")
     render("12-search-light")
     render("13-search-dark", dark: true)
     probe.setSearchQuery("note", allFolders: false)
     let scoped = probe.displayedNoteIDs
     Check.expect(scoped.allSatisfy { store.note(id: $0)?.folderId == folders.notes.id }, "scoped search")
+    probe.setSearchQuery("")
+    Check.expect(probe.displayedNoteIDs.allSatisfy { probe.cardHighlightedQuery($0) == "" }, "clearing the search clears every mark")
+    probe.setSearchQuery("note", allFolders: true)
     probe.setSearchQuery("zzzz-nothing")
     render("14-search-empty-light")
     probe.pressEscape()

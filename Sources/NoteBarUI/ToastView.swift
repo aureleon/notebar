@@ -4,8 +4,16 @@ import NoteBarCore
 /// A small transient pill at the bottom of the panel ("Note deleted — Undo").
 @MainActor
 final class ToastView: NSView {
-    private let label = makeLabel(font: .systemFont(ofSize: 12, weight: .medium))
+    private let label = makeLabel(font: UIFonts.caption(14, weight: .medium))
     private let actionButton = TextButton()
+    /// Theme font size (set by the owner).
+    var fontSize: CGFloat = 14 {
+        didSet {
+            label.font = UIFonts.caption(fontSize, weight: .medium)
+            actionButton.font = UIFonts.caption(fontSize, weight: .semibold)
+            invalidateIntrinsicContentSize()
+        }
+    }
     private var timer: Timer?
     private var onAction: (() -> Void)?
     private var onExpire: (() -> Void)?
@@ -143,7 +151,7 @@ final class ToastView: NSView {
 final class TextButton: NSView {
     var title = "" { didSet { invalidateIntrinsicContentSize(); needsDisplay = true; setAccessibilityLabel(title) } }
     var color: NSColor = .linkColor { didSet { needsDisplay = true } }
-    var font: NSFont = .systemFont(ofSize: 12, weight: .semibold)
+    var font: NSFont = UIFonts.caption(14, weight: .semibold) { didSet { invalidateIntrinsicContentSize(); needsDisplay = true } }
     var onClick: (() -> Void)?
     private var pressed = false { didSet { needsDisplay = true } }
 
