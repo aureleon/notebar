@@ -56,6 +56,7 @@ NoteBar can run at a time.
 | New note | `+`, ⌘N, or ⌃⌥⌘N from any app |
 | New note from the clipboard | ⌃⌥⌘V from any app |
 | Search | ⌘F (⌘/ searches all folders), or ⌃⌥⌘F from any app |
+| Go through the search results | Tab and ⇧Tab (from the search field, through the results, back to the field) |
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
 | Settings | ⌘, |

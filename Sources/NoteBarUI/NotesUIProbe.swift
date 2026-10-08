@@ -58,6 +58,13 @@ public final class NotesUIProbe {
     /// A real mouse move (what the panel's event monitor sees).
     /// Menus the root would pop up go here instead (nil: pop up as usual).
     public func captureMenus(_ f: ((NSMenu) -> Void)?) { root.menuPopUpHook = f }
+    /// Tab / Shift+Tab typed in the search field.
+    public func searchFieldTab(backward: Bool) {
+        root.header.focusSearchField()
+        _ = root.header.control(root.header.searchField, textView: NSTextView(),
+                                doCommandBy: backward ? #selector(NSResponder.insertBacktab(_:)) : #selector(NSResponder.insertTab(_:)))
+    }
+    public var isSearchFieldFocused: Bool { root.header.isSearchFieldFocused }
     public func mouseMoved() { root.setMouseHoverSuppressed(false) }
     /// Number of card actions in the "…" menu (nil if the card has no action column yet).
     public func hiddenActionCount(_ id: NoteID) -> Int? {

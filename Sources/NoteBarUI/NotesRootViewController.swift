@@ -126,6 +126,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         header.onCloseSearch = { [weak self] in self?.endSearch(restore: true, focusRoot: true) }
         header.onSearchMoveDown = { [weak self] in self?.focusFirstResult(edit: false) }
         header.onSearchSubmit = { [weak self] in self?.focusFirstResult(edit: true) }
+        header.onSearchTab = { [weak self] backward in self?.searchTab(backward: backward) }
         header.onSearchNavigateUp = { [weak self] in
             guard let self, self.vimEnabled else { return false }
             self.goBack()
@@ -626,6 +627,30 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             first.revealFirstSearchMatch()
         } else {
             select(first.note.id)
+        }
+    }
+
+    /// Tab / Shift+Tab in search cycle: field → result 1 → 2 → … → last → field (Shift+Tab: the
+    /// other way). Return edits the selected result; typing goes back to the query.
+    func searchTab(backward: Bool) {
+        guard search != nil else { return }
+        let ids = notesList.noteIDs
+        setMouseHoverSuppressed(true)
+        if header.isSearchFieldFocused {
+            guard let target = backward ? ids.last : ids.first else { NSSound.beep(); return }
+            select(target)
+            return
+        }
+        guard let sel = notesList.selectedNoteID, let i = ids.firstIndex(of: sel) else {
+            if let target = backward ? ids.last : ids.first { select(target) } else { header.focusSearchField(selectAll: false) }
+            return
+        }
+        let j = i + (backward ? -1 : 1)
+        if j < 0 || j >= ids.count {
+            notesList.selectedNoteID = nil
+            header.focusSearchField(selectAll: false)
+        } else {
+            select(ids[j])
         }
     }
 

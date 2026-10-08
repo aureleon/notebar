@@ -15,6 +15,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     /// Escape in the search field. Return true if handled.
     var onSearchEscape: (() -> Void)?
     var onSearchMoveDown: (() -> Void)?
+    /// Tab (false) / Shift+Tab (true) in the search field.
+    var onSearchTab: ((_ backward: Bool) -> Void)?
     var onSearchSubmit: (() -> Void)?
     /// ⌃[ in the search field (vim: go up). Returns false when not used.
     var onSearchNavigateUp: (() -> Bool)?
@@ -108,10 +110,16 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     var query: String { searchField.stringValue }
 
-    func focusSearchField() {
+    /// selectAll false: the caret goes to the end of the query (Tab back from the results).
+    func focusSearchField(selectAll: Bool = true) {
         guard isSearching else { return }
         window?.makeFirstResponder(searchField)
-        searchField.currentEditor()?.selectAll(nil)
+        if selectAll {
+            searchField.currentEditor()?.selectAll(nil)
+        } else {
+            let len = (searchField.stringValue as NSString).length
+            searchField.currentEditor()?.selectedRange = NSRange(location: len, length: 0)
+        }
     }
 
     var isSearchFieldFocused: Bool {
@@ -217,6 +225,10 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
             onSearchEscape?(); return true
         case #selector(NSResponder.moveDown(_:)):
             onSearchMoveDown?(); return true
+        case #selector(NSResponder.insertTab(_:)):
+            onSearchTab?(false); return true
+        case #selector(NSResponder.insertBacktab(_:)):
+            onSearchTab?(true); return true
         case #selector(NSResponder.insertNewline(_:)):
             onSearchSubmit?(); return true
         default:

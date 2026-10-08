@@ -54,7 +54,7 @@ extension NotesRootViewController {
             if notesVisible, let id = notesList.selectedNoteID { actions.delete(id, confirm: true); return true }
             return false
         case Key.tab:
-            if search != nil { header.focusSearchField(); return true }
+            if search != nil { searchTab(backward: mods == [.shift]); return true }
             return false
         default:
             // Typing while the folder list or the search results have focus: type into the search field.
