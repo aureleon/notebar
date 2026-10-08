@@ -210,17 +210,19 @@ MainActor.assumeIsolated {
         probe.pressEscape()
         Check.expect(probe.selectedNoteID == nil, "Esc leaves the edited note")
         Check.expect(probe.focusedNoteID == nil, "Esc ends editing")
-        // Delete with undo.
+        // Delete with undo. (spin: each action is its own event in the app; undo groups by event)
+        spin()
         probe.deleteWithUndo(newID)
         Check.expect(!probe.displayedNoteIDs.contains(newID), "deleted card hidden")
-        Check.expect(store.note(id: newID) != nil, "delete is pending")
+        Check.expect(store.note(id: newID) == nil && store.trashedNotes().contains { $0.id == newID }, "deleted note is in the trash")
         Check.expect(probe.isToastVisible, "undo toast visible")
         render("10-toast-light")
         probe.undoDelete()
         Check.expect(probe.displayedNoteIDs.contains(newID), "undo restores card")
         probe.deleteWithUndo(newID)
         probe.commitDelete()
-        Check.expect(store.note(id: newID) == nil, "commit deletes")
+        Check.expect(store.note(id: newID) == nil, "toast gone: the note stays deleted")
+        Check.expect(!probe.isToastVisible, "toast hidden")
     }
 
     // Deleting the same note twice (undo in between) keeps the second deletion pending.
@@ -229,9 +231,9 @@ MainActor.assumeIsolated {
     probe.undoDelete()
     Check.expect(!probe.isToastVisible, "undo hides the toast")
     probe.deleteWithUndo(victim)
-    Check.expect(store.note(id: victim) != nil, "second delete still pending")
+    Check.expect(store.trashedNotes().contains { $0.id == victim }, "second delete: in the trash")
     probe.commitDelete()
-    Check.expect(store.note(id: victim) == nil, "second delete committed")
+    Check.expect(store.note(id: victim) == nil, "second delete stays")
     Check.expect(!probe.isToastVisible, "commit hides the toast")
 
     // Move to top / bottom stay inside the unpinned zone.
@@ -771,4 +773,43 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     Check.expect(!probe.canUndo && !probe.canRedo, "external change clears the history")
     probe.press(keyCode: 6, characters: "z", modifiers: [.command])
     Check.equal(store.note(id: n1.id)?.color, .blue, "nothing to undo after an external change")
+
+    // Delete: ⌘Z and the toast run the same restore.
+    vc.showFolder(uf.id)
+    probe.layoutNow(); spin()
+    probe.focusList()
+    probe.deleteWithUndo(n1.id)
+    Check.equal(probe.undoActionName, "Delete Note", "delete is undoable")
+    cmdZ()
+    Check.expect(store.note(id: n1.id) != nil, "⌘Z restores a deleted note")
+    Check.expect(!probe.isToastVisible || probe.pendingDeletion == nil, "the delete toast is gone after ⌘Z")
+    cmdZ(shift: true)
+    Check.equal(store.note(id: n1.id), nil, "⇧⌘Z deletes it again")
+    cmdZ()
+    probe.deleteWithUndo(n1.id)
+    probe.undoDelete()
+    Check.expect(store.note(id: n1.id) != nil, "toast Undo restores")
+    Check.expect(probe.canRedo, "toast Undo is the same step as ⌘Z (redo available)")
+    // Toast Undo after another action: direct restore, the history stays.
+    probe.deleteWithUndo(n1.id)
+    probe.togglePin(n2.id)
+    probe.undoDelete()
+    Check.expect(store.note(id: n1.id) != nil, "toast Undo after another action still restores")
+    Check.equal(probe.undoActionName, "Pin", "the newer action stays on top of the history")
+    cmdZ()
+
+    // Folder delete: undoable, restores its notes.
+    vc.showFolderList()
+    probe.focusList()
+    probe.confirmFolderDeletes(true)
+    probe.deleteFolder(uf.id)
+    Check.equal(store.folder(id: uf.id), nil, "folder deleted (trash)")
+    Check.equal(store.note(id: n1.id), nil, "its notes are hidden")
+    Check.expect(probe.isToastVisible, "folder delete toast")
+    cmdZ()
+    Check.expect(store.folder(id: uf.id) != nil && store.note(id: n1.id) != nil, "⌘Z restores the folder and its notes")
+    probe.deleteFolder(uf.id)
+    probe.undoDelete()
+    Check.expect(store.folder(id: uf.id) != nil, "folder toast Undo restores")
+    probe.confirmFolderDeletes(nil)
 }

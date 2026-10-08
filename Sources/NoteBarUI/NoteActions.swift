@@ -11,6 +11,9 @@ final class NoteActions {
 
     init(env: AppEnvironment) { self.env = env }
 
+    /// Checks answer the folder delete alert with this (nil = show the alert).
+    var confirmFolderDelete: ((NSAlert) -> Bool)?
+
     var store: NoteStore { env.store }
 
     // MARK: Undo
@@ -18,9 +21,12 @@ final class NoteActions {
     // reverse is an action too, so it registers the redo. Text edits keep their own per-note undo.
 
     var undoManager: UndoManager? { root?.panelUndo }
+    /// Counts registrations (the delete toast checks that its delete is still the last action).
+    private(set) var undoRegistrations = 0
 
     func registerUndo(_ name: String, _ reverse: @escaping @MainActor (NoteActions) -> Void) {
         guard let u = undoManager else { return }
+        undoRegistrations += 1
         u.registerUndo(withTarget: self) { target in MainActor.assumeIsolated { reverse(target) } }
         u.setActionName(name)
     }
@@ -184,7 +190,7 @@ final class NoteActions {
             let alert = NSAlert()
             let title = note.title.isEmpty ? "this note" : "“\(note.title.prefix(60))”"
             alert.messageText = "Delete \(title)?"
-            alert.informativeText = "You can undo this for a few seconds."
+            alert.informativeText = "You can undo this."
             alert.addButton(withTitle: "Delete").hasDestructiveAction = true
             alert.addButton(withTitle: "Cancel")
             guard ModalSupport.run(alert) == .alertFirstButtonReturn else { return }
@@ -257,14 +263,13 @@ final class NoteActions {
         let count = store.noteCount(in: id)
         let alert = NSAlert()
         alert.messageText = "Delete folder “\(f.name)”?"
-        alert.informativeText = count == 0 ? "The folder is empty."
-            : "Its \(count == 1 ? "note" : "\(count) notes") will be deleted too. This cannot be undone."
+        alert.informativeText = (count == 0 ? "The folder is empty."
+            : "Its \(count == 1 ? "note" : "\(count) notes") will be deleted too.") + " You can undo this."
         alert.addButton(withTitle: "Delete").hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
-        guard ModalSupport.run(alert) == .alertFirstButtonReturn else { return }
-        root?.commitPendingDeletion()
-        store.deleteFolder(id: id)
-        if env.settings.lastFolderId == id { env.settings.lastFolderId = nil }
+        guard confirmFolderDelete?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
+        trashFolderUndoably(id, name: "Delete Folder")
+        root?.folderTrashed(id)
     }
 }
 

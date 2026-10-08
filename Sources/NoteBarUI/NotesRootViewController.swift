@@ -33,10 +33,16 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     private(set) var screen: Screen = .folders
     var search: SearchState?
-    /// A deleted note that can still be restored with the toast's Undo.
-    private(set) var pendingDeletion: NoteID?
-    /// Identifies the toast that belongs to the current pending deletion.
-    private var pendingDeletionToken = 0
+    enum TrashItem: Equatable { case note(NoteID), folder(FolderID) }
+    /// The item the "deleted" toast can bring back (it is in the store's trash).
+    private(set) var toastTrash: TrashItem?
+    /// `actions.undoRegistrations` right after that delete: unchanged = the delete is still the
+    /// last panel action, so the toast's Undo is the same as ⌘Z.
+    private var toastTrashUndoMark = -1
+    /// Identifies the toast that belongs to `toastTrash`.
+    private var toastTrashToken = 0
+    /// The note in the current "Note deleted" toast (checks).
+    var pendingDeletion: NoteID? { if case .note(let id)? = toastTrash { return id }; return nil }
     /// Note whose editor has keyboard focus.
     var focusedNoteID: NoteID?
     /// Focus requested before the view was in a window.
@@ -180,7 +186,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             MainActor.assumeIsolated { self?.panelUndo.removeAllActions() }
         })
         observers.append(nc.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak self] _ in
-            MainActor.assumeIsolated { self?.commitPendingDeletion() }
+            MainActor.assumeIsolated { self?.dismissTrashToast() }
         })
     }
 
@@ -210,7 +216,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             break
         case .all:
             panelUndo.removeAllActions()
-            if let p = pendingDeletion, store.note(id: p) == nil { pendingDeletion = nil }
+            toastTrash = nil
             clearNotesList()
             if case .folder(let id) = screen, store.folder(id: id) == nil {
                 search = nil
@@ -236,15 +242,12 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     // MARK: Data → views
 
     func displayedNotes(in folderId: FolderID) -> [Note] {
-        store.notes(in: folderId).filter { $0.id != pendingDeletion }
+        store.notes(in: folderId)
     }
 
     func folderCounts() -> [FolderID: Int] {
         var counts: [FolderID: Int] = [:]
-        let pendingFolder = pendingDeletion.flatMap { store.note(id: $0)?.folderId }
-        for f in store.folders() {
-            counts[f.id] = store.noteCount(in: f.id) - (pendingFolder == f.id ? 1 : 0)
-        }
+        for f in store.folders() { counts[f.id] = store.noteCount(in: f.id) }
         return counts
     }
 
@@ -339,7 +342,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// `insert`: with vim keys on, the editor starts in Insert mode (new notes). Empty notes always do.
     func revealNote(_ noteId: NoteID, edit: Bool, insert: Bool) {
         _ = view
-        if pendingDeletion == noteId { undoDeletion() }
+        if pendingDeletion == noteId, store.note(id: noteId) == nil { undoDeletion() }
         guard var note = store.note(id: noteId) else { return }
         if search != nil { endSearch(restore: false, focusRoot: false) }
         showFolder(note.folderId)
@@ -428,7 +431,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     public func panelWillHide() {
         folderList?.endRename()
-        commitPendingDeletion()
+        dismissTrashToast()
         toast?.dismiss(expired: true)
     }
 
@@ -554,7 +557,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             notesList.layoutCards(animated: false)
             return
         }
-        let results = store.search(q, in: scope).filter { $0.id != pendingDeletion }
+        let results = store.search(q, in: scope)
         var names: [FolderID: String]?
         if scope == nil {
             names = Dictionary(uniqueKeysWithValues: store.folders().map { ($0.id, $0.name) })
@@ -618,9 +621,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     // MARK: Delete with undo
+    // Deletes move the item to the store's trash. The toast's Undo and ⌘Z run the same restore; the
+    // trash is emptied later by the "Keep deleted items" setting.
 
     func softDelete(_ id: NoteID) {
-        commitPendingDeletion()
         guard store.note(id: id) != nil else { return }
         let ids = notesList.noteIDs
         var neighbor: NoteID?
@@ -630,34 +634,56 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         let listHadFocus = isFocusInsideNotes || view.window?.firstResponder === rootView
         if let card = notesList.card(for: id), card.isEditorFocused { focusRoot() }
         if focusedNoteID == id { focusedNoteID = nil }
-        pendingDeletion = id
-        pendingDeletionToken += 1
-        let token = pendingDeletionToken
-        refreshAfterPendingChange(animated: true)
+        actions.trashNoteUndoably(id, name: "Delete Note")
         if listHadFocus { notesList.selectedNoteID = neighbor; focusRoot() }
-        showToast("Note deleted", actionTitle: "Undo",
-                  action: { [weak self] in self?.undoDeletion() },
-                  onExpire: { [weak self] in self?.commitPendingDeletion(token: token) })
+        showTrashToast(.note(id), message: "Note deleted")
     }
 
+    /// Folder delete (after the confirmation alert).
+    func folderTrashed(_ id: FolderID) {
+        showTrashToast(.folder(id), message: "Folder deleted")
+    }
+
+    private func showTrashToast(_ item: TrashItem, message: String) {
+        toastTrash = item
+        toastTrashUndoMark = actions.undoRegistrations
+        toastTrashToken += 1
+        let token = toastTrashToken
+        showToast(message, actionTitle: "Undo",
+                  action: { [weak self] in self?.undoDeletion() },
+                  onExpire: { [weak self] in
+                      guard let self, self.toastTrashToken == token else { return }
+                      self.toastTrash = nil
+                  })
+    }
+
+    /// The toast's Undo: the same as ⌘Z when the delete is still the last panel action, otherwise a
+    /// direct restore (the history stays as it is).
     func undoDeletion() {
-        guard let id = pendingDeletion else { return }
-        pendingDeletion = nil
+        guard let item = toastTrash else { return }
+        toastTrash = nil
         toast.dismiss(expired: false)
-        refreshAfterPendingChange(animated: true)
-        if store.note(id: id) != nil, search == nil {
-            rootView.layoutSubtreeIfNeeded()
-            select(id)
+        if actions.undoRegistrations == toastTrashUndoMark, panelUndo.canUndo {
+            panelUndo.undo()
+            return
+        }
+        switch item {
+        case .note(let id):
+            if store.restoreNote(id: id) { noteRestored(id) }
+        case .folder(let id):
+            store.restoreFolder(id: id)
         }
     }
 
-    /// Deletes the pending note for real. `token`: set when called by that deletion's toast on expiry.
-    func commitPendingDeletion(token: Int? = nil) {
-        guard let p = pendingDeletion, token == nil || token == pendingDeletionToken else { return }
-        pendingDeletion = nil
-        if token == nil { toast?.dismiss(expired: false) }
-        store.deleteNote(id: p)
+    /// Hides the "deleted" toast. The item stays in the trash (⌘Z or Recently Deleted can bring it back).
+    func dismissTrashToast() {
+        guard toastTrash != nil else { return }
+        toastTrash = nil
+        toast?.dismiss(expired: false)
     }
+
+    /// Kept for checks: ends the toast of the last delete.
+    func commitPendingDeletion() { dismissTrashToast() }
 
     private func refreshAfterPendingChange(animated: Bool) {
         if search != nil { runSearch(animated: animated) } else if case .folder = screen { reloadNotes(animated: animated) }
@@ -670,6 +696,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func performPanelUndo(redo: Bool) {
         let u = panelUndo
         guard redo ? u.canRedo : u.canUndo else { NSSound.beep(); return }
+        // The "Undo X" toast replaces a "deleted" toast; the item stays in the trash.
+        toastTrash = nil
         let name = redo ? u.redoActionName : u.undoActionName
         if redo { u.redo() } else { u.undo() }
         if !name.isEmpty { showToast("\(redo ? "Redo" : "Undo") \(name)") }
@@ -677,6 +705,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     /// A note came back (undo of a delete or of a new-note removal): show it if its folder is open.
     func noteRestored(_ id: NoteID) {
+        if pendingDeletion == id { dismissTrashToast() }
         guard let note = store.note(id: id) else { return }
         if search == nil, case .folder(let fid) = screen, fid == note.folderId {
             rootView.layoutSubtreeIfNeeded()
