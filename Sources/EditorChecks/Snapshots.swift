@@ -52,6 +52,8 @@ enum Snapshots {
         var color: NoteColor
         var mode: NoteMode = .standard
         var caret: Int? = nil
+        /// Text to put the pointer on (hover chrome such as the code copy button).
+        var hover: String? = nil
     }
 
     static func run(outputDirectory dir: URL) {
@@ -90,6 +92,7 @@ enum Snapshots {
                 var all = samples
                 if hide {
                     all.append(Sample(name: "focused", body: "Focused\nCaret in **bold** span and `code`\n```\nlet a = 1\n```", color: .pink, caret: 17))
+                    all.append(Sample(name: "code-hover", body: "Hover\n```swift\nlet a = 1\nprint(a)\n```\nafter", color: .none, hover: "print"))
                 }
                 let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
                 for s in all {
@@ -97,7 +100,7 @@ enum Snapshots {
                     note.color = s.color
                     env.store.updateNote(note)
                     let url = dir.appendingPathComponent("\(dark ? "dark" : "light")-\(hide ? "hidden" : "dimmed")-\(s.name).png")
-                    render(note: env.store.note(id: note.id)!, env: env, appearance: appearance, caret: s.caret, to: url)
+                    render(note: env.store.note(id: note.id)!, env: env, appearance: appearance, caret: s.caret, hover: s.hover, to: url)
                 }
             }
         }
@@ -115,7 +118,7 @@ enum Snapshots {
         print("snapshots written to \(dir.path)")
     }
 
-    static func render(note: Note, env: AppEnvironment, appearance: NSAppearance, caret: Int?, to url: URL) {
+    static func render(note: Note, env: AppEnvironment, appearance: NSAppearance, caret: Int?, hover: String? = nil, to url: URL) {
         let width: CGFloat = 260
         let pad: CGFloat = 16
         let canvas = Canvas(frame: NSRect(x: 0, y: 0, width: width + 2 * pad + 16, height: 200))
@@ -156,6 +159,11 @@ enum Snapshots {
         canvas.frame.size.height = h + 2 * pad + 12
         card.frame = canvas.bounds
         canvas.layoutSubtreeIfNeeded()
+        if let hover {
+            let i = (editor.textViewForTesting.string as NSString).range(of: hover).location
+            let r = editor.lineRectForTesting(at: i)
+            _ = editor.hoverForTesting(NSPoint(x: r.minX + 4, y: r.midY))
+        }
 
         write(canvas, appearance: appearance, to: url)
         Check.expect(h > 10, "snapshot \(url.lastPathComponent) has height")

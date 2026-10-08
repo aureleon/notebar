@@ -54,6 +54,9 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// Vim keys (`env.settings.vimKeybinds`): mode, pending keys, `:` / `/` prompt.
     var vim = VimState()
     var vimPrompt: VimPromptView?
+    /// Copy button on the hovered code block, and that block's storage range.
+    var codeCopyButton: NSButton?
+    var codeCopyBlock: NSRange?
 
     var style: EditorStyle { styler.style }
     var codecOptions: CodecOptions { .forMode(mode) }
@@ -471,6 +474,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !isApplyingInternal else { return }
         if textView.hasMarkedText() { layoutDidChange(); return }
         if let d = pendingDirty { convertRawTokens(in: d) }
+        hideCodeCopyButton()
         restyle(dirty: pendingDirty ?? NSRange(location: 0, length: textStorage.length))
         clearSearchHighlight()
         reportBody()

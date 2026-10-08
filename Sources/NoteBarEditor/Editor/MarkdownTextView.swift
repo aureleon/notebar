@@ -58,9 +58,28 @@ final class MarkdownTextView: NSTextView {
         editor?.mouseTrackingEnded()
     }
 
+    private var hoverArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverArea { removeTrackingArea(hoverArea) }
+        // The panel does not activate the app: track moves even when it is not active.
+        let t = NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                               owner: self, userInfo: nil)
+        addTrackingArea(t)
+        hoverArea = t
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        let p = convert(event.locationInWindow, from: nil)
+        if !visibleRect.contains(p) { editor?.hideCodeCopyButton() }
+    }
+
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         let p = convert(event.locationInWindow, from: nil)
+        editor?.updateCodeCopyButton(at: p)
         if editor?.clickableAttachment(at: p) == true { NSCursor.pointingHand.set() }
     }
 
