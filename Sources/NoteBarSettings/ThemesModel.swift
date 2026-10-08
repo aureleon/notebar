@@ -125,7 +125,7 @@ final class ThemesModel: ObservableObject {
     }
 
     var fontSize: Binding<Double> {
-        Binding(get: { [weak self] in self?.draft?.fontSize ?? 13 },
+        Binding(get: { [weak self] in self?.draft?.fontSize ?? 14 },
                 set: { [weak self] v in self?.update { $0.fontSize = min(max(v, 10), 22) } })
     }
 

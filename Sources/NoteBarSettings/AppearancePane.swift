@@ -5,6 +5,12 @@ struct AppearancePane: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var themes: ThemesModel
     let models: SettingsModels
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// The active theme's palette for the current appearance (dark when dark mode is on).
+    private var palette: ThemePalette {
+        themes.env.themes.theme.palette(isDark: colorScheme == .dark)
+    }
 
     var body: some View {
         Form {
@@ -15,6 +21,11 @@ struct AppearancePane: View {
                     Text("Dark").tag(AppearanceMode.dark)
                 }
                 .pickerStyle(.segmented)
+
+                Toggle(isOn: $settings.blurBackdrop) {
+                    Text("Blur background behind panel")
+                    Text("Blurs and slightly darkens the screen edge behind the panel, like Notification Center.")
+                }
             }
 
             Section {
@@ -53,7 +64,7 @@ struct AppearancePane: View {
                 LabeledContent("Note color") {
                     HStack(spacing: 14) {
                         ForEach(CardColorStyle.allCases, id: \.self) { style in
-                            ColorStyleTile(style: style, isSelected: settings.colorStyle == style) {
+                            ColorStyleTile(style: style, palette: palette, isSelected: settings.colorStyle == style) {
                                 settings.colorStyle = style
                             }
                         }

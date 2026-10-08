@@ -5,12 +5,24 @@ struct GeneralPane: View {
     @ObservedObject var settings: AppSettings
     @ObservedObject var launch: LaunchAtLoginModel
 
+    /// Width the automatic rule gives for the current main screen.
+    private var automaticWidth: CGFloat {
+        PanelWidth.automatic(visibleWidth: NSScreen.main?.visibleFrame.width ?? 0)
+    }
+
+    /// The width the panel uses now (automatic or fixed), within the limits.
+    private var effectiveWidth: CGFloat {
+        if settings.panelWidthIsAutomatic { return automaticWidth }
+        return min(max(CGFloat(settings.panelWidth), PanelWidth.minWidth), PanelWidth.maxWidth)
+    }
+
     private var widthBinding: Binding<Double> {
-        Binding(get: { min(max(settings.panelWidth, 240), 520) },
+        Binding(get: { Double(effectiveWidth) },
                 set: { v in
-                    // Steps of 5 pt; only write real changes (every write moves the panel).
-                    let w = min(max((v / 5).rounded() * 5, 240), 520)
-                    if w != settings.panelWidth { settings.panelWidth = w }
+                    // Steps of 5 pt. Moving the slider makes the width fixed.
+                    let w = min(max((v / 5).rounded() * 5, PanelWidth.minWidth), PanelWidth.maxWidth)
+                    if settings.panelWidthIsAutomatic { settings.panelWidthIsAutomatic = false }
+                    if w != settings.panelWidth { settings.panelWidth = Double(w) }
                 })
     }
 
@@ -46,12 +58,17 @@ struct GeneralPane: View {
 
                 LabeledContent("Width") {
                     HStack(spacing: 10) {
-                        Slider(value: widthBinding, in: 240...520)
-                            .frame(maxWidth: 220)
-                        Text("\(Int(widthBinding.wrappedValue)) pt")
+                        Slider(value: widthBinding, in: Double(PanelWidth.minWidth)...Double(PanelWidth.maxWidth))
+                            .frame(maxWidth: 200)
+                        Text(settings.panelWidthIsAutomatic
+                             ? "Automatic (\(Int(automaticWidth)) pt)"
+                             : "\(Int(effectiveWidth)) pt")
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
-                            .frame(width: 48, alignment: .trailing)
+                            .lineLimit(1)
+                            .fixedSize()
+                        Button("Default") { settings.panelWidthIsAutomatic = true }
+                            .disabled(settings.panelWidthIsAutomatic)
                     }
                 }
 
@@ -63,16 +80,11 @@ struct GeneralPane: View {
 
                 Toggle(isOn: $settings.pinnedOpen) {
                     Text("Keep panel open")
-                    Text("The panel stays visible until you hide it with the hotkey, the Open Bar or the menu bar icon.")
+                    Text("The panel stays visible until you hide it with the hotkey or the menu bar icon.")
                 }
             }
 
             Section("Opening") {
-                Toggle(isOn: $settings.showOpenBar) {
-                    Text("Show Open Bar")
-                    Text("A thin tab on the screen edge. Click it to show or hide the panel. Right-click it to change sides.")
-                }
-
                 Toggle(isOn: $settings.hotSideEnabled) {
                     Text("Hot Side")
                     Text("Open the panel when the pointer rests on the screen edge.")

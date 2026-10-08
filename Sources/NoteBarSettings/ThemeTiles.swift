@@ -92,6 +92,7 @@ struct ThemeTile: View {
 /// Picture of how a note color is shown: full background or left bar.
 struct ColorStyleTile: View {
     let style: CardColorStyle
+    let palette: ThemePalette
     let isSelected: Bool
     let action: () -> Void
 
@@ -101,8 +102,8 @@ struct ColorStyleTile: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.06))
                     VStack(spacing: 5) {
-                        sample(tint: Color(hex: "#FBF0C2"), title: Color(hex: "#8A6A00"))
-                        sample(tint: Color(hex: "#EADFFB"), title: Color(hex: "#5B3A99"))
+                        sample(tint: cardColor("yellow"), title: cardTitle("yellow"))
+                        sample(tint: cardColor("purple"), title: cardTitle("purple"))
                     }
                     .padding(8)
                 }
@@ -121,6 +122,14 @@ struct ColorStyleTile: View {
         }
         .buttonStyle(.plain)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func cardColor(_ key: String) -> Color {
+        Color(hex: palette.cardBackgrounds[key] ?? palette.cardBackgrounds["none"] ?? "#FFFFFF")
+    }
+
+    private func cardTitle(_ key: String) -> Color {
+        Color(hex: palette.cardTitles[key] ?? palette.text)
     }
 
     private func sample(tint: Color, title: Color) -> some View {
