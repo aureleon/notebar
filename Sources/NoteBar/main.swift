@@ -6,6 +6,10 @@ MainActor.assumeIsolated {
     if let i = args.firstIndex(of: "--snapshot") {
         SnapshotMode.run(outputPath: i + 1 < args.count ? args[i + 1] : "notebar-snapshot")
     }
+    // `NoteBar --readme-images <dir>` renders the README pictures (light and dark side by side) and exits.
+    if let i = args.firstIndex(of: "--readme-images") {
+        ReadmeImages.run(outputPath: i + 1 < args.count ? args[i + 1] : "docs/images")
+    }
 
     let app = NSApplication.shared
     let delegate = AppDelegate()

@@ -18,21 +18,7 @@ enum SnapshotMode {
         let out = URL(fileURLWithPath: outputPath, isDirectory: true)
         try? fm.createDirectory(at: out, withIntermediateDirectories: true)
 
-        // Data directory: never the real one.
-        let realDefault = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NoteBar", isDirectory: true).standardizedFileURL.path
-        if (ProcessInfo.processInfo.environment["NOTEBAR_DATA_DIR"] ?? "").isEmpty {
-            let tmp = fm.temporaryDirectory.appendingPathComponent("notebar-snapshot-\(UUID().uuidString)", isDirectory: true)
-            setenv("NOTEBAR_DATA_DIR", tmp.path, 1)
-        }
-        let dataDir = AppPaths.supportDirectory
-        guard dataDir.standardizedFileURL.path != realDefault else {
-            fail("NOTEBAR_DATA_DIR points at the real data folder; use an empty temporary directory")
-        }
-        guard !fm.fileExists(atPath: dataDir.appendingPathComponent("notebar.sqlite").path) else {
-            fail("\(dataDir.path) already holds a database; use an empty NOTEBAR_DATA_DIR")
-        }
-        AppPaths.ensureDirectories()
+        let dataDir = prepareDataDirectory()
 
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
@@ -147,7 +133,29 @@ enum SnapshotMode {
         exit(0)
     }
 
-    private static func fail(_ message: String) -> Never {
+    /// Points `NOTEBAR_DATA_DIR` at an empty folder (a new temporary one if it is not set) and refuses
+    /// the real data folder or a folder that already holds a database.
+    static func prepareDataDirectory() -> URL {
+        let fm = FileManager.default
+        let realDefault = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NoteBar", isDirectory: true).standardizedFileURL.path
+        if (ProcessInfo.processInfo.environment["NOTEBAR_DATA_DIR"] ?? "").isEmpty {
+            let tmp = fm.temporaryDirectory.appendingPathComponent("notebar-snapshot-\(UUID().uuidString)", isDirectory: true)
+            setenv("NOTEBAR_DATA_DIR", tmp.path, 1)
+        }
+        let dataDir = AppPaths.supportDirectory
+        guard dataDir.standardizedFileURL.path != realDefault else {
+            fail("NOTEBAR_DATA_DIR points at the real data folder; use an empty temporary directory")
+        }
+        guard !fm.fileExists(atPath: dataDir.appendingPathComponent("notebar.sqlite").path) else {
+            fail("\(dataDir.path) already holds a database; use an empty NOTEBAR_DATA_DIR")
+        }
+        AppPaths.ensureDirectories()
+
+        return dataDir
+    }
+
+    static func fail(_ message: String) -> Never {
         FileHandle.standardError.write(Data("NoteBar --snapshot: \(message)\n".utf8))
         exit(1)
     }
@@ -229,7 +237,7 @@ enum SnapshotMode {
     }
 
     /// A landscape PNG (gradient sky, sun, hill).
-    private static func samplePNG(width: Int, height: Int) -> Data {
+    static func samplePNG(width: Int, height: Int) -> Data {
         let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
                                    samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                    bytesPerRow: 0, bitsPerPixel: 0)!

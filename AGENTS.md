@@ -32,6 +32,7 @@ swift run EditorChecks                       # Markdown parser, codec, text styl
 swift run SettingsSnapshot /tmp/nb-settings  # Settings UI checks & offscreen PNGs
 swift run UISnapshot /tmp/nb-ui              # Notes UI checks & offscreen PNGs
 scripts/check-integrations.sh                # URL scheme & AppleScript, offline (no app launch)
+scripts/readme-images.sh                     # Re-render README pictures into docs/images/ (offscreen)
 ```
 
 ### Safe Manual Execution
