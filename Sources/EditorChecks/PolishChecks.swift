@@ -67,6 +67,14 @@ enum PolishChecks {
         Check.equal(h.editor.searchMatchCount, 1, "new query replaces marks")
         Check.expect(lm.temporaryAttribute(.backgroundColor, atCharacterIndex: 0, effectiveRange: nil) == nil,
                      "old marks removed on new query")
+        // Switching light -> dark gives the marks the dark highlight color.
+        let threeLoc = (h.tv.string as NSString).range(of: "three").location
+        h.editor.appearance = NSAppearance(named: .aqua)
+        let lightMark = lm.temporaryAttribute(.backgroundColor, atCharacterIndex: threeLoc, effectiveRange: nil) as? NSColor
+        h.editor.appearance = NSAppearance(named: .darkAqua)
+        let darkMark = lm.temporaryAttribute(.backgroundColor, atCharacterIndex: threeLoc, effectiveRange: nil) as? NSColor
+        Check.expect(darkMark != nil && h.editor.searchMatchCount == 1, "marks stay after an appearance change")
+        Check.expect(darkMark != lightMark, "marks follow the appearance")
     }
 
     static func codeWrapping() {

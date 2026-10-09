@@ -258,6 +258,10 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         applyColorsToTextView()
         restyle(dirty: nil)
         let full = NSRange(location: 0, length: textStorage.length)
+        // Search marks are temporary attributes: give them the new highlight color (e.g. light -> dark).
+        for m in searchRanges where m.end <= textStorage.length {
+            layoutManagerNB.addTemporaryAttribute(.backgroundColor, value: st.highlight, forCharacterRange: m)
+        }
         if hideChanged {
             layoutManagerNB.revealed = computeReveal()
             layoutManagerNB.invalidateGlyphs(forCharacterRange: full, changeInLength: 0, actualCharacterRange: nil)
