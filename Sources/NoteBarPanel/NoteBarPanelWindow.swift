@@ -3,7 +3,8 @@ import NoteBarCore
 
 /// The floating side panel window. Borderless, non-activating (typing works while another app stays
 /// frontmost), visually transparent: the hosted content draws its own cards and shadows. The content
-/// view has a nearly invisible fill so empty areas do not pass clicks to the app below.
+/// view has a nearly invisible fill over the rendered region, so the gaps between cards keep their
+/// clicks, while the empty part below the content passes clicks to the app below.
 /// (See `PanelContentView.hitTestFill`.)
 final class NoteBarPanelWindow: NSPanel {
     /// Escape that no view handled.
@@ -90,13 +91,24 @@ final class NoteBarPanelWindow: NSPanel {
     }
 }
 
-/// Root view of the panel: invisible but hit-testable, hosts the notes view controller's view and the
-/// resize handle.
+/// Root view of the panel: invisible, hit-testable over the rendered content only. Hosts the notes
+/// view controller's view and the resize handle.
 final class PanelContentView: NSView {
     /// The window server sends mouse, scroll and drag events on alpha-0 pixels to the window below.
-    /// The content draws nothing in the gaps between cards and under a short list, so a nearly invisible
-    /// fill (2/255) keeps the whole panel rect "solid": those events stay in the panel.
+    /// The content draws nothing in the gaps between cards, so a nearly invisible fill (2/255) keeps the
+    /// rendered region "solid": those events stay in the panel. Below the content there is no fill, so
+    /// a click there goes to the app below.
     static let hitTestFill = NSColor(white: 0, alpha: 0.008)
+
+    /// Height of the rendered region, from the top (the presenter's `contentHeight`). nil = all of it.
+    var solidHeight: CGFloat? { didSet { if solidHeight != oldValue { needsLayout = true } } }
+    private let fillView = NSView()
+
+    private var effectiveSolidHeight: CGFloat {
+        guard let h = solidHeight, h > 0 else { return bounds.height }
+        return min(h, bounds.height)
+    }
+    var solidFrameForChecks: NSRect { fillView.frame }
 
     let resizeHandle = PanelResizeHandle()
     private(set) weak var hostedView: NSView?
@@ -104,8 +116,10 @@ final class PanelContentView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = Self.hitTestFill.cgColor
+        fillView.wantsLayer = true
+        fillView.layer?.backgroundColor = Self.hitTestFill.cgColor
         autoresizesSubviews = true
+        addSubview(fillView)
         addSubview(resizeHandle)
     }
 
@@ -127,12 +141,16 @@ final class PanelContentView: NSView {
     override func layout() {
         super.layout()
         hostedView?.frame = bounds
+        // Not flipped: the rendered region is at the top.
+        let solid = effectiveSolidHeight
+        fillView.frame = NSRect(x: 0, y: bounds.height - solid, width: bounds.width, height: solid)
         let w = PanelResizeHandle.thickness
-        // The handle sits on the inner edge, below the header area so it does not cover header buttons.
+        // The handle sits on the inner edge of the rendered region, below the header area so it does not
+        // cover header buttons.
         let topReserve: CGFloat = 56
-        let h = max(bounds.height - topReserve - 16, 0)
+        let h = max(solid - topReserve - 16, 0)
         let x = side == .right ? 0 : bounds.width - w
-        resizeHandle.frame = NSRect(x: x, y: 16, width: w, height: h)
+        resizeHandle.frame = NSRect(x: x, y: bounds.height - solid + 16, width: w, height: h)
         resizeHandle.side = side
     }
 }

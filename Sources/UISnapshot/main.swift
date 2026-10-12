@@ -1,6 +1,7 @@
 import AppKit
 import NoteBarCore
 import NoteBarUI
+@testable import NoteBarPanel
 
 // Renders the notes UI offscreen (no window is ever shown) to PNGs and runs behavior checks.
 // Usage: swift run UISnapshot [/tmp/nb-snap]
@@ -29,6 +30,29 @@ final class HeadingKeyTextView: NSTextView {
         }
         return super.performKeyEquivalent(with: event)
     }
+}
+
+/// The panel window takes clicks only where its pixels are not fully transparent: over the rendered
+/// content (the near-invisible fill), not in the empty part below it.
+@MainActor
+func panelClickRegionChecks() {
+    let view = PanelContentView(frame: NSRect(x: 0, y: 0, width: 400, height: 800))
+    func alpha(atTop y: CGFloat) -> CGFloat {
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / view.bounds.height
+        return rep.colorAt(x: Int(200 * scale), y: Int(y * scale))?.alphaComponent ?? -1
+    }
+    Check.expect(alpha(atTop: 700) > 0, "no content height yet: the whole panel takes clicks")
+    view.solidHeight = 200
+    view.layoutSubtreeIfNeeded()
+    Check.equal(view.solidFrameForChecks, NSRect(x: 0, y: 600, width: 400, height: 200), "fill covers the top 200 pt")
+    Check.expect(alpha(atTop: 100) > 0, "rendered region takes clicks (gaps between cards too)")
+    Check.equal(alpha(atTop: 700), 0, "below the content: clicks go to the app below")
+    Check.expect(view.resizeHandle.frame.minY >= 600, "the resize handle stays in the rendered region")
+    view.solidHeight = 5000
+    Check.expect(alpha(atTop: 790) > 0, "content taller than the panel: all of it takes clicks")
 }
 
 @MainActor
@@ -267,6 +291,34 @@ MainActor.assumeIsolated {
         Check.expect(store.note(id: newID) == nil, "toast gone: the note stays deleted")
         Check.expect(!probe.isToastVisible, "toast hidden")
     }
+
+    // Short folder: the toast sits just below the last card, not at the bottom of the panel, and the
+    // rendered region (where the panel takes clicks) grows to include it while it shows.
+    do {
+        vc.showFolder(folders.ideas.id)
+        probe.layoutNow()
+        let shortNote = store.createNote(in: folders.ideas.id, body: "Short", mode: .standard, position: .top).id
+        probe.layoutNow()
+        spin()
+        probe.deleteWithUndo(shortNote)
+        probe.layoutNow()
+        let listH = probe.listContentHeight
+        let tf = probe.toastFrame
+        Check.expect(probe.isToastVisible, "short folder: toast visible")
+        Check.expect(listH < panelSize.height / 2, "short folder: the list is short (\(listH) pt)")
+        Check.expect(tf.minY >= listH - 20 && tf.minY <= listH + 20, "toast sits below the last card (\(tf.minY) vs \(listH))")
+        Check.expect(probe.rootContentHeight >= tf.maxY, "the rendered region includes the toast")
+        Check.expect(probe.rootContentHeight < panelSize.height, "the rendered region stops below the toast")
+        render("10b-toast-short-light")
+        probe.commitDelete()
+        probe.layoutNow()
+        Check.expect(!probe.isToastVisible, "short folder: toast hidden")
+        Check.equal(probe.rootContentHeight, probe.listContentHeight, "without the toast, the region is the list")
+        vc.showFolder(folders.notes.id)
+        probe.layoutNow()
+    }
+
+    panelClickRegionChecks()
 
     // Deleting the same note twice (undo in between) keeps the second deletion pending.
     let victim = store.createNote(in: folders.notes.id, body: "Victim", mode: .standard, position: .top).id

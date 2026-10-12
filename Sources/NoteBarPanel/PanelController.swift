@@ -121,6 +121,7 @@ public final class PanelController {
         isVisible = true
         screenID = target.nbDisplayID
         container.side = g.side
+        updateSolidRegion()
         let slide = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // Start from the hidden position (or fade in place when Reduce Motion is on). If a hide animation
         // on the same screen is still running, reverse it from where it is instead of jumping.
@@ -288,10 +289,19 @@ public final class PanelController {
                                         userInfo: ["visible": visible])
     }
 
+    private func updateSolidRegion() {
+        let h = env.presenter?.contentHeight ?? 0
+        container.solidHeight = h > 0 ? h : nil
+    }
+
     // MARK: Observers
 
     private func installObservers() {
         let nc = NotificationCenter.default
+        // Only the rendered content takes clicks; the empty part of the window passes them through.
+        observers.append(nc.addObserver(forName: .contentExtentDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateSolidRegion() }
+        })
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: env.settings, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
             MainActor.assumeIsolated { self?.settingsChanged(key) }

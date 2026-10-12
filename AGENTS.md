@@ -88,6 +88,7 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
   - Active hover zone (`passiveZone`): Strictly bounded to the **rendered content region** of the panel (`contentHeight` from `NotesPresenting`) rather than the full screen height.
   - Exit delay: 0.25 s (250 ms) after the cursor leaves the active region, with 50 ms polling.
   - User engagement: If the user clicks the panel, it becomes key and passive mode disengages.
+- **Click region**: The panel window spans the screen height, but only the rendered content (`contentHeight`, including a visible toast) takes clicks. `PanelContentView` draws a near-invisible fill over that region only; clicks on the empty, fully transparent part below go to the app underneath. The toast sits just below the last card.
 
 ### Hot Side Trigger (Swipe to Edge)
 - **Opt-in**: Disabled by default (`settings.hotSideEnabled = false`).

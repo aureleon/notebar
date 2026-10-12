@@ -1,7 +1,7 @@
 import AppKit
 import NoteBarCore
 
-/// A small transient pill at the bottom of the panel ("Note deleted — Undo").
+/// A small transient pill below the panel content ("Note deleted — Undo").
 @MainActor
 final class ToastView: NSView {
     private let label = makeLabel(font: UIFonts.caption(14, weight: .medium))
@@ -18,6 +18,8 @@ final class ToastView: NSView {
     private var onAction: (() -> Void)?
     private var onExpire: (() -> Void)?
     private var tracking: NSTrackingArea?
+    /// Runs after the toast appears and after it is fully hidden (the owner updates the click region).
+    var onVisibilityChange: (() -> Void)?
     private var hovering = false
     private var generation = 0
 
@@ -54,6 +56,7 @@ final class ToastView: NSView {
         NSAccessibility.post(element: self, notification: .announcementRequested,
                              userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
         superview?.needsLayout = true
+        onVisibilityChange?()
         schedule(duration)
     }
 
@@ -80,10 +83,13 @@ final class ToastView: NSView {
                     ctx.duration = 0.18
                     self.animator().alphaValue = 0
                 }, completionHandler: {
-                    MainActor.assumeIsolated { if self.generation == gen { self.isHidden = true } }
+                    MainActor.assumeIsolated {
+                        if self.generation == gen { self.isHidden = true; self.onVisibilityChange?() }
+                    }
                 })
             } else {
                 isHidden = true
+                onVisibilityChange?()
             }
         }
         if expired { expire?() }

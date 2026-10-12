@@ -22,6 +22,10 @@ public final class NotesUIProbe {
     public var notesVisible: Bool { !list.isHidden }
     public var isSearching: Bool { root.search != nil }
     public var isToastVisible: Bool { root.toast.isShowing }
+    /// Toast frame in the root view (flipped: y = 0 is the top).
+    public var toastFrame: NSRect { root.toast.frame }
+    /// The header and the shown list only (`contentHeight` also counts a visible toast).
+    public var listContentHeight: CGFloat { root.listContentHeight }
     public var selectedNoteID: NoteID? { list.selectedNoteID }
     public var focusedNoteID: NoteID? { root.focusedNoteID }
     public var pendingDeletion: NoteID? { root.pendingDeletion }

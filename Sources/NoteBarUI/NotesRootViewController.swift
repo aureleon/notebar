@@ -111,6 +111,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         scopeBar.onArchiveToggle = { [weak self] on in self?.setSearchIncludesArchive(on) }
         toast = ToastView(frame: .zero)
         toast.fontSize = env.themes.fontSize
+        toast.onVisibilityChange = { [weak self] in self?.updateBackdrop() }
         for sub in [backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
         notesList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
         folderList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
@@ -165,8 +166,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if notesList.topInset != inset { notesList.topInset = inset }
         if folderList.topInset != inset { folderList.topInset = inset }
         updateBackdrop()
-        let ts = toast.preferredSize(maxWidth: b.width - 4 * m)
-        toast.frame = NSRect(x: (b.width - ts.width) / 2, y: b.height - m - ts.height - 8, width: ts.width, height: ts.height)
     }
 
     public override func viewDidAppear() {
@@ -871,7 +870,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var isEditingText: Bool { view.window?.firstResponder is NSText }
     var backdropFrame: NSRect { backdrop.frame }
 
-    public var contentHeight: CGFloat {
+    /// Height of the header and the shown list, from the top, with `outerMargin` below the last element.
+    var listContentHeight: CGFloat {
         guard let v = rootView else { return 0 }
         let m = Metrics.outerMargin
         let bottom: CGFloat
@@ -885,10 +885,37 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         return min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m)
     }
 
+    /// The rendered region from the top: the list and, while it shows, the toast below it. The panel
+    /// takes clicks only in this region; the rest of its window passes clicks to the app below.
+    public var contentHeight: CGFloat {
+        guard let v = rootView else { return 0 }
+        var h = listContentHeight
+        if let toast, !toast.isHidden { h = max(h, toast.frame.maxY + Metrics.outerMargin) }
+        return min(v.bounds.height, h)
+    }
+
+    /// The toast sits just below the last element (at the bottom when the list fills the panel).
+    private func layoutToast() {
+        guard let v = rootView, toast != nil else { return }
+        let b = v.bounds
+        let m = Metrics.outerMargin
+        let ts = toast.preferredSize(maxWidth: b.width - 4 * m)
+        let lowest = b.height - m - ts.height - 8
+        let y = min(listContentHeight - m + Metrics.gap, lowest)
+        let f = NSRect(x: (b.width - ts.width) / 2, y: max(y, 0), width: ts.width, height: ts.height)
+        if toast.frame != f { toast.frame = f }
+    }
+
     /// Fits the backdrop to the visible elements: the header down to the bottom of the shown list's
     /// last element, with `outerMargin` around them.
+    /// Also places the toast, then tells observers (the panel's click region, Hot Side) the new extent.
     func updateBackdrop() {
+        layoutToast()
+        fitBackdrop()
         NotificationCenter.default.post(name: .contentExtentDidChange, object: self)
+    }
+
+    private func fitBackdrop() {
         guard let v = rootView, header != nil else { return }
         backdrop.isHidden = !CardGlass.isEnabled(env)
         guard !backdrop.isHidden else { return }
