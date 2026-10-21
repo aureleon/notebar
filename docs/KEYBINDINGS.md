@@ -115,6 +115,8 @@ Contexts:
 | w W b B e E | Word motions |
 | 0 ^ _ $ | Line start / first text / line end |
 | gg G {n}G + ↩ | File start / end / line n / next line |
+| { } | Previous / next empty line (paragraph). With an operator: `d}` `c{` `y}` |
+| ⌃D / ⌃U | Half a page down / up (visual lines; stops at the note's first / last line). The list scrolls with the caret. `{n}⌃D` sets the amount for later presses too |
 | {count} | Repeat the next command |
 | i a I A o O | Insert mode |
 | x X s ⌦ | Delete / change characters |
@@ -141,7 +143,8 @@ Contexts:
 
 | Key | Action |
 |---|---|
-| Motions as in Normal (h j k l w b e 0 ^ $ gg G + ↩ ⌫) | Extend the selection |
+| Motions as in Normal (h j k l w b e 0 ^ $ gg G + ↩ ⌫ { }) | Extend the selection |
+| ⌃D / ⌃U | Extend the selection half a page down / up (logical lines) |
 | v / V | Switch type or exit |
 | o / O | Swap the ends |
 | d x / D X | Delete (chars / lines) |
@@ -151,7 +154,7 @@ Contexts:
 | u / U / ~ | Lowercase / uppercase / toggle case |
 | r{c} | Replace every selected character |
 | Esc, ⌃[ | Exit |
-| Tab, arrows, ⌃ keys | Swallowed |
+| Tab, arrows, other ⌃ keys | Swallowed |
 
 ## 8. Vim prompt and `:` commands
 

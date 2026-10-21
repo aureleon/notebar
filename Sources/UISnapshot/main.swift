@@ -1,6 +1,7 @@
 import AppKit
 import NoteBarCore
 import NoteBarUI
+import NoteBarEditor
 @testable import NoteBarPanel
 
 // Renders the notes UI offscreen (no window is ever shown) to PNGs and runs behavior checks.
@@ -671,6 +672,7 @@ MainActor.assumeIsolated {
 
     // MARK: Vim keys
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
+    vimScrollChecks(spin: spin)
 
     // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
     renderHook = { render($0) }
@@ -778,6 +780,60 @@ MainActor.assumeIsolated {
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
+}
+
+/// ⌃D / ⌃U in a long note scroll the notes list.
+/// Uses the real markdown editor (the main checks use plain editors, which have no vim layer).
+@MainActor
+func vimScrollChecks(spin: () -> Void) {
+    let suite = "NoteBarUISnapshotVimScroll"
+    UserDefaults().removePersistentDomain(forName: suite)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
+    settings.vimKeybinds = true
+    let store = InMemoryNoteStore(seed: false)
+    let folder = store.createFolder(name: "Long")
+    let body = (0..<200).map { $0 % 10 == 9 ? "" : "line \($0)" }.joined(separator: "\n")
+    let note = store.createNote(in: folder.id, body: body, mode: .standard, position: .top)
+    let env = AppEnvironment(store: store, backups: nil, settings: settings,
+                             themes: ThemeManager(settings: settings, store: store), editorFactory: MarkdownEditorFactory())
+    let vc = NotesRootViewController(env: env)
+    vc.stateDefaults = UserDefaults(suiteName: suite)!
+    env.presenter = vc
+    let probe = vc.probe
+    vc.view.frame = NSRect(x: 0, y: 0, width: 420, height: 720)
+    let window = NSWindow(contentRect: vc.view.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = vc.view
+    defer { window.contentView = nil; UserDefaults().removePersistentDomain(forName: suite) }
+
+    vc.showFolder(folder.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.focusList()
+    probe.select(note.id)
+    probe.press(keyCode: 37, characters: "l")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.equal(probe.focusedNoteID, note.id, "vim scroll: l edits the long note")
+    Check.equal(probe.editor(of: note.id)?.vimMode, .normal, "vim scroll: the editor is in Normal mode")
+    func key(_ ch: String, _ code: UInt16, _ mods: NSEvent.ModifierFlags = []) {
+        probe.pressInFirstResponder(keyCode: code, characters: ch, modifiers: mods)
+        probe.layoutNow()
+    }
+    key("g", 5); key("g", 5)
+    let top = probe.listScrollOffset
+    key("d", 2, [.control])
+    let down = probe.listScrollOffset
+    Check.expect(down > top + 50, "⌃D scrolls the list down (\(top) → \(down))")
+    key("d", 2, [.control])
+    let down2 = probe.listScrollOffset
+    Check.expect(down2 > down + 50, "⌃D again scrolls further (\(down) → \(down2))")
+    // A fixed number of lines each time (pixel distances differ a little: empty lines are shorter).
+    Check.expect(abs((down2 - down) - (down - top)) < 0.1 * (down - top),
+                 "⌃D scrolls about the same distance each time (\(top) → \(down) → \(down2))")
+    Check.expect(down - top > 0.3 * 720 && down - top < 0.6 * 720, "⌃D scrolls about half the list (\(down - top))")
+    key("u", 32, [.control])
+    Check.expect(abs(probe.listScrollOffset - down) < 2, "⌃U scrolls back by the same distance (\(probe.listScrollOffset) vs \(down))")
+    Check.equal(probe.editor(of: note.id)?.vimMode, .normal, "still in Normal mode")
+    Check.equal(store.note(id: note.id)?.body, body, "⌃D / ⌃U do not edit")
 }
 
 @MainActor

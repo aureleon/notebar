@@ -133,6 +133,21 @@ public final class NotesUIProbe {
         return root.handleKeyDown(ev)
     }
 
+    /// Synthesizes a key-down straight to the first responder (a focused editor's text view).
+    @discardableResult
+    public func pressInFirstResponder(keyCode: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) -> Bool {
+        guard let r = root.view.window?.firstResponder as? NSView,
+              let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                                        windowNumber: root.view.window?.windowNumber ?? 0, context: nil,
+                                        characters: characters, charactersIgnoringModifiers: characters,
+                                        isARepeat: false, keyCode: keyCode) else { return false }
+        r.keyDown(with: ev)
+        return true
+    }
+
+    /// Scroll offset of the notes list (clip view bounds origin y).
+    public var listScrollOffset: CGFloat { list.scrollView.contentView.bounds.origin.y }
+
     public func dropOnBackground(text: String) { root.createNote(from: .text(text)) }
     public func dropFiles(_ urls: [URL], onCard id: NoteID) -> Bool {
         guard let card = list.card(for: id) else { return false }

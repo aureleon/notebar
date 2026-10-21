@@ -12,6 +12,8 @@ public enum VimMotion: Equatable, Sendable {
     case fileStart(line: Int?), fileEnd(line: Int?)
     /// Return: first non-blank of the next line.
     case nextLineStart
+    /// `}` / `{`: the next / previous empty line (paragraph boundary), else the end / start of the text.
+    case paragraphForward, paragraphBackward
 }
 
 /// The text a vim operator acts on.
@@ -203,6 +205,51 @@ public enum VimText {
         return i
     }
 
+    // MARK: Paragraphs
+
+    static func isEmptyLine(_ s: NSString, _ lineStart: Int) -> Bool { lineEnd(s, lineStart) == lineStart }
+
+    /// Start of the line after the one at `a`; nil on the last line.
+    static func nextLineStart(_ s: NSString, _ a: Int) -> Int? {
+        lineEnd(s, a) >= s.length ? nil : lineEndIncludingTerminator(s, a)
+    }
+
+    /// Start of the line before the one at `a` (a line start); nil on the first line.
+    static func previousLineStart(_ s: NSString, _ a: Int) -> Int? {
+        guard a > 0 else { return nil }
+        var t = a - 1
+        if t > 0, s.character(at: t) == UC.lf, s.character(at: t - 1) == UC.cr { t -= 1 }
+        return lineStart(s, t)
+    }
+
+    /// `}`: start of the first empty line after the paragraph at (or after) `pos`. nil: no such line.
+    /// Only truly empty lines count (a line of blanks does not), as in vim.
+    public static func paragraphForward(_ s: NSString, _ pos: Int) -> Int? {
+        var a = lineStart(s, pos)
+        while isEmptyLine(s, a) { guard let n = nextLineStart(s, a) else { return nil }; a = n }
+        while !isEmptyLine(s, a) { guard let n = nextLineStart(s, a) else { return nil }; a = n }
+        return a
+    }
+
+    /// `{`: start of the first empty line before the paragraph at (or before) `pos`. nil: no such line.
+    public static func paragraphBackward(_ s: NSString, _ pos: Int) -> Int? {
+        var a = lineStart(s, pos)
+        while isEmptyLine(s, a) { guard let n = previousLineStart(s, a) else { return nil }; a = n }
+        while !isEmptyLine(s, a) { guard let n = previousLineStart(s, a) else { return nil }; a = n }
+        return a
+    }
+
+    /// `count` paragraph steps from `pos`. Past the last boundary: the text end (`s.length`) going
+    /// forward, 0 going back.
+    static func paragraphTarget(_ s: NSString, _ pos: Int, forward: Bool, count: Int) -> Int {
+        var p = min(max(0, pos), s.length)
+        for _ in 0..<max(1, count) {
+            guard let t = forward ? paragraphForward(s, p) : paragraphBackward(s, p) else { return forward ? s.length : 0 }
+            p = t
+        }
+        return p
+    }
+
     // MARK: Motions
 
     /// Where `motion` (repeated `count` times) moves a Normal-mode caret.
@@ -265,6 +312,10 @@ public enum VimText {
             let e = lineEnd(s, p)
             guard e < s.length else { return clampNormal(s, p) }
             p = firstNonBlank(s, verticalTarget(s, p, delta: n))
+        case .paragraphForward, .paragraphBackward:
+            p = paragraphTarget(s, p, forward: motion == .paragraphForward, count: n)
+            // Past the last empty line: the last character of the text.
+            p = min(p, lastCharOfLine(s, p))
         }
         return p
     }
@@ -294,6 +345,8 @@ public enum VimText {
         }
         var r: NSRange
         switch m {
+        case .paragraphForward, .paragraphBackward:
+            return paragraphOperatorRange(s, from: p, forward: m == .paragraphForward, count: count)
         case .right:
             let e = min(lineEnd(s, p), p + max(1, count))
             r = NSRange(location: p, length: e - p)
@@ -315,6 +368,22 @@ public enum VimText {
             r = t < p ? NSRange(location: t, length: p - t) : NSRange(location: p, length: t - p)
         }
         return r.length > 0 ? VimOperatorRange(range: r, linewise: false) : nil
+    }
+
+    /// `d}` / `d{`: exclusive and charwise, with vim's rule for an exclusive motion that ends at the
+    /// start of a line: the end moves back to the end of the line before, and when the range also starts
+    /// at or before the first non-blank it is whole lines instead (`d}` at a paragraph start keeps the
+    /// empty line after it).
+    static func paragraphOperatorRange(_ s: NSString, from p: Int, forward: Bool, count: Int) -> VimOperatorRange? {
+        let t = paragraphTarget(s, p, forward: forward, count: count)
+        let lo = min(p, t), hi = max(p, t)
+        guard hi > lo else { return nil }
+        if hi == lineStart(s, hi) {
+            if lo <= firstNonBlank(s, lo) { return linesRange(s, from: lo, to: hi - 1) }
+            let e = lineEnd(s, lineStart(s, hi - 1))
+            return e > lo ? VimOperatorRange(range: NSRange(location: lo, length: e - lo), linewise: false) : nil
+        }
+        return VimOperatorRange(range: NSRange(location: lo, length: hi - lo), linewise: false)
     }
 
     /// Whole lines from the line of `a` to the line of `b` (terminator of the last line included).

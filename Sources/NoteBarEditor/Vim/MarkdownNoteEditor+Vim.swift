@@ -108,6 +108,8 @@ struct VimState {
     /// as vim keeps its wanted column across short lines and checkboxes.
     var goalX: CGFloat?
     var goalCaret: Int?
+    /// Lines ⌃D / ⌃U move. nil = half the visible height; a count sets it (vim's 'scroll').
+    var scrollLines: Int?
 
     var hasPending: Bool { count != nil || pendingOperator != nil || pendingG || pendingZ || pendingReplace || windowArmedAt != nil }
 
@@ -410,6 +412,13 @@ extension MarkdownNoteEditor {
             vim.resetPending()
             vim.windowArmedAt = Date()
             return true
+        case .ctrl("d"), .ctrl("u"):
+            if vim.pendingOperator != nil || vim.pendingG || vim.pendingZ || vim.pendingReplace {
+                vim.resetPending()
+                return true
+            }
+            scrollHalfPage(down: key == .ctrl("d"))
+            return true
         case .ctrl:
             // No other control key may edit the text in Normal mode (⌃K, ⌃D, ⌃T ...).
             vim.resetPending()
@@ -555,6 +564,8 @@ extension MarkdownNoteEditor {
         case "$": .lineEnd
         case "G": .fileEnd(line: vim.count.map { $0 - 1 })
         case "+": .nextLineStart
+        case "}": .paragraphForward
+        case "{": .paragraphBackward
         default: nil
         }
     }
@@ -628,6 +639,37 @@ extension MarkdownNoteEditor {
         vim.resetPending()
         setVimMode(.insert)
         setCaret(p)
+    }
+
+    // MARK: ⌃D / ⌃U
+
+    /// Lines ⌃D / ⌃U move: a count sets it for the next presses too (vim's 'scroll'), else half the
+    /// visible height of the notes list.
+    func halfPageLines() -> Int {
+        if let c = vim.count { vim.scrollLines = c }
+        vim.count = nil
+        if let n = vim.scrollLines { return max(1, n) }
+        let visible = enclosingScrollView?.contentView.bounds.height ?? window?.contentView?.bounds.height ?? 400
+        return max(1, Int(visible / 2 / max(1, minimumHeight)))
+    }
+
+    /// ⌃D / ⌃U: the caret moves half a page of visual lines (it stops at the first / last line of the
+    /// note), and the notes list scrolls by the same distance, so the caret keeps its place on screen.
+    private func scrollHalfPage(down: Bool) {
+        let n = halfPageLines()
+        let clip = enclosingScrollView?.contentView
+        let doc = clip?.documentView
+        let origin = clip?.bounds.origin
+        let before = doc.map { $0.convert(lineRect(forCharacter: caret), from: textView) }
+        vim.count = n
+        runMotion(down ? .down : .up)
+        guard let clip, let doc, let origin, let before else { return }
+        let after = doc.convert(lineRect(forCharacter: caret), from: textView)
+        var b = clip.bounds
+        b.origin = NSPoint(x: origin.x, y: origin.y + after.minY - before.minY)
+        clip.scroll(to: clip.constrainBoundsRect(b).origin)
+        enclosingScrollView?.reflectScrolledClipView(clip)
+        textView.scrollRangeToVisible(textView.selectedRange())
     }
 
     /// Checkbox attachments are line markers: the Normal-mode caret skips them (see `VimText.Marker`).
@@ -916,6 +958,11 @@ extension MarkdownNoteEditor {
             return true
         case .other:
             return false
+        case .ctrl("d"), .ctrl("u"):
+            let n = halfPageLines()
+            vim.count = n
+            moveVisual(key == .ctrl("d") ? .down : .up)
+            return true
         case .navigation, .ignored, .ctrl, .tab:
             return true
         case .enter:
@@ -972,6 +1019,8 @@ extension MarkdownNoteEditor {
         case "$": .lineEnd
         case "G": .fileEnd(line: vim.count.map { $0 - 1 })
         case "+": .nextLineStart
+        case "}": .paragraphForward
+        case "{": .paragraphBackward
         default: nil
         }
     }

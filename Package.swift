@@ -33,7 +33,7 @@ let package = Package(
         .executableTarget(name: "StoreChecks", dependencies: ["NoteBarCore", "NoteBarStore"], swiftSettings: v5),
         .executableTarget(name: "EditorChecks", dependencies: ["NoteBarCore", "NoteBarEditor"], swiftSettings: v5),
         // Renders NoteBarUI offscreen to PNG files for visual checks: `swift run UISnapshot /tmp/out`
-        .executableTarget(name: "UISnapshot", dependencies: ["NoteBarCore", "NoteBarUI", "NoteBarPanel"], swiftSettings: v5),
+        .executableTarget(name: "UISnapshot", dependencies: ["NoteBarCore", "NoteBarUI", "NoteBarPanel", "NoteBarEditor"], swiftSettings: v5),
         // Renders the Settings window offscreen to PNG: `swift run SettingsSnapshot /tmp/out`
         .executableTarget(name: "SettingsSnapshot", dependencies: ["NoteBarCore", "NoteBarSettings"], swiftSettings: v5),
     ]

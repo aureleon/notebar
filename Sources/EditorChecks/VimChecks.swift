@@ -11,6 +11,72 @@ enum VimChecks {
         exChecks()
         editorChecks()
         checkboxChecks()
+        paragraphAndScrollChecks()
+    }
+
+    /// `{` / `}` paragraph motions, ⌃D / ⌃U half-page moves.
+    static func paragraphAndScrollChecks() {
+        // "one⏎two⏎⏎three⏎four⏎⏎⏎five": empty lines at 8, 20, 21.
+        let body = "one\ntwo\n\nthree\nfour\n\n\nfive"
+        let s = body as NSString
+        Check.equal(VimText.target(.paragraphForward, in: s, from: 0), 8, "}: next empty line")
+        Check.equal(VimText.target(.paragraphForward, in: s, from: 8), 20, "} from an empty line skips the next paragraph")
+        Check.equal(VimText.target(.paragraphForward, in: s, from: 20), 25, "} after the last empty line: last character")
+        Check.equal(VimText.target(.paragraphForward, in: s, from: 0, count: 2), 20, "2}")
+        Check.equal(VimText.target(.paragraphBackward, in: s, from: 25), 21, "{: previous empty line")
+        Check.equal(VimText.target(.paragraphBackward, in: s, from: 21), 8, "{ from empty lines skips them and the paragraph")
+        Check.equal(VimText.target(.paragraphBackward, in: s, from: 8), 0, "{ before the first empty line: text start")
+        Check.equal(VimText.target(.paragraphBackward, in: s, from: 11), 8, "{ from inside a paragraph")
+        Check.equal(VimText.target(.paragraphForward, in: "a\n  \nb" as NSString, from: 0), 5, "} : a blank (spaces) line is not a boundary")
+
+        let dp = VimText.operatorRange(.paragraphForward, in: s, from: 0)
+        Check.equal(dp?.range, NSRange(location: 0, length: 8), "d} at a paragraph start: whole lines")
+        Check.expect(dp?.linewise == true, "d} at a paragraph start is linewise")
+        Check.equal(VimText.operatorRange(.paragraphForward, in: s, from: 1)?.range, NSRange(location: 1, length: 6),
+                    "d} mid-line stops at the end of the paragraph's last line")
+        Check.equal(VimText.operatorRange(.paragraphBackward, in: s, from: 11)?.range, NSRange(location: 8, length: 3), "d{")
+        Check.equal(VimText.operatorRange(.paragraphForward, in: s, from: 22)?.range, NSRange(location: 22, length: 4),
+                    "d} on the last paragraph deletes to the text end")
+
+        func run(_ keys: String, from: Int = 0) -> BehaviorChecks.Harness {
+            let h = harness(body)
+            h.focus(at: from)
+            h.editor.vimKeysForTesting(keys)
+            return h
+        }
+        Check.equal(run("}}").editor.selectedRangeForTesting.location, 20, "}} in the editor")
+        Check.equal(run("G{").editor.selectedRangeForTesting.location, 21, "{ in the editor")
+        Check.equal(run("ld}").body, "o\n\nthree\nfour\n\n\nfive", "d} mid-line")
+        Check.equal(run("d}").body, "\nthree\nfour\n\n\nfive", "d} deletes the paragraph, keeps the empty line")
+        Check.equal(run("d}.").body, "\n\nfive", ". repeats d}")
+        Check.equal(run("v}d").body, "three\nfour\n\n\nfive", "v} extends the selection to the empty line")
+        Check.equal(run("y}").body, body, "y} does not edit")
+
+        // ⌃D / ⌃U: half a page of lines; a count sets the amount for later presses too.
+        let lines = (0..<10).map { "l\($0)" }.joined(separator: "\n")
+        let h = harness(lines)
+        h.focus(at: 0)
+        h.editor.vimKeysForTesting("3<C-d>")
+        Check.equal(h.editor.selectedRangeForTesting.location, 9, "3⌃D moves 3 lines down")
+        h.editor.vimKeysForTesting("<C-d>")
+        Check.equal(h.editor.selectedRangeForTesting.location, 18, "⌃D keeps the count")
+        h.editor.vimKeysForTesting("<C-u>")
+        Check.equal(h.editor.selectedRangeForTesting.location, 9, "⌃U moves back up")
+        h.editor.vimKeysForTesting("20<C-d>")
+        Check.equal(h.editor.selectedRangeForTesting.location, 27, "⌃D stops on the last line")
+        h.editor.vimKeysForTesting("<C-u>")
+        Check.equal(h.editor.selectedRangeForTesting.location, 0, "⌃U stops on the first line")
+        Check.equal(h.body, lines, "⌃D / ⌃U do not edit")
+        let fresh = harness(lines)
+        fresh.focus(at: 0)
+        fresh.editor.vimKeysForTesting("<C-d>")
+        let half = fresh.editor.selectedRangeForTesting.location
+        Check.expect(half > 0, "⌃D without a count moves down (got \(half))")
+        fresh.editor.vimKeysForTesting("d<C-d>")
+        Check.equal(fresh.body, lines, "d⌃D does nothing")
+        fresh.editor.vimKeysForTesting("v<C-u>")
+        Check.equal(fresh.editor.vimMode, .visual, "⌃U in Visual mode keeps Visual mode")
+        Check.expect(fresh.editor.selectedRangeForTesting.length > 1, "⌃U in Visual mode extends the selection")
     }
 
     /// Checkboxes are line markers: the Normal-mode caret skips them and line edits keep them.
