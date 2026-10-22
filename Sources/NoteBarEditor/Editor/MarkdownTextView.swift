@@ -84,7 +84,9 @@ final class MarkdownTextView: NSTextView {
         if let b = editor?.codeCopyButton, !b.isHidden, b.frame.contains(p) { NSCursor.arrow.set(); return }
         // Links and file attachments get the pointing hand. NSTextView sets it only through cursor rects,
         // which do not run in a card that is not being edited (and not while another app is active).
-        if editor?.clickableAttachment(at: p) == true || isLink(at: p) { NSCursor.pointingHand.set() }
+        if editor?.clickableAttachment(at: p) == true || isLink(at: p) || editor?.isTableLink(at: p) == true {
+            NSCursor.pointingHand.set()
+        }
     }
 
     /// True when `p` (view coordinates) is on the text of a link.

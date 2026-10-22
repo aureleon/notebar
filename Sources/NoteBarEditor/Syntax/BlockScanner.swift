@@ -21,6 +21,8 @@ public struct MarkdownLine: Equatable, Sendable {
         case code
         /// `---`, `***`, `___`.
         case rule
+        /// A row of a GFM pipe table (header, delimiter, or body; see `tableRow`).
+        case table
 
         public var isList: Bool {
             switch self {
@@ -44,6 +46,10 @@ public struct MarkdownLine: Equatable, Sendable {
     public var isTitle: Bool = false
     /// Ordinal of the fenced code block this line belongs to (fences + content), or -1.
     public var codeBlock: Int = -1
+    /// Ordinal of the table this line belongs to, or -1.
+    public var table: Int = -1
+    /// Row of the table: 0 = header, 1 = delimiter (`|---|`), 2... = body rows. -1 outside tables.
+    public var tableRow: Int = -1
 
     /// Inline content after the block marker.
     public var contentRange: NSRange {
@@ -57,7 +63,8 @@ public struct MarkdownLine: Equatable, Sendable {
 /// Splits text into paragraphs and classifies each one. Works on raw markdown and on the editor's
 /// storage string (where checkboxes are attachment characters; `checkbox` reports their state).
 public enum BlockScanner {
-    public static func scan(_ s: NSString, checkbox: (Int) -> Bool? = { _ in nil }) -> [MarkdownLine] {
+    /// `tables`: find GFM pipe tables (Standard notes; Code and Plain notes have none).
+    public static func scan(_ s: NSString, checkbox: (Int) -> Bool? = { _ in nil }, tables: Bool = true) -> [MarkdownLine] {
         var lines: [MarkdownLine] = []
         let len = s.length
         var pos = 0
@@ -106,7 +113,37 @@ public enum BlockScanner {
         if len == 0 || lastHadTerminator {
             add(NSRange(location: len, length: 0), NSRange(location: len, length: 0))
         }
+        if tables { markTables(s, &lines) }
         return lines
+    }
+
+    /// Header row + delimiter row + body rows (lines with a pipe) become `.table` lines. Only plain
+    /// paragraphs take part: a list item, quote, heading or code line ends a table.
+    static func markTables(_ s: NSString, _ lines: inout [MarkdownLine]) {
+        var ordinal = -1
+        var i = 0
+        while i + 1 < lines.count {
+            guard lines[i].kind == .paragraph, lines[i + 1].kind == .paragraph,
+                  TableSyntax.startsTable(s, header: lines[i].range, delimiter: lines[i + 1].range) else {
+                i += 1
+                continue
+            }
+            ordinal += 1
+            var j = i
+            while j < lines.count {
+                if j > i + 1 {
+                    guard lines[j].kind == .paragraph, TableSyntax.hasPipe(s, lines[j].range) else { break }
+                }
+                lines[j].kind = .table
+                lines[j].table = ordinal
+                lines[j].tableRow = j - i
+                lines[j].markerRange = NSRange(location: lines[j].range.location, length: 0)
+                // A table is not a title (the title is plain text).
+                lines[j].isTitle = false
+                j += 1
+            }
+            i = j
+        }
     }
 
     struct Fence { var char: unichar; var count: Int; var infoIsBlank: Bool; var infoHasBacktick: Bool }

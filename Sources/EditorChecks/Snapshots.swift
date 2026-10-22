@@ -54,6 +54,7 @@ enum Snapshots {
         var caret: Int? = nil
         /// Text to put the pointer on (hover chrome such as the code copy button).
         var hover: String? = nil
+        var width: CGFloat = 260
     }
 
     static func run(outputDirectory dir: URL) {
@@ -88,11 +89,16 @@ enum Snapshots {
                     Sample(name: "attachments", body: attBody, color: .purple),
                     Sample(name: "code", body: "snippet.swift\nlet x = 42\nfunc f() {\n\tprint(\"**not bold**\")\n}\n- [ ] not a checkbox", color: .none, mode: .code),
                     Sample(name: "plain", body: "Plain note\n**not bold** and - [ ] raw\n# not a heading", color: .yellow, mode: .plain),
+                    Sample(name: "table", body: TableChecks.backlog, color: .none, width: 360),
+                    Sample(name: "table-small", body: "Sizes\n| Size | Price | Notes |\n|:--|--:|:-:|\n| S | $1 | **best** |\n| XL | $12.50 | ~~gone~~ |\nafter the table",
+                           color: .green, width: 360),
                 ]
                 var all = samples
                 if hide {
                     all.append(Sample(name: "focused", body: "Focused\nCaret in **bold** span and `code`\n```\nlet a = 1\n```", color: .pink, caret: 17))
                     all.append(Sample(name: "code-hover", body: "Hover\n```swift\nlet a = 1\nprint(a)\n```\nafter", color: .none, hover: "print"))
+                    all.append(Sample(name: "table-editing", body: "Sizes\n| Size | Price | Notes |\n|:--|--:|:-:|\n| S | $1 | **best** |\n| XL | $12.50 | ~~gone~~ |\nafter the table",
+                                      color: .green, caret: 9, width: 360))
                 }
                 let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
                 for s in all {
@@ -100,7 +106,8 @@ enum Snapshots {
                     note.color = s.color
                     env.store.updateNote(note)
                     let url = dir.appendingPathComponent("\(dark ? "dark" : "light")-\(hide ? "hidden" : "dimmed")-\(s.name).png")
-                    render(note: env.store.note(id: note.id)!, env: env, appearance: appearance, caret: s.caret, hover: s.hover, to: url)
+                    render(note: env.store.note(id: note.id)!, env: env, appearance: appearance, caret: s.caret, hover: s.hover,
+                           width: s.width, to: url)
                 }
             }
         }
@@ -118,8 +125,8 @@ enum Snapshots {
         print("snapshots written to \(dir.path)")
     }
 
-    static func render(note: Note, env: AppEnvironment, appearance: NSAppearance, caret: Int?, hover: String? = nil, to url: URL) {
-        let width: CGFloat = 260
+    static func render(note: Note, env: AppEnvironment, appearance: NSAppearance, caret: Int?, hover: String? = nil,
+                       width: CGFloat = 260, to url: URL) {
         let pad: CGFloat = 16
         let canvas = Canvas(frame: NSRect(x: 0, y: 0, width: width + 2 * pad + 16, height: 200))
         canvas.appearance = appearance

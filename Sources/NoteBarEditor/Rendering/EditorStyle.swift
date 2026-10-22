@@ -18,6 +18,9 @@ extension NSAttributedString.Key {
     static let nbBullet = NSAttributedString.Key("NoteBar.bullet")
     /// Bool. Horizontal rule line.
     static let nbRule = NSAttributedString.Key("NoteBar.rule")
+    /// Int (table ordinal + 1). Characters of a table's rows. A collapsed table (caret elsewhere)
+    /// hides its glyphs and is drawn by a `TableGridView` over its first line.
+    static let nbTable = NSAttributedString.Key("NoteBar.table")
 }
 
 /// Resolved fonts and colors for one editor (theme × appearance × note color × mode).

@@ -128,6 +128,17 @@ final class MarkdownStyler {
                     mark(line.markerRange, .listMarker)
                 }
                 para.head = ceil(w)
+            case .table:
+                // Raw rows (shown while the caret is in the table) use the code font, so padded
+                // pipes line up. Out of the table, `TableGridView` draws the rendered grid instead.
+                mono = true; size = st.monoSize
+                lineAttrs[.nbTable] = line.table + 1
+                if line.tableRow == 1 {
+                    mark(line.range, .marker)
+                } else {
+                    if line.tableRow == 0 { bold = true }
+                    for p in TableSyntax.row(s, line.range).pipes { mark(NSRange(location: p, length: 1), .marker) }
+                }
             case .blank, .paragraph:
                 break
             }
@@ -139,8 +150,15 @@ final class MarkdownStyler {
             }
 
             // Inline spans.
-            if !line.isCode, line.kind != .rule, line.contentRange.length > 0 {
-                for span in InlineParser.parse(s, in: line.contentRange) {
+            // Table rows: each cell is its own inline context (a span never crosses a pipe).
+            var inlineRanges: [NSRange] = []
+            if line.kind == .table {
+                if line.tableRow != 1 { inlineRanges = TableSyntax.row(s, line.range).cells.filter { $0.length > 0 } }
+            } else if !line.isCode, line.kind != .rule, line.contentRange.length > 0 {
+                inlineRanges = [line.contentRange]
+            }
+            for inline in inlineRanges {
+                for span in InlineParser.parse(s, in: inline) {
                     switch span.kind {
                     case .bold: mark(span.range, .bold)
                     case .italic: mark(span.range, .italic)

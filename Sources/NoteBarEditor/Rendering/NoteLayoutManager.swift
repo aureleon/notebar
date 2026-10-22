@@ -15,6 +15,12 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     var swatchGap: CGFloat = 3
     /// Height of a code fence line, the same with backticks shown or hidden (nothing moves).
     var fenceBarHeight: CGFloat = 16
+    /// `nbTable` values (ordinal + 1) of the tables drawn as a grid: their glyphs are hidden, the first
+    /// row's line gets the grid's height and the other rows' lines get none.
+    var collapsedTables: Set<Int> = []
+    /// Height of the line starting at a storage index of a collapsed table (the grid height for the
+    /// first row, 0 for the others). nil: lay the line out as text.
+    var collapsedTableLineHeight: ((Int) -> CGFloat?)?
 
     private var bulletGlyphs: [String: CGGlyph] = [:]
 
@@ -33,7 +39,13 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     }
 
     private func isHidden(_ index: Int, _ storage: NSTextStorage) -> Bool {
-        hideMarkup && storage.attribute(.nbMarker, at: index, effectiveRange: nil) != nil && !isRevealed(index)
+        if isInCollapsedTable(index, storage) { return true }
+        return hideMarkup && storage.attribute(.nbMarker, at: index, effectiveRange: nil) != nil && !isRevealed(index)
+    }
+
+    func isInCollapsedTable(_ index: Int, _ storage: NSTextStorage) -> Bool {
+        guard !collapsedTables.isEmpty, let v = storage.attribute(.nbTable, at: index, effectiveRange: nil) as? Int else { return false }
+        return collapsedTables.contains(v)
     }
 
     private func bulletGlyph(for font: NSFont) -> CGGlyph? {
@@ -59,7 +71,10 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let charRange = NSRange(location: first, length: min(storage.length, last + 1) - first)
         var interesting = false
         storage.enumerateAttributes(in: charRange, options: [.longestEffectiveRangeNotRequired]) { a, _, stop in
-            if (hideMarkup && a[.nbMarker] != nil) || a[.nbBullet] != nil { interesting = true; stop.pointee = true }
+            if (hideMarkup && a[.nbMarker] != nil) || a[.nbBullet] != nil
+                || (a[.nbTable] as? Int).map({ self.collapsedTables.contains($0) }) == true {
+                interesting = true; stop.pointee = true
+            }
         }
         guard interesting else { return 0 }
 
@@ -103,7 +118,15 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
                        in textContainer: NSTextContainer, forGlyphRange glyphRange: NSRange) -> Bool {
         guard let storage = textStorage, glyphRange.length > 0 else { return false }
         let ci = characterIndexForGlyph(at: glyphRange.location)
-        guard ci < storage.length, storage.attribute(.nbFence, at: ci, effectiveRange: nil) != nil else { return false }
+        guard ci < storage.length else { return false }
+        if isInCollapsedTable(ci, storage), let h = collapsedTableLineHeight?(ci) {
+            lineFragmentRect.pointee.size.height = h
+            lineFragmentUsedRect.pointee.size.height = h
+            if h == 0 { lineFragmentUsedRect.pointee.size.width = 0 }
+            baselineOffset.pointee = 0
+            return true
+        }
+        guard storage.attribute(.nbFence, at: ci, effectiveRange: nil) != nil else { return false }
         let h = fenceBarHeight
         let font = storage.attribute(.font, at: ci, effectiveRange: nil) as? NSFont ?? .monospacedSystemFont(ofSize: 11, weight: .regular)
         let textH = font.ascender - font.descender

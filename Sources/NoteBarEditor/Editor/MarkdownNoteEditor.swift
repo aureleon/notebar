@@ -57,6 +57,12 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// Copy button on the hovered code block, and that block's storage range.
     var codeCopyButton: NSButton?
     var codeCopyBlock: NSRange?
+    /// Tables (see `MarkdownNoteEditor+Tables`): parsed models, grid layouts per width, the grid views
+    /// of the collapsed tables, and the text of the tables they were built from.
+    var tableModelCache: [TableModel]?
+    var tableLayoutCache: [Int: (width: CGFloat, layout: TableGridLayout)] = [:]
+    var tableViews: [TableScrollView] = []
+    var tableSignature: [String] = []
     /// Standard notes: the caret is in code (block or `span`), so autocorrect / text replacement /
     /// smart insert are off. nil = not decided yet.
     private var caretInCodeState: Bool?
@@ -185,6 +191,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         layoutManagerNB.fenceBarHeight = st.fenceBarHeight
         layoutManagerNB.swatchDiameter = st.swatchDiameter
         layoutManagerNB.swatchGap = st.swatchGap
+        layoutManagerNB.collapsedTableLineHeight = { [unowned self] in self.collapsedTableLineHeight(at: $0) }
     }
 
     var baseAttributes: [NSAttributedString.Key: Any] {
@@ -253,6 +260,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         let st = EditorStyle(themes: env.themes, appearance: effectiveAppearance, color: note.color, mode: mode,
                              hideMarkup: env.settings.hideMarkup)
         let hideChanged = layoutManagerNB.hideMarkup != (st.hideMarkup && mode == .standard)
+        resetTables()
         styler.style = st
         context.style = st
         applyColorsToTextView()
@@ -376,7 +384,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
 
     func currentLines() -> [MarkdownLine] {
         if linesStale {
-            lines = BlockScanner.scan(textStorage.string as NSString, checkbox: { [unowned self] in self.checkboxState(at: $0) })
+            lines = BlockScanner.scan(textStorage.string as NSString, checkbox: { [unowned self] in self.checkboxState(at: $0) },
+                                      tables: mode == .standard)
             linesStale = false
         }
         return lines
@@ -400,7 +409,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                 let oi = l.fullRange.location < dr.location ? i : i - delta
                 guard oi >= 0, oi < old.count else { indices.append(i); continue }
                 let o = old[oi]
-                if o.kind != l.kind || o.isTitle != l.isTitle || o.codeBlock != l.codeBlock || o.range.length != l.range.length {
+                if o.kind != l.kind || o.isTitle != l.isTitle || o.codeBlock != l.codeBlock || o.range.length != l.range.length
+                    || o.table != l.table || o.tableRow != l.tableRow {
                     indices.append(i)
                 }
             }
@@ -410,6 +420,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         isApplyingInternal = false
         styledLines = new
         pendingDirty = nil
+        tablesDidChange()
     }
 
     /// Turns raw `- [ ] ` / attachment tokens typed or pasted as text into attachment characters.
@@ -465,6 +476,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard editedMask.contains(.editedCharacters) else { return }
         linesStale = true
         cachedHeight = nil
+        tableModelCache = nil
         if let p = pendingDirty {
             var shifted = p
             if p.location >= editedRange.location { shifted.location = max(editedRange.location, p.location + delta) }
@@ -502,7 +514,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     public func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],
                          toAttributes newTypingAttributes: [NSAttributedString.Key: Any] = [:]) -> [NSAttributedString.Key: Any] {
         var a = newTypingAttributes
-        for k in [NSAttributedString.Key.nbMarker, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .link, .kern, .attachment] {
+        for k in [NSAttributedString.Key.nbMarker, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .nbTable, .link, .kern, .attachment] {
             a[k] = nil
         }
         return a
@@ -621,6 +633,15 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                 i = b + 1
                 continue
             }
+            if line.table >= 0 {
+                // The caret is in a table: all its raw rows show their pipes and markup.
+                var a = i, b = i
+                while a > 0, lines[a - 1].table == line.table { a -= 1 }
+                while b + 1 < lines.count, lines[b + 1].table == line.table { b += 1 }
+                out.append(NSUnionRange(lines[a].fullRange, lines[b].range))
+                i = b + 1
+                continue
+            }
             switch line.kind {
             case .heading, .quote, .rule: out.append(line.range)
             default: break
@@ -636,6 +657,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     }
 
     func updateReveal() {
+        updateTableCollapse()
         let new = computeReveal()
         let old = layoutManagerNB.revealed
         guard new != old else { return }
@@ -702,6 +724,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         if textView.frame != f { textView.frame = f }
         // The vim prompt sits at the bottom of the editor (of the card when it is expanded).
         vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+        positionTableViews()
         if abs(measured + ph - reportedHeight) > 0.5, reportedHeight >= 0 {
             // Width change altered the height: tell the host after this layout pass.
             DispatchQueue.main.async { [weak self] in self?.layoutDidChange() }
@@ -720,6 +743,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             if textView.frame != f { textView.frame = f }
             vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
         }
+        positionTableViews()
         if abs(h - reportedHeight) > 0.5 {
             reportedHeight = h
             invalidateIntrinsicContentSize()
