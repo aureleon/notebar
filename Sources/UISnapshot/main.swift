@@ -230,8 +230,16 @@ MainActor.assumeIsolated {
     Check.expect(foldedH <= 58, "folded card is short (\(foldedH) pt)")
     let foldedSize = probe.cardTitlePointSize(goalsID) ?? 0
     let foldedX = probe.cardTitleOrigin(goalsID)?.x ?? -1
+    let restingBadge = probe.foldedRowFrames(goalsID)?.badge
     probe.setHovered(goalsID, true)
     render("08-folded-hover-light")
+    // Right to left: expand button, date, "+ N lines" badge. The badge does not move on hover.
+    if let f = probe.foldedRowFrames(goalsID), let badge = f.badge, let date = f.date {
+        Check.expect(date.maxX <= f.expand.minX && badge.maxX <= date.minX, "folded row: badge, date, buttons (\(badge), \(date))")
+        Check.equal(badge, restingBadge, "the badge stays put when the date shows on hover")
+    } else {
+        Check.expect(false, "folded hover shows the badge and the date")
+    }
     probe.setHovered(goalsID, false)
     probe.clickCard(goalsID)
     Check.equal(store.note(id: goalsID)?.isFolded, false, "click unfolds")

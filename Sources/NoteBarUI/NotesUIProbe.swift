@@ -60,6 +60,9 @@ public final class NotesUIProbe {
     public func createAllEditors() { list.createAllEditors() }
     public func setHovered(_ id: NoteID, _ on: Bool) { list.card(for: id)?.setHoveredForSnapshot(on) }
     /// Whether the card shows its mouse-hover chrome (false while keyboard navigation hides it).
+    public func foldedRowFrames(_ id: NoteID) -> (badge: NSRect?, date: NSRect?, expand: NSRect)? {
+        list.card(for: id)?.foldedRowFramesForTesting
+    }
     public func cardShowsHover(_ id: NoteID) -> Bool { list.card(for: id)?.isShowingHoverForTesting ?? false }
     public func folderRowShowsHover(_ id: FolderID) -> Bool { root.folderList.row(for: id)?.isShowingHoverForTesting ?? false }
     public func setFolderRowHovered(_ id: FolderID, _ on: Bool) { root.folderList.row(for: id)?.setHoveredForSnapshot(on) }

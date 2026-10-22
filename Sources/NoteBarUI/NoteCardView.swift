@@ -466,17 +466,18 @@ final class NoteCardView: NSView {
         if isFolded {
             let bw = badge.isHidden ? 0 : badge.intrinsicContentSize.width
             let rowH = Metrics.cardTitleRowHeight
-            // Pin on the far right (the same column as on unfolded cards), the expand button next to it.
-            // Both slots are kept while the buttons are hidden, so the badge does not move on hover.
+            // Right to left: pin, expand button, date, "+ N lines" badge, title. The button and date slots
+            // are kept while those are hidden (the date shows on hover), so the badge never moves.
             pinButton.frame = NSRect(x: cr.maxX - Metrics.pinButtonInset - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
             expandButton.frame = NSRect(x: pinButton.frame.minX - 4 - pin, y: y + (rowH - pin) / 2, width: pin, height: pin)
-            badge.frame = NSRect(x: expandButton.frame.minX - 4 - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
-            var right = badge.isHidden ? expandButton.frame.minX - 4 : badge.frame.minX - 6
-            if let dateLabel {
-                let dw = dateReserve
-                dateLabel.frame = NSRect(x: right - dw, y: y + (rowH - 16) / 2, width: dw, height: 16)
-                if footerVisible { right = dateLabel.frame.minX - 6 }
-            }
+            let dateRight = expandButton.frame.minX - 4
+            let dw = dateReserve
+            dateLabel?.frame = NSRect(x: dateRight - dw, y: y + (rowH - 16) / 2, width: dw, height: 16)
+            let badgeRight = dateRight - dw - 6
+            badge.frame = NSRect(x: badgeRight - bw, y: y + (rowH - 20) / 2, width: bw, height: 20)
+            var right = badge.isHidden ? badgeRight : badge.frame.minX - 6
+            // No badge: the title may use the date slot while the date is hidden.
+            if badge.isHidden, !footerVisible || dateLabel == nil { right = dateRight }
             footer?.frame = .zero
             formatButton.isHidden = true
             modeButton.isHidden = true
@@ -678,6 +679,11 @@ final class NoteCardView: NSView {
     /// Forces the hover chrome on/off (snapshots).
     func setHoveredForSnapshot(_ on: Bool) { mouseInside = on }
     var isShowingHoverForTesting: Bool { hovering }
+    /// Folded row frames (badge, date, expand button), for checks. The date is nil until first shown.
+    var foldedRowFramesForTesting: (badge: NSRect?, date: NSRect?, expand: NSRect) {
+        layoutSubtreeIfNeeded()
+        return (badge.isHidden ? nil : badge.frame, dateLabel?.isHidden == false ? dateLabel?.frame : nil, expandButton.frame)
+    }
 
     private func updateFolderLabel() {
         if let name = folderName {
