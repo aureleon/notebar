@@ -224,9 +224,34 @@ extension NSView {
     }
 }
 
+/// The part of a list (bounds `size`, flipped) that stays inside the panel backdrop: the full width
+/// down to the bottom corner zone, then the backdrop inset by `outerMargin` with the cards' corner
+/// radius, concentric with the backdrop's bottom corners. A card scrolled to the bottom edge is cut
+/// like a card bottom instead of running over the backdrop's rounded corners.
+func backdropClipPath(size: NSSize) -> CGPath {
+    let w = size.width, h = size.height
+    let m = Metrics.outerMargin
+    let R = StackBackdropView.cornerRadius
+    let r = max(0, R - m)
+    let p = CGMutablePath()
+    p.move(to: CGPoint(x: 0, y: 0))
+    p.addLine(to: CGPoint(x: w, y: 0))
+    p.addLine(to: CGPoint(x: w, y: h - R))
+    p.addLine(to: CGPoint(x: w - m, y: h - R))
+    p.addLine(to: CGPoint(x: w - m, y: h - m - r))
+    p.addArc(tangent1End: CGPoint(x: w - m, y: h - m), tangent2End: CGPoint(x: w - m - r, y: h - m), radius: r)
+    p.addLine(to: CGPoint(x: m + r, y: h - m))
+    p.addArc(tangent1End: CGPoint(x: m, y: h - m), tangent2End: CGPoint(x: m, y: h - m - r), radius: r)
+    p.addLine(to: CGPoint(x: m, y: h - R))
+    p.addLine(to: CGPoint(x: 0, y: h - R))
+    p.closeSubpath()
+    return p
+}
+
 /// Fades the top / bottom edges of a scroll view (cards dissolve under the header instead of being cut).
+/// `clipToBackdrop`: also clip to `backdropClipPath`, so cards stay inside the backdrop at the bottom.
 @MainActor
-func applyEdgeFade(to scrollView: NSScrollView, top: CGFloat, bottom: CGFloat) {
+func applyEdgeFade(to scrollView: NSScrollView, top: CGFloat, bottom: CGFloat, clipToBackdrop: Bool = false) {
     scrollView.wantsLayer = true
     guard let layer = scrollView.layer else { return }
     let h = max(1, scrollView.bounds.height)
@@ -234,6 +259,17 @@ func applyEdgeFade(to scrollView: NSScrollView, top: CGFloat, bottom: CGFloat) {
     CATransaction.begin()
     CATransaction.setDisableActions(true)
     mask.frame = layer.bounds
+    if clipToBackdrop {
+        let shape = (mask.mask as? CAShapeLayer) ?? CAShapeLayer()
+        shape.frame = mask.bounds
+        // The path is in flipped view coordinates; an unflipped layer has y = 0 at the bottom.
+        var flip = layer.isGeometryFlipped ? CGAffineTransform.identity
+                                           : CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: 0, ty: scrollView.bounds.height)
+        shape.path = backdropClipPath(size: scrollView.bounds.size).copy(using: &flip)
+        if mask.mask !== shape { mask.mask = shape }
+    } else {
+        mask.mask = nil
+    }
     let clear = NSColor.clear.cgColor, solid = NSColor.black.cgColor
     mask.colors = [clear, solid, solid, clear]
     // Layer coordinates are not flipped: y = 1 is the top edge.

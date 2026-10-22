@@ -668,6 +668,35 @@ MainActor.assumeIsolated {
     print("Contracted backdrop height:", probe.backdropFrame.height)
     print("Contracted cardVisibleHeight:", probe.cardVisibleHeight(singleNote.id) ?? 0)
     Check.equal(probe.backdropFrame.height, probe.rootContentHeight, "backdrop returns to initial height after collapse")
+
+    // A note that grows (typing, pasting) grows the backdrop at once, also past the panel height: an
+    // animated backdrop would trail behind and the card's glass would show below its bottom edge.
+    NoteBarUIOptions.animations = true
+    let shortBody = "Single Note\nSome content"
+    let tallBody = shortBody + String(repeating: "\nmore content", count: 80)
+    // As typing does: the live editor changes its text (and height), then the store follows.
+    @MainActor func setBody(_ body: String) {
+        store.updateNoteBody(id: singleNote.id, body: body)
+        if let n = store.note(id: singleNote.id) { probe.editor(of: singleNote.id)?.apply(note: n) }
+        probe.layoutNow(); spin(); probe.layoutNow()
+    }
+    setBody(tallBody)
+    Check.equal(probe.lastBackdropChangeAnimated, false, "a growing note grows the backdrop without animation")
+    Check.equal(probe.backdropFrame.height, vc.view.bounds.height, "a note taller than the panel: the backdrop takes the full height")
+    // The card runs past the panel bottom: it stays inside the backdrop, cut with card corners
+    // `outerMargin` above its bottom edge instead of drawn over the backdrop's rounded corners.
+    Check.expect((probe.cardVisibleHeight(singleNote.id) ?? 0) > vc.view.bounds.height, "the tall card runs past the panel bottom")
+    let vb = vc.view.bounds
+    let mm: CGFloat = 6
+    Check.equal(probe.listClipShows(NSPoint(x: vb.midX, y: vb.height - mm - 2)), true, "list clip: shows the card just above the bottom margin")
+    Check.equal(probe.listClipShows(NSPoint(x: vb.midX, y: vb.height - 2)), false, "list clip: hides the bottom margin")
+    Check.equal(probe.listClipShows(NSPoint(x: mm + 2, y: vb.height - mm - 2)), false, "list clip: rounded bottom-left corner")
+    Check.equal(probe.listClipShows(NSPoint(x: vb.width - mm - 2, y: vb.height - mm - 2)), false, "list clip: rounded bottom-right corner")
+    Check.equal(probe.listClipShows(NSPoint(x: 2, y: vb.midY)), true, "list clip: full width above the corners (side shadows)")
+    setBody(shortBody)
+    Check.equal(probe.lastBackdropChangeAnimated, true, "a shrinking note animates the backdrop (the cards stay inside it)")
+    NoteBarUIOptions.animations = false
+    probe.layoutNow(); spin(); probe.layoutNow()
     NoteBarUIOptions.useGlass = false
 
     // MARK: Vim keys

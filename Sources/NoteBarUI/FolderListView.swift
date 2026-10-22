@@ -257,10 +257,13 @@ final class FolderListView: NSView {
         restyle()
     }
 
+    /// The panel draws its backdrop (glass): cards at the bottom edge stay inside its rounded corners.
+    var clipsToBackdrop = false { didSet { if oldValue != clipsToBackdrop { needsLayout = true } } }
+
     override func layout() {
         super.layout()
         scrollView.frame = bounds
-        applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2)
+        applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2, clipToBackdrop: clipsToBackdrop)
         let w = scrollView.contentSize.width
         let m = Metrics.outerMargin
         let pad = Metrics.folderListPadding

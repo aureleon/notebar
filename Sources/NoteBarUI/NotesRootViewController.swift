@@ -869,6 +869,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     var isEditingText: Bool { view.window?.firstResponder is NSText }
     var backdropFrame: NSRect { backdrop.frame }
+    /// For checks: whether the last backdrop resize was animated.
+    private(set) var lastBackdropChangeAnimated: Bool?
 
     /// Height of the header and the shown list, from the top, with `outerMargin` below the last element.
     var listContentHeight: CGFloat {
@@ -918,6 +920,9 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     private func fitBackdrop() {
         guard let v = rootView, header != nil else { return }
         backdrop.isHidden = !CardGlass.isEnabled(env)
+        // The lists end at the panel bottom, where the backdrop does when it takes the full height.
+        notesList.clipsToBackdrop = !backdrop.isHidden
+        folderList.clipsToBackdrop = !backdrop.isHidden
         guard !backdrop.isHidden else { return }
         let m = Metrics.outerMargin
         let bottom: CGFloat
@@ -929,16 +934,19 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             bottom = m + Metrics.headerHeight
         }
         let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
-        if backdrop.frame != f {
-            if NoteBarUIOptions.animations && v.window != nil {
-                NSAnimationContext.runAnimationGroup { ctx in
-                    ctx.duration = 0.22
-                    ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                    backdrop.animator().frame = f
-                }
-            } else {
-                backdrop.frame = f
-            }
+        guard backdrop.frame != f else { return }
+        // The cards must never stick out below the backdrop. A card that grows without animation (typing,
+        // pasting) grows the backdrop at once; otherwise the card's glass shows below the backdrop's
+        // bottom edge until the backdrop catches up. The backdrop animates only with animated card
+        // layouts (expand, reorder) and when it shrinks (the cards stay inside it while it follows them).
+        let grows = f.height > backdrop.frame.height + 0.5
+        let animate = NoteBarUIOptions.animations && v.window != nil && (!grows || notesList.isAnimatingLayout)
+        lastBackdropChangeAnimated = animate
+        NSAnimationContext.runAnimationGroup { ctx in
+            // Duration 0 also replaces a running animation (a plain frame set would not stop it).
+            ctx.duration = animate ? 0.22 : 0
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            backdrop.animator().frame = f
         }
     }
 

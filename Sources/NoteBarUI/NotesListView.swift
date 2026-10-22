@@ -185,10 +185,13 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     // MARK: Layout
 
+    /// The panel draws its backdrop (glass): cards at the bottom edge stay inside its rounded corners.
+    var clipsToBackdrop = false { didSet { if oldValue != clipsToBackdrop { needsLayout = true } } }
+
     override func layout() {
         super.layout()
         scrollView.frame = bounds
-        applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2)
+        applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2, clipToBackdrop: clipsToBackdrop)
         let visibleTop = topInset
         let accessoryH: CGFloat = topAccessory == nil ? 0 : Metrics.scopeBarHeight + Metrics.gap
         emptyView.frame = NSRect(x: Metrics.outerMargin, y: visibleTop + accessoryH + 24, width: max(0, bounds.width - 2 * Metrics.outerMargin), height: 80)
@@ -207,6 +210,8 @@ final class NotesListView: NSView, NoteCardDelegate {
     /// scrolled to the top.
     /// Height of all cards plus margins, from the last layout pass (used by snapshots).
     private(set) var lastContentHeight: CGFloat = 0
+    /// Cards are moving in an animated layout (the backdrop follows them with the same animation).
+    private(set) var isAnimatingLayout = false
 
     func layoutCards(animated: Bool, fadeIn: Set<ObjectIdentifier> = []) {
         guard !isLayingOut else { return }
@@ -251,6 +256,7 @@ final class NotesListView: NSView, NoteCardDelegate {
         doc.frame = NSRect(x: 0, y: 0, width: width, height: max(contentH, visibleH))
 
         if animated {
+            isAnimatingLayout = true
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.22
                 ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
@@ -266,6 +272,7 @@ final class NotesListView: NSView, NoteCardDelegate {
                 }
             }, completionHandler: { [weak self] in
                 MainActor.assumeIsolated {
+                    self?.isAnimatingLayout = false
                     self?.onContentExtentChange?()
                 }
             })

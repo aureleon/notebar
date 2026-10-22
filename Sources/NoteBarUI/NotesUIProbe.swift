@@ -278,6 +278,16 @@ public final class NotesUIProbe {
     public func isExpanded(_ id: NoteID) -> Bool { list.card(for: id)?.isExpanded ?? false }
     public func toggleExpand(_ id: NoteID) { root.toggleExpand(id) }
     public var backdropFrame: NSRect { root.backdropFrame }
+    public var lastBackdropChangeAnimated: Bool? { root.lastBackdropChangeAnimated }
+    /// Whether the notes list shows a point (root view coordinates) through its bottom clip. nil: no clip.
+    public func listClipShows(_ p: NSPoint) -> Bool? {
+        let sv = list.scrollView
+        guard list.clipsToBackdrop, let layer = sv.layer, let shape = (layer.mask as? CAGradientLayer)?.mask as? CAShapeLayer,
+              let path = shape.path else { return nil }
+        let v = sv.convert(p, from: root.view)
+        let lp = layer.isGeometryFlipped ? v : NSPoint(x: v.x, y: sv.bounds.height - v.y)
+        return path.contains(lp)
+    }
     public var rootContentHeight: CGFloat { root.contentHeight }
 
     /// Used rect of the card's first text line in the root view: from the live editor's text view,
