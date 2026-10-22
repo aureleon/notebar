@@ -53,6 +53,9 @@ see [Keybindings](KEYBINDINGS.md).
 - To add a picture or a file, paste it, or drop it on the panel or on a card. A file shows as a tile
   with a preview.
 - Text such as `#ff8800` shows a small sample of the color.
+- When you check an item in a checklist, it moves below the open items. Click **N completed** under
+  the open items to hide or show the checked items. Each note keeps this setting. To keep items
+  where they are, turn off Settings › Appearance › Move checked items to the bottom.
 
 ## The controls on a card
 

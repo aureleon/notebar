@@ -68,7 +68,12 @@ enum StoreSchema {
             try db.alter(table: "note") { t in t.add(column: "archivedAt", .double) }
         }
 
-        // Future migrations go here: m.registerMigration("v4-...") { db in ... }
+        // Folded "N completed" checklist items, per note.
+        m.registerMigration("v4-hide-completed") { db in
+            try db.alter(table: "note") { t in t.add(column: "hidesCompletedItems", .boolean).notNull().defaults(to: false) }
+        }
+
+        // Future migrations go here: m.registerMigration("v5-...") { db in ... }
         return m
     }
 
@@ -119,7 +124,8 @@ extension Note {
                   createdAt: Date(timeIntervalSince1970: row["createdAt"]),
                   updatedAt: Date(timeIntervalSince1970: row["updatedAt"]),
                   deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
+                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                  hidesCompletedItems: (row["hidesCompletedItems"] as Bool?) ?? false)
     }
 }
 
@@ -137,8 +143,8 @@ extension Attachment {
 enum SQL {
     static let insertFolder = "INSERT INTO folder (name, sortIndex, isPinned, color, createdAt) VALUES (?, ?, ?, ?, ?)"
     static let insertNote = """
-        INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, hidesCompletedItems)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
     static let insertAttachment = """
         INSERT INTO attachment (noteId, kind, relativePath, bookmarkData, displayName, createdAt)
@@ -150,7 +156,7 @@ enum SQL {
     }
     static func noteInsertArgs(_ n: Note) -> StatementArguments {
         [n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970]
+         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.hidesCompletedItems]
     }
     static func attachmentInsertArgs(_ a: Attachment) -> StatementArguments {
         [a.noteId, a.kind.rawValue, a.relativePath, a.bookmarkData, a.displayName, a.createdAt.timeIntervalSince1970]

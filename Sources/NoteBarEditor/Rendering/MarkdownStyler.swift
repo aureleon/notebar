@@ -5,6 +5,9 @@ import NoteBarCore
 /// Works paragraph by paragraph; unchanged runs are skipped so layout is only invalidated where needed.
 final class MarkdownStyler {
     var style: EditorStyle
+    /// Storage locations of the checklist lines that get an "N completed" row above them, and its height.
+    var completedHeads: Set<Int> = []
+    var completedRowSpacing: CGFloat = 0
 
     init(style: EditorStyle) { self.style = style }
 
@@ -119,6 +122,7 @@ final class MarkdownStyler {
                 case .checklist(let checked):
                     w += st.checkboxDiameter + st.checkboxGap
                     if checked { mark(line.contentRange, [.dim, .strike]) }
+                    if completedHeads.contains(line.range.location) { para.spacingBefore = completedRowSpacing }
                 case .bullet:
                     let rest = s.substring(with: NSRange(location: line.markerRange.location + 1, length: line.markerRange.length - 1))
                     w += st.width(of: "•", font: font) + st.indentWidth(rest, font: font, tab: st.tabInterval)

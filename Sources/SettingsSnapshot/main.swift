@@ -262,6 +262,12 @@ MainActor.assumeIsolated {
     renderAll(models, outDir: outDir, tall: tall, suffix: "-custom", tabs: [.appearance])
     settings.themeId = "default"
 
+    // Checked items move to the bottom by default.
+    Check.expect(settings.sortCheckedItems, "checked items sort to the bottom by default")
+    settings.sortCheckedItems = false
+    Check.expect(!AppSettings(defaults: defaults).sortCheckedItems, "sortCheckedItems is persisted")
+    settings.sortCheckedItems = true
+
     // Vim keys: off by default; the Shortcuts pane lists the keys when on.
     Check.expect(!settings.vimKeybinds, "vim keys are off by default")
     // Default hotkeys here (the duplicate above is only for the warning snapshot).

@@ -70,6 +70,7 @@ extension MarkdownNoteEditor {
               let a = textStorage.attribute(.attachment, at: index, effectiveRange: nil) as? EmbedAttachment,
               a.token.isCheckbox else { return }
         let range = NSRange(location: index, length: 1)
+        if sortsCheckedItems, toggleAndSort(at: index, token: a.token) { return }
         var attrs = textStorage.attributes(at: index, effectiveRange: nil)
         attrs[.attachment] = context.makeAttachment(a.token.toggled())
         let sel = textView.selectedRange()

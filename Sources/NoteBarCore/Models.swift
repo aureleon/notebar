@@ -75,15 +75,18 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     /// Set while the note is in the archive. It keeps its folder and place; `notes(in:)` and search hide
     /// it. Only `NoteStore.archiveNote` / `unarchiveNote` change it.
     public var archivedAt: Date?
+    /// The checked items at the end of each checklist are folded behind an "N completed" row.
+    public var hidesCompletedItems: Bool
 
     public init(id: NoteID, folderId: FolderID, body: String, color: NoteColor = .none,
                 sortIndex: Double, isPinned: Bool = false, isFolded: Bool = false,
                 mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil,
-                archivedAt: Date? = nil) {
+                archivedAt: Date? = nil, hidesCompletedItems: Bool = false) {
         self.id = id; self.folderId = folderId; self.body = body; self.color = color
         self.sortIndex = sortIndex; self.isPinned = isPinned; self.isFolded = isFolded
         self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
         self.archivedAt = archivedAt
+        self.hidesCompletedItems = hidesCompletedItems
     }
 
     public var isArchived: Bool { archivedAt != nil }

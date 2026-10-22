@@ -81,6 +81,11 @@ struct AppearancePane: View {
                     Text("Hide Markdown markup")
                     Text("On by default. Markers such as ** and # are hidden until the text cursor is on them. When off, the markers are shown dimmed.")
                 }
+
+                Toggle(isOn: $settings.sortCheckedItems) {
+                    Text("Move checked items to the bottom")
+                    Text("On by default. A checked item moves below the open items of its list. Click \u{201C}N completed\u{201D} to hide or show the checked items.")
+                }
             }
         }
         .formStyle(.grouped)

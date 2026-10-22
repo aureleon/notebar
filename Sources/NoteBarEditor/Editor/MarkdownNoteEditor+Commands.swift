@@ -200,6 +200,7 @@ extension MarkdownNoteEditor {
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
             return handleNewline()
         case #selector(NSResponder.deleteBackward(_:)):
+            if revealFoldedItemsBeforeCaret() { return true }
             return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.backspace)
         case #selector(NSResponder.deleteForward(_:)):
             return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.forwardDelete)

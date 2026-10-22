@@ -55,6 +55,8 @@ enum Snapshots {
         /// Text to put the pointer on (hover chrome such as the code copy button).
         var hover: String? = nil
         var width: CGFloat = 260
+        /// Fold the checked items behind the "N completed" row.
+        var hideCompleted = false
     }
 
     static func run(outputDirectory dir: URL) {
@@ -84,6 +86,8 @@ enum Snapshots {
                 let samples: [Sample] = [
                     Sample(name: "markdown", body: "Markdown\nSelect text to show the formatting toolbar, or type the markers. Examples:\n\n*italic*  **bold**. ***bold italic***. ~~strike~~. `code` ==marked text==\n> quote\n\n```c\nint main(int argc) {\n    print(\"Hello!\")\n}\n```", color: .blue),
                     Sample(name: "checklist", body: "Breakfast Shopping List\n- [ ] Eggs\n- [ ] Avocado\n- [x] Bacon\n- [ ] Orange juice #ff8800\n  - [ ] nested item that is long enough to wrap onto a second line", color: .cream),
+                    Sample(name: "checklist-completed", body: "Groceries\n- [ ] Milk\n- [ ] Coffee beans\n- [x] Eggs\n- [x] Avocados\n\nTrip\n- [ ] Hotel\n- [x] Flights", color: .yellow),
+                    Sample(name: "checklist-folded", body: "Groceries\n- [ ] Milk\n- [ ] Coffee beans\n- [x] Eggs\n- [x] Avocados\n\nTrip\n- [ ] Hotel\n- [x] Flights", color: .yellow, hideCompleted: true),
                     Sample(name: "hello", body: "Hello!\n*NoteBar* keeps notes in a panel on the edge of the screen.\n\nIt styles a subset of Markdown and supports colors, checklists, images and file shortcuts", color: .green),
                     Sample(name: "blocks", body: "# Heading 1\n## Heading 2\n### Heading 3\n- bullet one\n- bullet two\n\t- nested bullet\n1. first\n2. second\nVisit [Apple](https://apple.com) or https://example.com\n<u>underlined</u> and <span style=\"color:#E5484D\">red text</span>\n---\nColors: #ff8800, #3a7 and #0A66D8", color: .none),
                     Sample(name: "attachments", body: attBody, color: .purple),
@@ -104,6 +108,7 @@ enum Snapshots {
                 for s in all {
                     var note = env.store.createNote(in: folder.id, body: s.body, mode: s.mode, position: .bottom)
                     note.color = s.color
+                    note.hidesCompletedItems = s.hideCompleted
                     env.store.updateNote(note)
                     let url = dir.appendingPathComponent("\(dark ? "dark" : "light")-\(hide ? "hidden" : "dimmed")-\(s.name).png")
                     render(note: env.store.note(id: note.id)!, env: env, appearance: appearance, caret: s.caret, hover: s.hover,

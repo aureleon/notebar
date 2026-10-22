@@ -132,6 +132,7 @@ public final class AppSettings: ObservableObject {
         hideMarkup = get("hideMarkup", true)
         defaultNoteMode = getEnum("defaultNoteMode", .standard)
         vimKeybinds = get("vimKeybinds", false)
+        sortCheckedItems = get("sortCheckedItems", true)
         backupsEnabled = get("backupsEnabled", true)
         backupRetention = get("backupRetention", 14)
         deletedItemsRetention = getEnum("deletedItemsRetention", .oneHour)
@@ -185,6 +186,9 @@ public final class AppSettings: ObservableObject {
     /// Vim keys: notes open in Normal mode (block caret), motions and operators, `/` search, `:` commands,
     /// ⌃W J / ⌃W K between cards, j / k / l / R in the folder list. Off by default (opt-in).
     @Published public var vimKeybinds: Bool { didSet { save("vimKeybinds", vimKeybinds) } }
+    /// Checking an item moves it below the open items of its checklist, and an "N completed" row
+    /// can fold the checked items. On by default.
+    @Published public var sortCheckedItems: Bool { didSet { save("sortCheckedItems", sortCheckedItems) } }
 
     // MARK: Data
     @Published public var backupsEnabled: Bool { didSet { save("backupsEnabled", backupsEnabled) } }

@@ -18,7 +18,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     public var onEvent: ((EditorEvent) -> Void)?
 
     let env: AppEnvironment
-    private(set) var note: Note
+    var note: Note
     var mode: NoteMode { note.mode }
 
     let textStorage = NSTextStorage()
@@ -63,6 +63,11 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     var tableLayoutCache: [Int: (width: CGFloat, layout: TableGridLayout)] = [:]
     var tableViews: [TableScrollView] = []
     var tableSignature: [String] = []
+    /// Checklists (see `MarkdownNoteEditor+Checklists`): the checked items at the end of each block,
+    /// the line indices of their first lines as of the last restyle, and the "N completed" rows.
+    var completedGroups: [CompletedGroup] = []
+    var completedHeadLines: Set<Int> = []
+    var completedRows: [CompletedRowView] = []
     /// Standard notes: the caret is in code (block or `span`), so autocorrect / text replacement /
     /// smart insert are off. nil = not decided yet.
     private var caretInCodeState: Bool?
@@ -208,6 +213,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
             if key == "vimKeybinds" { MainActor.assumeIsolated { self?.vimSettingsChanged() }; return }
+            if key == "sortCheckedItems" { MainActor.assumeIsolated { self?.restyle(dirty: nil); self?.layoutDidChange() }; return }
             guard key == nil || key == "hideMarkup" else { return }
             MainActor.assumeIsolated { self?.rebuildStyle() }
         })
@@ -399,6 +405,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         let new = currentLines()
         let len = textStorage.length
         var indices: [Int] = []
+        let groups = makeCompletedGroups(new)
+        let heads = Set(groups.map(\.head))
         if dirty == nil || old.isEmpty || len < 2000 {
             indices = Array(new.indices)
         } else if let d = dirty {
@@ -415,12 +423,19 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                 }
             }
         }
+        // Lines that got or lost the space of an "N completed" row.
+        indices += heads.symmetricDifference(completedHeadLines).filter { $0 < new.count }
+        styler.completedHeads = Set(heads.map { new[$0].range.location })
+        styler.completedRowSpacing = completedRowHeight
         isApplyingInternal = true
         styler.style(textStorage, lines: new, indices: indices)
         isApplyingInternal = false
         styledLines = new
         pendingDirty = nil
+        completedGroups = groups
+        completedHeadLines = heads
         tablesDidChange()
+        updateCompletedCollapse()
     }
 
     /// Turns raw `- [ ] ` / attachment tokens typed or pasted as text into attachment characters.
@@ -658,6 +673,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
 
     func updateReveal() {
         updateTableCollapse()
+        updateCompletedCollapse()
         let new = computeReveal()
         let old = layoutManagerNB.revealed
         guard new != old else { return }
@@ -725,6 +741,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         // The vim prompt sits at the bottom of the editor (of the card when it is expanded).
         vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
         positionTableViews()
+        positionCompletedRows()
         if abs(measured + ph - reportedHeight) > 0.5, reportedHeight >= 0 {
             // Width change altered the height: tell the host after this layout pass.
             DispatchQueue.main.async { [weak self] in self?.layoutDidChange() }
@@ -744,6 +761,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
         }
         positionTableViews()
+        positionCompletedRows()
         if abs(h - reportedHeight) > 0.5 {
             reportedHeight = h
             invalidateIntrinsicContentSize()
@@ -786,6 +804,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             replaceMarkdown(new.body, selection: nil, undoable: false)
         }
         if new.color != old.color { rebuildStyle() }
+        if new.hidesCompletedItems != old.hidesCompletedItems { updateCompletedCollapse() }
     }
 
     public func focus(atEnd: Bool) {
@@ -833,6 +852,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         searchRanges = found
         let color = style.highlight
         for m in found { layoutManagerNB.addTemporaryAttribute(.backgroundColor, value: color, forCharacterRange: m) }
+        updateCompletedCollapse()
     }
 
     /// Number of matches marked by the current search.
@@ -850,6 +870,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !searchRanges.isEmpty else { return }
         searchRanges = []
         layoutManagerNB.removeTemporaryAttribute(.backgroundColor, forCharacterRange: NSRange(location: 0, length: textStorage.length))
+        updateCompletedCollapse()
     }
 
     // MARK: Toolbar
