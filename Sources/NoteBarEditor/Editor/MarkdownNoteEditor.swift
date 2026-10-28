@@ -423,6 +423,14 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                 }
             }
         }
+        // Sub-lines follow their owner's text indent: restyle them with it, and when they gain or lose one.
+        var styled = Set(indices)
+        for i in new.indices where !styled.contains(i) {
+            let o = ListEditing.subLineOwner(in: new, line: i)
+            let oi = i - (new.count - old.count)
+            let had = oi >= 0 && oi < old.count && ListEditing.subLineOwner(in: old, line: oi) != nil
+            if o.map(styled.contains) == true || (o != nil) != had { indices.append(i); styled.insert(i) }
+        }
         // Lines that got or lost the space of an "N completed" row.
         indices += heads.symmetricDifference(completedHeadLines).filter { $0 < new.count }
         styler.completedHeads = Set(heads.map { new[$0].range.location })
@@ -526,10 +534,24 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         scheduleToolbarUpdate()
     }
 
+    /// The caret never rests inside a sub-line's hidden indent (typing there would un-indent the line):
+    /// it snaps to the text start, or to the end of the line above when moving back past it.
+    public func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange old: NSRange,
+                         toCharacterRange new: NSRange) -> NSRange {
+        guard new.length == 0, new.location < textStorage.length else { return new }
+        var r = NSRange()
+        guard textStorage.attribute(.nbIndent, at: new.location, longestEffectiveRange: &r,
+                                    in: NSRange(location: 0, length: textStorage.length)) != nil else { return new }
+        if old.length == 0, old.location == r.end, new.location < old.location, r.location > 0 {
+            return NSRange(location: r.location - 1, length: 0)
+        }
+        return NSRange(location: r.end, length: 0)
+    }
+
     public func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],
                          toAttributes newTypingAttributes: [NSAttributedString.Key: Any] = [:]) -> [NSAttributedString.Key: Any] {
         var a = newTypingAttributes
-        for k in [NSAttributedString.Key.nbMarker, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .nbTable, .link, .kern, .attachment] {
+        for k in [NSAttributedString.Key.nbMarker, .nbIndent, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .nbTable, .link, .kern, .attachment] {
             a[k] = nil
         }
         return a

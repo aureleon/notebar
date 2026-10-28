@@ -24,6 +24,8 @@ final class MarkdownStyler {
         static let codeColor = Flags(rawValue: 1 << 8)
         static let bullet = Flags(rawValue: 1 << 9)
         static let listMarker = Flags(rawValue: 1 << 10)
+        /// Leading whitespace of a sub-line: always hidden, the paragraph indent places the text.
+        static let hiddenIndent = Flags(rawValue: 1 << 11)
     }
 
     /// Styles the given lines. Call inside `beginEditing()` / `endEditing()` for batching.
@@ -34,7 +36,8 @@ final class MarkdownStyler {
         for i in indices where i < lines.count {
             let line = lines[i]
             guard line.fullRange.length > 0, line.fullRange.end <= storage.length else { continue }
-            for (r, attrs) in runs(for: line, in: storage, string: s) {
+            let subHead = ListEditing.subLineOwner(in: lines, line: i).map { listHead(lines[$0], s) }
+            for (r, attrs) in runs(for: line, in: storage, string: s, subHead: subHead) {
                 setIfChanged(storage, attrs, r)
             }
         }
@@ -50,7 +53,27 @@ final class MarkdownStyler {
 
     // MARK: Runs
 
-    func runs(for line: MarkdownLine, in storage: NSAttributedString, string s: NSString) -> [(NSRange, [NSAttributedString.Key: Any])] {
+    /// Text indent of list line `line`: where its content starts (after the indent and marker).
+    func listHead(_ line: MarkdownLine, _ s: NSString) -> CGFloat {
+        let st = style
+        let font = st.bodyFont
+        let indentStr = s.substring(with: NSRange(location: line.range.location, length: line.indent))
+        var w = st.indentWidth(indentStr, font: font, tab: st.tabInterval)
+        switch line.kind {
+        case .checklist:
+            w += st.checkboxDiameter + st.checkboxGap
+        case .bullet:
+            let rest = s.substring(with: NSRange(location: line.markerRange.location + 1, length: line.markerRange.length - 1))
+            w += st.width(of: "•", font: font) + st.indentWidth(rest, font: font, tab: st.tabInterval)
+        default:
+            w += st.width(of: s.substring(with: line.markerRange), font: font)
+        }
+        return ceil(w)
+    }
+
+    /// `subHead`: the line is a sub-line of a list item whose text starts there (`listHead`).
+    func runs(for line: MarkdownLine, in storage: NSAttributedString, string s: NSString,
+              subHead: CGFloat? = nil) -> [(NSRange, [NSAttributedString.Key: Any])] {
         let st = style
         let full = line.fullRange
         let n = full.length
@@ -115,23 +138,16 @@ final class MarkdownStyler {
                 lineAttrs[.nbRule] = true
                 mark(line.range, .marker)
             case .bullet, .numbered, .checklist:
-                let font = st.bodyFont
-                let indentStr = s.substring(with: NSRange(location: line.range.location, length: line.indent))
-                var w = st.indentWidth(indentStr, font: font, tab: st.tabInterval)
                 switch line.kind {
                 case .checklist(let checked):
-                    w += st.checkboxDiameter + st.checkboxGap
                     if checked { mark(line.contentRange, [.dim, .strike]) }
                     if completedHeads.contains(line.range.location) { para.spacingBefore = completedRowSpacing }
                 case .bullet:
-                    let rest = s.substring(with: NSRange(location: line.markerRange.location + 1, length: line.markerRange.length - 1))
-                    w += st.width(of: "•", font: font) + st.indentWidth(rest, font: font, tab: st.tabInterval)
                     mark(NSRange(location: line.markerRange.location, length: 1), [.bullet, .listMarker])
                 default:
-                    w += st.width(of: s.substring(with: line.markerRange), font: font)
                     mark(line.markerRange, .listMarker)
                 }
-                para.head = ceil(w)
+                para.head = listHead(line, s)
             case .table:
                 // Raw rows (shown while the caret is in the table) use the code font, so padded
                 // pipes line up. Out of the table, `TableGridView` draws the rendered grid instead.
@@ -144,7 +160,10 @@ final class MarkdownStyler {
                     for p in TableSyntax.row(s, line.range).pipes { mark(NSRange(location: p, length: 1), .marker) }
                 }
             case .blank, .paragraph:
-                break
+                if let h = subHead {
+                    para.head = h; para.first = h
+                    mark(NSRange(location: line.range.location, length: line.indent), .hiddenIndent)
+                }
             }
             if line.isTitle {
                 bold = true
@@ -218,6 +237,7 @@ final class MarkdownStyler {
             if f.contains(.underline) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if f.contains(.highlight) { a[.nbHighlight] = st.highlight }
             if f.contains(.marker) { a[.nbMarker] = true }
+            if f.contains(.hiddenIndent) { a[.nbIndent] = true }
             if f.contains(.bullet) { a[.nbBullet] = true }
             if linkAt[k] >= 0 { a[.link] = links[linkAt[k]] }
             if let c = swatches[k] {

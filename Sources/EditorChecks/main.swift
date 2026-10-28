@@ -26,6 +26,7 @@ MainActor.assumeIsolated {
     CodeBlockChecks.run()
     TableChecks.run()
     ChecklistChecks.run()
+    SubLineChecks.run()
     PerfChecks.run(verbose: arguments.contains("--perf"))
 
     if let i = arguments.firstIndex(of: "--snapshot") {

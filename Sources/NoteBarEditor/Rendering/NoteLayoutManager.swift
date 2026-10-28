@@ -44,6 +44,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
 
     private func isHidden(_ index: Int, _ storage: NSTextStorage) -> Bool {
         if isInCollapsedTable(index, storage) || collapsedCheck(at: index) != nil { return true }
+        if storage.attribute(.nbIndent, at: index, effectiveRange: nil) != nil { return true }
         return hideMarkup && storage.attribute(.nbMarker, at: index, effectiveRange: nil) != nil && !isRevealed(index)
     }
 
@@ -81,7 +82,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let charRange = NSRange(location: first, length: min(storage.length, last + 1) - first)
         var interesting = collapsedChecks.contains { NSIntersectionRange($0, charRange).length > 0 }
         if !interesting { storage.enumerateAttributes(in: charRange, options: [.longestEffectiveRangeNotRequired]) { a, _, stop in
-            if (hideMarkup && a[.nbMarker] != nil) || a[.nbBullet] != nil
+            if (hideMarkup && a[.nbMarker] != nil) || a[.nbBullet] != nil || a[.nbIndent] != nil
                 || (a[.nbTable] as? Int).map({ self.collapsedTables.contains($0) }) == true {
                 interesting = true; stop.pointee = true
             }

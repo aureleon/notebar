@@ -31,6 +31,9 @@ enum ChecklistChecks {
         Check.equal(sort("L\n- [ ] a\n- [x] b\n- [ ] c\n", at: 2), "L\n- [ ] a\n- [ ] c\n- [x] b\n", "unchecked goes to the end of the open items")
         Check.equal(sort("L\n- [x] a\n- b\n- [ ] c", at: 1), nil, "a bullet at the same indent ends the block")
         Check.equal(sort("L\n- [ ] p\n\t- [x] a\n\t- [ ] b\n- [ ] q", at: 2), "L\n- [ ] p\n\t- [ ] b\n\t- [x] a\n- [ ] q", "nested level sorts on its own")
+        Check.equal(sort("L\n- [x] a\n- [ ] b\n\t- sub\n\t\tT-1\n    T-2\n- [ ] c", at: 1),
+                    "L\n- [ ] b\n\t- sub\n\t\tT-1\n    T-2\n- [ ] c\n- [x] a", "indented text lines stay with their item")
+        Check.equal(sort("L\n- [x] a\nplain\n- [ ] b", at: 1), nil, "unindented text ends the block")
         Check.equal(sort("L\r\n- [x] a\r\n- [ ] b\r\n", at: 1), "L\r\n- [ ] b\r\n- [x] a\r\n", "CRLF")
 
         // Offset map follows the moved text.

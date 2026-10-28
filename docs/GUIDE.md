@@ -56,6 +56,9 @@ see [Keybindings](KEYBINDINGS.md).
 - When you check an item in a checklist, it moves below the open items. Click **N completed** under
   the open items to hide or show the checked items. Each note keeps this setting. To keep items
   where they are, turn off Settings › Appearance › Move checked items to the bottom.
+- To add lines under a list or checklist item without starting a new item, press ⇧↩. The lines
+  line up with the item's text and move with the item. Press ↩ on an empty one to go back to a new
+  item.
 
 ## The controls on a card
 

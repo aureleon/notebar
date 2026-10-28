@@ -4,6 +4,8 @@ import NoteBarCore
 extension NSAttributedString.Key {
     /// Bool. A markdown marker character that is hidden in "invisible markdown" mode.
     static let nbMarker = NSAttributedString.Key("NoteBar.marker")
+    /// Leading whitespace of a sub-line (see `ListEditing.subLineOwner`): always hidden.
+    static let nbIndent = NSAttributedString.Key("NoteBar.indent")
     /// Bool. Character of a code fence line (the line collapses when its markers are hidden).
     static let nbFence = NSAttributedString.Key("NoteBar.fence")
     /// Int (1/2, alternating per block). Characters of a fenced code block (box drawn behind).

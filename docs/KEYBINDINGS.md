@@ -100,7 +100,8 @@ Contexts:
 | ⇧⌘L, ⇧⌘9 | Checklist | **Two keys for one action** | ″ |
 | ⌘1 / ⌘2 / ⌘3 | Heading 1 / 2 / 3 | Standard mode | `headingShortcutLevel` |
 | ⌘0 | Plain paragraph | ″ | ″ |
-| ↩ | New line; continues lists and code indent | ⇧↩ = plain line break | `handleCommand` |
+| ↩ | New line; continues lists, sub-lines and code indent. On an empty sub-line: the item's next sibling | | `handleCommand` |
+| ⇧↩ | On a list item or sub-line: a sub-line under the item, flush with its text. Elsewhere: plain line break | | ″ |
 | Tab / ⇧Tab | Indent / outdent list items (Code mode: indent lines) | | ″ |
 | ↑ on the first line / ↓ on the last line | Edit the previous / next card | | ″ |
 | Esc | Plain: leave the card. Vim Insert: go to Normal mode. | | ″, vim |

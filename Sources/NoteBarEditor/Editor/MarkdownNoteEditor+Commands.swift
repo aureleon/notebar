@@ -197,11 +197,13 @@ extension MarkdownNoteEditor {
             if caretOnLastLine() { onEvent?(.focusNext); return onEvent != nil }
             return false
         case #selector(NSResponder.insertNewline(_:)):
-            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return false }
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true { return handleLineBreak() }
             return handleNewline()
+        case #selector(NSResponder.insertLineBreak(_:)):
+            return handleLineBreak()
         case #selector(NSResponder.deleteBackward(_:)):
             if revealFoldedItemsBeforeCaret() { return true }
-            return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.backspace)
+            return mode == .standard && (applyCodeBlockEdit(CodeBlockEditing.backspace) || applyListEdit(ListEditing.joinSubLine))
         case #selector(NSResponder.deleteForward(_:)):
             return mode == .standard && applyCodeBlockEdit(CodeBlockEditing.forwardDelete)
         case #selector(NSResponder.insertTab(_:)):
@@ -224,6 +226,18 @@ extension MarkdownNoteEditor {
         case .plain: r = nil
         }
         guard let r else { return false }
+        replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Typing")
+        textView.scrollRangeToVisible(textView.selectedRange())
+        return true
+    }
+
+    /// Shift-Enter: a sub-line under a list item (`ListEditing.lineBreak`), else the default newline.
+    private func handleLineBreak() -> Bool {
+        mode == .standard && applyListEdit(ListEditing.lineBreak)
+    }
+
+    private func applyListEdit(_ f: (String, NSRange) -> TextEditResult?) -> Bool {
+        guard !textView.hasMarkedText(), let r = f(markdown, markdownSelection) else { return false }
         replaceMarkdown(r.text, selection: r.selection, undoable: true, actionName: "Typing")
         textView.scrollRangeToVisible(textView.selectedRange())
         return true

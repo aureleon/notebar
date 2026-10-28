@@ -1,13 +1,95 @@
 import Foundation
 
 /// Pure list behaviors: Enter continues / ends lists, Tab / Shift-Tab indent list items, code auto-indent.
+///
+/// Sub-lines: indented text lines under a list item belong to that item (they render flush with
+/// its text and move with it). Shift-Enter on an item or sub-line starts a sub-line; Enter on a
+/// sub-line starts another; Enter on an empty sub-line turns it into the item's next sibling.
 public enum ListEditing {
+    /// The list item that line `i` is a sub-line of, or nil. A sub-line is an indented text line (or
+    /// an indented whitespace-only line) below a list item with a smaller indent, with only that
+    /// item's children (deeper list lines, other sub-lines) between them.
+    public static func subLineOwner(in lines: [MarkdownLine], line i: Int) -> Int? {
+        func isText(_ l: MarkdownLine) -> Bool { (l.kind == .paragraph || l.kind == .blank) && !l.isTitle && l.indent > 0 }
+        guard i >= 0, i < lines.count, isText(lines[i]) else { return nil }
+        let ind = lines[i].indent
+        var j = i - 1
+        while j >= 0 {
+            let l = lines[j]
+            if l.kind.isList {
+                if l.isTitle { return nil }
+                if l.indent < ind { return j }
+            } else if !isText(l) {
+                return nil
+            }
+            j -= 1
+        }
+        return nil
+    }
+
+    /// Marker of the item after list line `line` ("- ", "3. ", "- [ ] ").
+    static func nextMarker(_ ns: NSString, _ line: MarkdownLine) -> String {
+        let markerText = ns.substring(with: line.markerRange)
+        switch line.kind {
+        case .bullet:
+            return String(markerText.prefix(1)) + " "
+        case .numbered(let n):
+            let delim = markerText.contains(")") ? ")" : "."
+            return "\(n + 1)\(delim) "
+        case .checklist:
+            let bullet = markerText.first.map { "-*+".contains($0) ? String($0) : "-" } ?? "-"
+            return "\(bullet) [ ] "
+        default:
+            return markerText.hasSuffix(" ") ? markerText : markerText + " "
+        }
+    }
+
+    static func leading(_ ns: NSString, _ line: MarkdownLine) -> String {
+        ns.substring(with: NSRange(location: line.range.location, length: line.indent))
+    }
+
+    static func insert(_ insert: String, at sel: NSRange, in text: String) -> TextEditResult {
+        let out = FormatEditing.apply([TextEdit(range: sel, replacement: insert)], to: text)
+        return TextEditResult(text: out, selection: NSRange(location: sel.location + (insert as NSString).length, length: 0))
+    }
+
+    /// Shift-Enter: on a list item (after its marker) or a sub-line, starts a sub-line of the item.
+    /// nil = insert the default newline.
+    public static func lineBreak(text: String, selection sel: NSRange) -> TextEditResult? {
+        guard sel.length == 0 else { return nil }
+        let ns = text as NSString
+        let lines = BlockScanner.scan(ns)
+        let li = BlockScanner.lineIndex(in: lines, containing: sel.location)
+        let line = lines[li]
+        if line.kind.isList, !line.isTitle {
+            guard sel.location >= line.markerRange.end else { return nil }
+            return insert("\n" + leading(ns, line) + "\t", at: sel, in: text)
+        }
+        guard subLineOwner(in: lines, line: li) != nil, sel.location >= line.range.location + line.indent else { return nil }
+        return insert("\n" + leading(ns, line), at: sel, in: text)
+    }
+
+    /// Backspace at the start of a sub-line's text joins it to the line above (its indent is hidden,
+    /// so deleting it bit by bit would do nothing visible). nil = default.
+    public static func joinSubLine(text: String, selection sel: NSRange) -> TextEditResult? {
+        guard sel.length == 0 else { return nil }
+        let ns = text as NSString
+        let lines = BlockScanner.scan(ns)
+        let li = BlockScanner.lineIndex(in: lines, containing: sel.location)
+        let line = lines[li]
+        guard li > 0, subLineOwner(in: lines, line: li) != nil, sel.location == line.range.location + line.indent else { return nil }
+        let end = lines[li - 1].range.end
+        let out = FormatEditing.apply([TextEdit(range: NSRange(location: end, length: sel.location - end), replacement: "")], to: text)
+        return TextEditResult(text: out, selection: NSRange(location: end, length: 0))
+    }
+
     /// Enter key. Returns nil when the default newline should be inserted.
     public static func newline(text: String, selection sel: NSRange) -> TextEditResult? {
         guard sel.length == 0 else { return nil }
         let ns = text as NSString
         let lines = BlockScanner.scan(ns)
-        let line = lines[BlockScanner.lineIndex(in: lines, containing: sel.location)]
+        let li = BlockScanner.lineIndex(in: lines, containing: sel.location)
+        let line = lines[li]
         let caret = sel.location
         switch line.kind {
         case .bullet, .numbered, .checklist, .quote:
@@ -23,23 +105,17 @@ public enum ListEditing {
                 return TextEditResult(text: out, selection: NSRange(location: line.range.location, length: 0))
             }
             let indent = ns.substring(with: NSRange(location: line.range.location, length: line.markerRange.location - line.range.location))
-            let markerText = ns.substring(with: line.markerRange)
-            let next: String
-            switch line.kind {
-            case .bullet:
-                next = String(markerText.prefix(1)) + " "
-            case .numbered(let n):
-                let delim = markerText.contains(")") ? ")" : "."
-                next = "\(n + 1)\(delim) "
-            case .checklist:
-                let bullet = markerText.first.map { "-*+".contains($0) ? String($0) : "-" } ?? "-"
-                next = "\(bullet) [ ] "
-            default:
-                next = markerText.hasSuffix(" ") ? markerText : markerText + " "
+            return insert("\n" + indent + nextMarker(ns, line), at: sel, in: text)
+        case .paragraph, .blank:
+            guard let o = subLineOwner(in: lines, line: li), caret >= line.range.location + line.indent else { return nil }
+            if FormatEditing.trimmed(ns, line.range).length > 0 {
+                return insert("\n" + leading(ns, line), at: sel, in: text)
             }
-            let insert = "\n" + indent + next
-            let out = FormatEditing.apply([TextEdit(range: sel, replacement: insert)], to: text)
-            return TextEditResult(text: out, selection: NSRange(location: caret + (insert as NSString).length, length: 0))
+            // Empty sub-line: becomes the owner's next sibling item.
+            let owner = lines[o]
+            let item = leading(ns, owner) + nextMarker(ns, owner)
+            let out = FormatEditing.apply([TextEdit(range: line.range, replacement: item)], to: text)
+            return TextEditResult(text: out, selection: NSRange(location: line.range.location + (item as NSString).length, length: 0))
         case .code:
             return newlineKeepingIndent(text: text, selection: sel)
         default:

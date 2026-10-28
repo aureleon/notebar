@@ -3,9 +3,10 @@ import Foundation
 /// Checked items sort below the open ones ("Move checked items to the bottom").
 ///
 /// A block is one run of sibling checklist items: checklist lines at the same indent with nothing
-/// between them but their own children (list lines indented deeper). A blank line, a paragraph, or a
-/// list line at the same or a smaller indent that is not a checklist ends the block. The title line
-/// is never part of a block. Children move with their item.
+/// between them but their own children (list lines, text lines or whitespace-only lines indented
+/// deeper; see `ListEditing.subLineOwner`). An empty line, an
+/// unindented paragraph, or a list line at the same or a smaller indent that is not a checklist ends
+/// the block. The title line is never part of a block. Children move with their item.
 ///
 /// Works on raw markdown lines and on the editor's storage lines (both come from `BlockScanner`).
 public enum ChecklistSort {
@@ -46,7 +47,10 @@ public enum ChecklistSort {
     public static func block(in lines: [MarkdownLine], item t: Int) -> Block? {
         guard t >= 0, t < lines.count, isItem(lines[t], indent: lines[t].indent) else { return nil }
         let base = lines[t].indent
-        func isChild(_ i: Int) -> Bool { lines[i].kind.isList && lines[i].indent > base }
+        func isChild(_ i: Int) -> Bool {
+            let l = lines[i]
+            return (l.kind.isList || l.kind == .paragraph || l.kind == .blank) && l.indent > base
+        }
         var first = t
         var i = t - 1
         while i >= 0 {

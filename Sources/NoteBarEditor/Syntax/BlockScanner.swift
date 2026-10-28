@@ -37,7 +37,8 @@ public struct MarkdownLine: Equatable, Sendable {
     /// Paragraph range including its terminator.
     public var fullRange: NSRange
     public var kind: Kind
-    /// Leading whitespace length before a list marker (lists only, 0 otherwise).
+    /// Leading whitespace length: before a list marker, of an indented text line, or of a
+    /// whitespace-only (blank) line. 0 for headings, quotes, rules, code and tables.
     public var indent: Int
     /// The block marker (heading `## `, quote `> `, list marker incl. its trailing space, fence = whole line).
     /// Zero length at the line start when there is none.
@@ -194,7 +195,11 @@ public enum BlockScanner {
         // Blank?
         var i = start
         while i < end, UC.isWhitespace(s.character(at: i)) { i += 1 }
-        if i == end { return line(.blank) }
+        if i == end {
+            var w = start
+            while w < end, UC.isSpaceOrTab(ch(w)) { w += 1 }
+            return line(.blank, indent: w - start)
+        }
 
         // Leading spaces (max 3 for heading / quote / rule).
         var sp = start
@@ -278,7 +283,8 @@ public enum BlockScanner {
                 return line(.numbered(number), indent: indent, marker: NSRange(location: ind, length: m - ind))
             }
         }
-        return line(.paragraph)
+        // Indented text keeps its indent: under a list item it continues that item.
+        return line(.paragraph, indent: indent)
     }
 
     /// Index of the line containing `location` (binary search). A location at a line's end belongs to it.
