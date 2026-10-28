@@ -1047,8 +1047,19 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     probe.undoDelete()
     probe.focusList()
     probe.select(a.id)
-    key("g"); key("j")   // not a command: beeps, does nothing
+    key("g"); key("q")   // not a command: beeps, does nothing
     Check.equal(probe.selectedNoteID, a.id, "vim: an unknown g command does nothing")
+    // gj / gk reorder the selected note in its folder; it stays selected.
+    let order = probe.displayedNoteIDs
+    if let i = order.firstIndex(of: a.id), i + 1 < order.count, !(store.note(id: order[i + 1])?.isPinned ?? true) || store.note(id: a.id)!.isPinned {
+        key("g"); key("j")
+        Check.equal(probe.displayedNoteIDs.firstIndex(of: a.id), i + 1, "vim: gj moves the note down")
+        Check.equal(probe.selectedNoteID, a.id, "vim: the moved note stays selected")
+        key("g"); key("k")
+        Check.equal(probe.displayedNoteIDs, order, "vim: gk moves it back up")
+    } else {
+        Check.expect(false, "vim: gj / gk need a note with a same-zone note below (\(order))")
+    }
     probe.captureMenus(nil)
     settings.vimKeybinds = false
 }

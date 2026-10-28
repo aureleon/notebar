@@ -10,6 +10,7 @@ import NoteBarCore
 ///   into search.
 /// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←), gg / G, and the
 ///   card keys on the selected note without editing it: gp gc gm gy ge ga gx dd za zc zo. Deletes ask first.
+///   gj / gk move the selected note down / up in its folder (like ⌥⇧⌘↓ / ↑; not in search results).
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 extension NotesRootViewController {
     static let vimWindowChordTimeout: TimeInterval = 1.5
@@ -95,6 +96,10 @@ extension NotesRootViewController {
             case "gp": actions.togglePin(id)
             case "gc": popUpCardMenu(MenuBuilder.gearMenu(for: note, actions: actions), for: id)
             case "gm": showMoveMenu(for: id)
+            case "gj", "gk":
+                // Reorder within the folder; search results are not a folder order.
+                guard search == nil, !note.isArchived else { return false }
+                actions.move(id, chord == "gj" ? .down : .up)
             case "gy": actions.copyText(id)
             case "ge": toggleExpand(id)
             case "ga": actions.toggleArchive(id)

@@ -77,6 +77,7 @@ Contexts:
 | gc | Folder color menu | Color / Mode menu |
 | gx, dd | Delete folder (alert) | Delete note (alert, undoable) |
 | gm | — | Move menu |
+| gj / gk | — | Move note down / up in its folder (not in search) |
 | gy | — | Copy the note text |
 | ge | — | Expand / collapse |
 | ga | — | Archive / unarchive |
@@ -206,7 +207,7 @@ Contexts:
 | Leave / back | Esc (leave card) · ⌃[ (go back a level) · ⌘[ · ← · h | In vim, Esc and ⌃[ differ. In Vim Insert mode, ⌃[ = Esc. |
 | Next / previous card while editing | ↑ / ↓ at the text edges · ⌃W J / K | |
 | Search | ⌘F · ⌘/ · / (vim) · typing on the folder list (vim off) · ⌃⌥⌘F global | |
-| Move note | ⇧⌘M · gm · :move · ⌥⌘M (new folder) · ⌥⇧⌘↑ / ↓ | |
+| Move note | ⇧⌘M · gm · :move · ⌥⌘M (new folder) · ⌥⇧⌘↑ / ↓ · gj / gk | |
 | Float panel | ⌥⇧⌘N global and in the panel | Handled in 2 places (global hotkey + key equivalent). |
 | Undo | ⌘Z = panel undo in the list, text undo in the editor | Same key, two histories. |
 | ⌘V | Paste in the editor · new note from the clipboard in the list | Same key, two meanings. |
