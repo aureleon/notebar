@@ -142,6 +142,7 @@ extension MarkdownNoteEditor {
 
     func positionCompletedRows() {
         positionFoldChevrons()
+        defer { cursorAreasDidChange() }
         let groups = completedGroups
         guard !groups.isEmpty || !completedRows.isEmpty else { return }
         while completedRows.count > groups.count { completedRows.removeLast().removeFromSuperview() }
@@ -215,6 +216,11 @@ final class CompletedRowView: NSView {
 
     private var label: String { "\(count) completed" }
 
+    /// The chevron and the label (the clickable part), in the superview's coordinates.
+    var clickableFrame: NSRect {
+        NSRect(x: frame.minX, y: frame.minY, width: min(frame.width, contentWidth), height: frame.height)
+    }
+
     /// The chevron and the label (the clickable part).
     private var contentWidth: CGFloat {
         chevronWidth + 6 + ceil((label as NSString).size(withAttributes: [.font: font]).width)
@@ -262,8 +268,10 @@ final class CompletedRowView: NSView {
         super.updateTrackingAreas()
         for t in trackingAreas { removeTrackingArea(t) }
         addTrackingArea(NSTrackingArea(rect: NSRect(x: 0, y: 0, width: min(bounds.width, contentWidth), height: bounds.height),
-                                       options: [.mouseEnteredAndExited, .activeAlways], owner: self))
+                                       options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways], owner: self))
     }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }

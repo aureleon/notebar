@@ -85,10 +85,13 @@ enum SubLineChecks {
             let a = (h.tv.string as NSString).range(of: "a").location
             let ga = lm.boundingRect(forGlyphRange: NSRange(location: lm.glyphIndexForCharacter(at: a), length: 1), in: h.tv.textContainer!)
             Check.expect(f.minX >= ga.minX + 1 && f.midY > ga.minY && f.midY < ga.maxY, "chevron sits after the item text (\(f) vs \(ga))")
+            Check.expect(h.editor.isFoldControlForTesting(at: NSPoint(x: f.midX, y: f.midY)), "pointing hand on the chevron")
+            Check.equal(h.editor.handCursorFramesForTesting.count, 3, "hand cursor areas: the chevron and both checkboxes")
             // A click just after the last letter puts the caret at the end of the line, not before the letter.
             let end = h.tv.characterIndexForInsertion(at: NSPoint(x: ga.maxX + 1, y: ga.midY))
             Check.equal(end, a + 1, "click after the last letter: caret at the end of the item")
             Check.expect(f.minX >= ga.maxX, "chevron is after the last letter")
+            Check.expect(!h.editor.isFoldControlForTesting(at: NSPoint(x: ga.minX + 1, y: ga.midY)), "I-beam on the item text")
         }
         let open = h.editor.intrinsicContentSize.height
         h.editor.toggleFoldForTesting(0)

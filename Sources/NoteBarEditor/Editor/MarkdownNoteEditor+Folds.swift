@@ -132,7 +132,59 @@ extension MarkdownNoteEditor {
         }
     }
 
+    /// True when `p` (text view coordinates) is on a fold chevron or the clickable part of an
+    /// "N completed" row: the pointer shows the pointing hand there, not the I-beam.
+    func isFoldControl(at p: NSPoint) -> Bool {
+        foldControlFrames.contains { $0.contains(p) }
+    }
+
+    /// Clickable frames of the fold chevrons and "N completed" rows, in text view coordinates.
+    var foldControlFrames: [NSRect] {
+        foldChevrons.filter { !$0.isHidden }.map(\.frame) + completedRows.filter { !$0.isHidden }.map(\.clickableFrame)
+    }
+
+    /// Areas of the text view (its coordinates) with a cursor other than the I-beam: the pointing hand
+    /// on fold controls and the visible checkboxes and file tiles.
+    var cursorAreas: [(frame: NSRect, cursor: NSCursor)] {
+        var out = foldControlFrames.map { ($0, NSCursor.pointingHand) }
+        let lm = layoutManagerNB
+        let len = textStorage.length
+        guard len > 0 else { return out }
+        let origin = textView.textContainerOrigin
+        let visible = textView.visibleRect.offsetBy(dx: -origin.x, dy: -origin.y)
+        let glyphs = lm.glyphRange(forBoundingRect: visible, in: container)
+        let chars = lm.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        guard chars.length > 0, chars.end <= len else { return out }
+        textStorage.enumerateAttribute(.attachment, in: chars, options: []) { value, range, _ in
+            guard let a = value as? EmbedAttachment else { return }
+            if case .attachment(_, true, _, _) = a.token { return }   // images: I-beam (a click selects them)
+            for ci in range.location..<range.end {
+                if lm.collapsedFold(at: ci) != nil { continue }
+                let g = lm.glyphIndexForCharacter(at: ci)
+                let r = lm.boundingRect(forGlyphRange: NSRange(location: g, length: 1), in: container)
+                if r.width > 0, r.height > 0 { out.append((r.offsetBy(dx: origin.x, dy: origin.y), .pointingHand)) }
+            }
+        }
+        return out
+    }
+
+    var handCursorFrames: [NSRect] { cursorAreas.filter { $0.cursor == .pointingHand }.map(\.frame) }
+
+    /// The text view's cursor rects follow `cursorAreas`: rebuild them when those move.
+    func cursorAreasDidChange() {
+        let frames = cursorAreas.map(\.frame)
+        guard frames != lastHandCursorFrames else { return }
+        lastHandCursorFrames = frames
+        textView.window?.invalidateCursorRects(for: textView)
+    }
+
     // MARK: Testing
+
+    /// For checks: `handCursorFrames`.
+    public var handCursorFramesForTesting: [NSRect] { handCursorFrames }
+
+    /// For checks: `isFoldControl(at:)`.
+    public func isFoldControlForTesting(at p: NSPoint) -> Bool { isFoldControl(at: p) }
 
     /// For checks: the fold chevrons on screen (folded, frame in text view coordinates).
     public var foldChevronsForTesting: [(collapsed: Bool, frame: NSRect)] {
@@ -196,8 +248,11 @@ final class FoldChevronView: NSView {
         super.updateTrackingAreas()
         for t in trackingAreas { removeTrackingArea(t) }
         // .inVisibleRect: the area follows the frame (set after the view is created).
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+                                       owner: self))
     }
+
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }

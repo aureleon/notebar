@@ -82,6 +82,10 @@ enum ChecklistChecks {
         h4.editor.frame.size.height = h4.editor.intrinsicContentSize.height
         h4.editor.layoutSubtreeIfNeeded()
         Check.equal(h4.editor.completedRowsForTesting.map(\.count), [2], "one row: 2 completed")
+        if let f = h4.editor.completedRowsForTesting.first?.frame {
+            Check.expect(h4.editor.isFoldControlForTesting(at: NSPoint(x: f.minX + 4, y: f.midY)), "pointing hand on the completed row")
+            Check.expect(!h4.editor.isFoldControlForTesting(at: NSPoint(x: f.maxX - 2, y: f.midY)), "I-beam past the row label")
+        }
         let open = h4.editor.intrinsicContentSize.height
         h4.editor.toggleCompletedForTesting(row: 0)
         BehaviorChecks.spin()

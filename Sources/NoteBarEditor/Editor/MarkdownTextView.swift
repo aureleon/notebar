@@ -76,16 +76,56 @@ final class MarkdownTextView: NSTextView {
         if !visibleRect.contains(p) { editor?.hideCodeCopyButton() }
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
+    /// Who sets the cursor at the pointer. NSTextView sets the I-beam in `mouseMoved` and `cursorUpdate`
+    /// (its tracking area covers its whole visible rect). Setting another cursor after it flickers, so
+    /// where the cursor is not the I-beam the text view's own handling does not run at all.
+    private enum CursorOwner { case text, hand, arrow, overlay }
+
+    private func cursorOwner(_ event: NSEvent) -> CursorOwner {
+        guard let editor, let w = window, event.window === w else { return .text }
         let p = convert(event.locationInWindow, from: nil)
-        editor?.updateCodeCopyButton(at: p)
-        // super.mouseMoved sets the I-beam; the copy button on the text gets the arrow.
-        if let b = editor?.codeCopyButton, !b.isHidden, b.frame.contains(p) { NSCursor.arrow.set(); return }
-        // Links and file attachments get the pointing hand. NSTextView sets it only through cursor rects,
-        // which do not run in a card that is not being edited (and not while another app is active).
-        if editor?.clickableAttachment(at: p) == true || isLink(at: p) || editor?.isTableLink(at: p) == true {
-            NSCursor.pointingHand.set()
+        // Fold chevrons, "N completed" rows, checkboxes, file tiles and links get the pointing hand.
+        if editor.isFoldControl(at: p) || editor.clickableAttachment(at: p) || isLink(at: p) || editor.isTableLink(at: p) {
+            return .hand
+        }
+        // The code copy button gets the arrow.
+        if let b = editor.codeCopyButton, !b.isHidden, b.frame.contains(p) { return .arrow }
+        // A card control drawn over the text (the date, buttons) sets its own cursor.
+        if let content = w.contentView, let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
+           hit !== self, !hit.isDescendant(of: self), !self.isDescendant(of: hit) {
+            return .overlay
+        }
+        return .text
+    }
+
+    /// NSTextView's cursor rects (used while the window is key) leave out the areas with another cursor
+    /// (`MarkdownNoteEditor.cursorAreas`).
+    override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
+        let holes = editor?.cursorAreas.map(\.frame) ?? []
+        for r in CursorRects.subtract(holes, from: rect) { super.addCursorRect(r, cursor: object) }
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        for a in editor?.cursorAreas ?? [] { super.addCursorRect(a.frame, cursor: a.cursor) }
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        switch cursorOwner(event) {
+        case .hand: NSCursor.pointingHand.set()
+        case .arrow: NSCursor.arrow.set()
+        case .overlay: break
+        case .text: super.cursorUpdate(with: event)
+        }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        editor?.updateCodeCopyButton(at: convert(event.locationInWindow, from: nil))
+        switch cursorOwner(event) {
+        case .hand: NSCursor.pointingHand.set()
+        case .arrow: NSCursor.arrow.set()
+        case .overlay: break
+        case .text: super.mouseMoved(with: event)
         }
     }
 

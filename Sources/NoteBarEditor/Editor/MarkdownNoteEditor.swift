@@ -71,6 +71,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// List items with children (see `MarkdownNoteEditor+Folds`) and their fold chevrons.
     var itemFolds: [ItemFold] = []
     var foldChevrons: [FoldChevronView] = []
+    var lastHandCursorFrames: [NSRect] = []
     /// Standard notes: the caret is in code (block or `span`), so autocorrect / text replacement /
     /// smart insert are off. nil = not decided yet.
     private var caretInCodeState: Bool?
