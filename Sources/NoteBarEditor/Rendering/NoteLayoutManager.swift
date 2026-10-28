@@ -25,6 +25,10 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     /// line gets `completedRowHeight` (the "N completed" row sits there) and the others get none.
     var collapsedChecks: [NSRange] = []
     var completedRowHeight: CGFloat = 20
+    /// Folded children of list items (storage ranges, sorted, never inside `collapsedChecks`): hidden the
+    /// same way, with a slim first line (`itemFoldRowHeight`) for the ▸ chevron.
+    var collapsedItems: [NSRange] = []
+    var itemFoldRowHeight: CGFloat = 10
 
     private var bulletGlyphs: [String: CGGlyph] = [:]
 
@@ -43,7 +47,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     }
 
     private func isHidden(_ index: Int, _ storage: NSTextStorage) -> Bool {
-        if isInCollapsedTable(index, storage) || collapsedCheck(at: index) != nil { return true }
+        if isInCollapsedTable(index, storage) || collapsedFold(at: index) != nil { return true }
         if storage.attribute(.nbIndent, at: index, effectiveRange: nil) != nil { return true }
         return hideMarkup && storage.attribute(.nbMarker, at: index, effectiveRange: nil) != nil && !isRevealed(index)
     }
@@ -56,6 +60,13 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
     /// The folded range of completed items holding storage index `index`.
     func collapsedCheck(at index: Int) -> NSRange? {
         for r in collapsedChecks where index >= r.location && index < r.end { return r }
+        return nil
+    }
+
+    /// The folded range (completed items or an item's children) holding `index`, and its first line's height.
+    func collapsedFold(at index: Int) -> (range: NSRange, rowHeight: CGFloat)? {
+        if let r = collapsedCheck(at: index) { return (r, completedRowHeight) }
+        for r in collapsedItems where index >= r.location && index < r.end { return (r, itemFoldRowHeight) }
         return nil
     }
 
@@ -80,7 +91,7 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         let first = charIndexes[0], last = charIndexes[count - 1]
         guard first < storage.length else { return 0 }
         let charRange = NSRange(location: first, length: min(storage.length, last + 1) - first)
-        var interesting = collapsedChecks.contains { NSIntersectionRange($0, charRange).length > 0 }
+        var interesting = (collapsedChecks + collapsedItems).contains { NSIntersectionRange($0, charRange).length > 0 }
         if !interesting { storage.enumerateAttributes(in: charRange, options: [.longestEffectiveRangeNotRequired]) { a, _, stop in
             if (hideMarkup && a[.nbMarker] != nil) || a[.nbBullet] != nil || a[.nbIndent] != nil
                 || (a[.nbTable] as? Int).map({ self.collapsedTables.contains($0) }) == true {
@@ -130,8 +141,8 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
         guard let storage = textStorage, glyphRange.length > 0 else { return false }
         let ci = characterIndexForGlyph(at: glyphRange.location)
         guard ci < storage.length else { return false }
-        if let r = collapsedCheck(at: ci) {
-            let h = ci == r.location ? completedRowHeight : 0
+        if let (r, rowHeight) = collapsedFold(at: ci) {
+            let h = ci == r.location ? rowHeight : 0
             lineFragmentRect.pointee.size.height = h
             // The used rect would start below the head line's paragraph spacing (the row's space).
             lineFragmentUsedRect.pointee = NSRect(x: lineFragmentRect.pointee.minX, y: lineFragmentRect.pointee.minY,
@@ -160,14 +171,15 @@ final class NoteLayoutManager: NSLayoutManager, NSLayoutManagerDelegate {
 
     override func showAttachmentCell(_ cell: NSCell, in rect: NSRect, characterIndex attachmentIndex: Int) {
         // Folded completed items: their checkboxes are not drawn either.
-        if collapsedCheck(at: attachmentIndex) != nil { return }
+        if collapsedFold(at: attachmentIndex) != nil { return }
         super.showAttachmentCell(cell, in: rect, characterIndex: attachmentIndex)
     }
 
     override func drawStrikethrough(forGlyphRange glyphRange: NSRange, strikethroughType: NSUnderlineStyle, baselineOffset: CGFloat,
                                     lineFragmentRect lineRect: NSRect, lineFragmentGlyphRange lineGlyphRange: NSRange,
                                     containerOrigin: NSPoint) {
-        if !collapsedChecks.isEmpty, collapsedCheck(at: characterIndexForGlyph(at: glyphRange.location)) != nil { return }
+        if !collapsedChecks.isEmpty || !collapsedItems.isEmpty,
+           collapsedFold(at: characterIndexForGlyph(at: glyphRange.location)) != nil { return }
         super.drawStrikethrough(forGlyphRange: glyphRange, strikethroughType: strikethroughType, baselineOffset: baselineOffset,
                                 lineFragmentRect: lineRect, lineFragmentGlyphRange: lineGlyphRange, containerOrigin: containerOrigin)
     }

@@ -33,7 +33,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     private(set) var lines: [MarkdownLine] = []
     private var linesStale = true
     /// Lines as of the last restyle (to detect block-context changes).
-    private var styledLines: [MarkdownLine] = []
+    var styledLines: [MarkdownLine] = []
     /// Characters edited since the last restyle.
     private var pendingDirty: NSRange?
     /// Last body reported to / received from the host.
@@ -68,6 +68,9 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     var completedGroups: [CompletedGroup] = []
     var completedHeadLines: Set<Int> = []
     var completedRows: [CompletedRowView] = []
+    /// List items with children (see `MarkdownNoteEditor+Folds`) and their fold chevrons.
+    var itemFolds: [ItemFold] = []
+    var foldChevrons: [FoldChevronView] = []
     /// Standard notes: the caret is in code (block or `span`), so autocorrect / text replacement /
     /// smart insert are off. nil = not decided yet.
     private var caretInCodeState: Bool?
@@ -85,7 +88,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                              hideMarkup: env.settings.hideMarkup)
         styler = MarkdownStyler(style: st)
         context = EditorContext(env: env, style: st)
-        container = NSTextContainer(size: NSSize(width: 260, height: CGFloat.greatestFiniteMagnitude))
+        container = NoteTextContainer(size: NSSize(width: 260, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = false
         container.heightTracksTextView = false
         container.lineFragmentPadding = 0
@@ -423,13 +426,17 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
                 }
             }
         }
-        // Sub-lines follow their owner's text indent: restyle them with it, and when they gain or lose one.
+        // Children follow their item (sub-line indent, strike-through under a checked item): restyle
+        // them with it, and when they gain or lose a parent.
         var styled = Set(indices)
+        // An item gains or loses its chevron room with its children.
+        for i in indices { if let p = ListEditing.parentItem(in: new, of: i), styled.insert(p).inserted { indices.append(p) } }
         for i in new.indices where !styled.contains(i) {
-            let o = ListEditing.subLineOwner(in: new, line: i)
+            let p = ListEditing.parentItem(in: new, of: i)
             let oi = i - (new.count - old.count)
-            let had = oi >= 0 && oi < old.count && ListEditing.subLineOwner(in: old, line: oi) != nil
-            if o.map(styled.contains) == true || (o != nil) != had { indices.append(i); styled.insert(i) }
+            let had = oi >= 0 && oi < old.count && ListEditing.parentItem(in: old, of: oi) != nil
+            // Lines run top-down, so a restyled grandparent has already marked the parent.
+            if p.map(styled.contains) == true || (p != nil) != had { indices.append(i); styled.insert(i) }
         }
         // Lines that got or lost the space of an "N completed" row.
         indices += heads.symmetricDifference(completedHeadLines).filter { $0 < new.count }
@@ -442,6 +449,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         pendingDirty = nil
         completedGroups = groups
         completedHeadLines = heads
+        itemFolds = makeItemFolds(new)
         tablesDidChange()
         updateCompletedCollapse()
     }
@@ -551,7 +559,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     public func textView(_ textView: NSTextView, shouldChangeTypingAttributes oldTypingAttributes: [String: Any] = [:],
                          toAttributes newTypingAttributes: [NSAttributedString.Key: Any] = [:]) -> [NSAttributedString.Key: Any] {
         var a = newTypingAttributes
-        for k in [NSAttributedString.Key.nbMarker, .nbIndent, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .nbTable, .link, .kern, .attachment] {
+        for k in [NSAttributedString.Key.nbMarker, .nbIndent, .nbChevronRoom, .nbFence, .nbBullet, .nbSwatch, .nbHighlight, .nbRule, .nbTable, .link, .kern, .attachment] {
             a[k] = nil
         }
         return a
@@ -826,7 +834,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             replaceMarkdown(new.body, selection: nil, undoable: false)
         }
         if new.color != old.color { rebuildStyle() }
-        if new.hidesCompletedItems != old.hidesCompletedItems { updateCompletedCollapse() }
+        if new.hidesCompletedItems != old.hidesCompletedItems || new.foldOverrides != old.foldOverrides { updateCompletedCollapse() }
     }
 
     public func focus(atEnd: Bool) {

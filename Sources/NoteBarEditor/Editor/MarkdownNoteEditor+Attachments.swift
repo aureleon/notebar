@@ -70,6 +70,9 @@ extension MarkdownNoteEditor {
               let a = textStorage.attribute(.attachment, at: index, effectiveRange: nil) as? EmbedAttachment,
               a.token.isCheckbox else { return }
         let range = NSRange(location: index, length: 1)
+        // The item takes the default fold of its new state (checked: folded).
+        let key = foldKey(atStorage: index)
+        defer { resetFold(ofItemWithKey: key) }
         if sortsCheckedItems, toggleAndSort(at: index, token: a.token) { return }
         var attrs = textStorage.attributes(at: index, effectiveRange: nil)
         attrs[.attachment] = context.makeAttachment(a.token.toggled())

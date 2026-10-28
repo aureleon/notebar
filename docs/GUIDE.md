@@ -59,6 +59,9 @@ see [Keybindings](KEYBINDINGS.md).
 - To add lines under a list or checklist item without starting a new item, press ⇧↩. The lines
   line up with the item's text and move with the item. Press ↩ on an empty one to go back to a new
   item.
+- An item with lines or items under it shows a small arrow after its text. Click it
+  to hide or show them; each note remembers this. When you check an item, the lines under it are
+  struck through and hidden. Click the arrow to see them again.
 
 ## The controls on a card
 

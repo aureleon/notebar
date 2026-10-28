@@ -6,6 +6,9 @@ extension NSAttributedString.Key {
     static let nbMarker = NSAttributedString.Key("NoteBar.marker")
     /// Leading whitespace of a sub-line (see `ListEditing.subLineOwner`): always hidden.
     static let nbIndent = NSAttributedString.Key("NoteBar.indent")
+    /// A list item line with children (CGFloat value = the fold chevron's room): its lines end that
+    /// much short of the container width (`NoteTextContainer`).
+    static let nbChevronRoom = NSAttributedString.Key("NoteBar.chevronRoom")
     /// Bool. Character of a code fence line (the line collapses when its markers are hidden).
     static let nbFence = NSAttributedString.Key("NoteBar.fence")
     /// Int (1/2, alternating per block). Characters of a fenced code block (box drawn behind).
@@ -42,6 +45,10 @@ final class EditorStyle {
     var swatchDiameter: CGFloat { round(fontSize * 0.72) }
     var swatchGap: CGFloat { 3 }
     var swatchReserve: CGFloat { swatchDiameter + swatchGap }
+    /// Space kept free at the end of a list item with children, for its fold chevron (`FoldChevronView`).
+    var chevronWidth: CGFloat { round(fontSize * 0.9) }
+    var chevronGap: CGFloat { 4 }
+    var chevronReserve: CGFloat { chevronGap + chevronWidth }
     var checkboxDiameter: CGFloat { round(fontSize * 1.15) }
     var checkboxGap: CGFloat { round(fontSize * 0.45) }
 

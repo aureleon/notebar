@@ -47,10 +47,7 @@ public enum ChecklistSort {
     public static func block(in lines: [MarkdownLine], item t: Int) -> Block? {
         guard t >= 0, t < lines.count, isItem(lines[t], indent: lines[t].indent) else { return nil }
         let base = lines[t].indent
-        func isChild(_ i: Int) -> Bool {
-            let l = lines[i]
-            return (l.kind.isList || l.kind == .paragraph || l.kind == .blank) && l.indent > base
-        }
+        func isChild(_ i: Int) -> Bool { ListEditing.isChildLine(lines[i], base: base) }
         var first = t
         var i = t - 1
         while i >= 0 {

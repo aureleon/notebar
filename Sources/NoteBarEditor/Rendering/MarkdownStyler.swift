@@ -37,7 +37,9 @@ final class MarkdownStyler {
             let line = lines[i]
             guard line.fullRange.length > 0, line.fullRange.end <= storage.length else { continue }
             let subHead = ListEditing.subLineOwner(in: lines, line: i).map { listHead(lines[$0], s) }
-            for (r, attrs) in runs(for: line, in: storage, string: s, subHead: subHead) {
+            let done = ListEditing.hasCheckedAncestor(in: lines, line: i)
+            let foldable = style.mode == .standard && line.kind.isList && ListEditing.isFoldable(in: lines, item: i, string: s)
+            for (r, attrs) in runs(for: line, in: storage, string: s, subHead: subHead, underChecked: done, foldable: foldable) {
                 setIfChanged(storage, attrs, r)
             }
         }
@@ -72,8 +74,10 @@ final class MarkdownStyler {
     }
 
     /// `subHead`: the line is a sub-line of a list item whose text starts there (`listHead`).
+    /// `underChecked`: a list item above it is checked (its text is struck through too).
+    /// `foldable`: a list item with children; its lines leave room for the fold chevron (`NoteTextContainer`).
     func runs(for line: MarkdownLine, in storage: NSAttributedString, string s: NSString,
-              subHead: CGFloat? = nil) -> [(NSRange, [NSAttributedString.Key: Any])] {
+              subHead: CGFloat? = nil, underChecked: Bool = false, foldable: Bool = false) -> [(NSRange, [NSAttributedString.Key: Any])] {
         let st = style
         let full = line.fullRange
         let n = full.length
@@ -148,6 +152,8 @@ final class MarkdownStyler {
                     mark(line.markerRange, .listMarker)
                 }
                 para.head = listHead(line, s)
+                if underChecked { mark(line.contentRange, [.dim, .strike]) }
+                if foldable { lineAttrs[.nbChevronRoom] = st.chevronReserve }
             case .table:
                 // Raw rows (shown while the caret is in the table) use the code font, so padded
                 // pipes line up. Out of the table, `TableGridView` draws the rendered grid instead.
@@ -163,6 +169,9 @@ final class MarkdownStyler {
                 if let h = subHead {
                     para.head = h; para.first = h
                     mark(NSRange(location: line.range.location, length: line.indent), .hiddenIndent)
+                }
+                if underChecked {
+                    mark(NSRange(location: line.range.location + line.indent, length: line.range.length - line.indent), [.dim, .strike])
                 }
             }
             if line.isTitle {

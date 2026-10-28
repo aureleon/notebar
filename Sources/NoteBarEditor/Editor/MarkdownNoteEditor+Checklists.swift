@@ -65,13 +65,13 @@ extension MarkdownNoteEditor {
     }
 
     /// True when the selection is in the group's items (a caret at the end of the open item above is not).
-    private func selection(_ sel: NSRange, isIn g: CompletedGroup) -> Bool {
-        guard sel.end >= g.range.location else { return false }
-        if sel.location < g.range.end { return true }
+    func selection(_ sel: NSRange, isIn range: NSRange) -> Bool {
+        guard sel.end >= range.location else { return false }
+        if sel.location < range.end { return true }
         // The last line of the note has no terminator: its end is still in it.
         let s = storageString
-        return sel.location == g.range.end && g.range.end == s.length && g.range.length > 0
-            && !UC.isLineTerminator(s.character(at: g.range.end - 1))
+        return sel.location == range.end && range.end == s.length && range.length > 0
+            && !UC.isLineTerminator(s.character(at: range.end - 1))
     }
 
     /// Groups shown folded right now.
@@ -80,7 +80,7 @@ extension MarkdownNoteEditor {
         let sel = textView.selectedRange()
         let focused = isEditingFocused
         return completedGroups.filter { g in
-            if focused, selection(sel, isIn: g) { return false }
+            if focused, selection(sel, isIn: g.range) { return false }
             if searchRanges.contains(where: { NSIntersectionRange($0, g.range).length > 0 }) { return false }
             return true
         }
@@ -90,12 +90,15 @@ extension MarkdownNoteEditor {
     func updateCompletedCollapse() {
         let lm = layoutManagerNB
         lm.completedRowHeight = completedRowHeight
+        lm.itemFoldRowHeight = itemFoldRowHeight
         let new = foldedGroups().map(\.range)
-        let old = lm.collapsedChecks
-        if new != old {
+        let newItems = foldedItemRanges(outside: new)
+        let old = lm.collapsedChecks, oldItems = lm.collapsedItems
+        if new != old || newItems != oldItems {
             lm.collapsedChecks = new
+            lm.collapsedItems = newItems
             let len = textStorage.length
-            for r in old + new {
+            for r in old + new + oldItems + newItems {
                 let c = NSIntersectionRange(r, NSRange(location: 0, length: len))
                 guard c.length > 0 else { continue }
                 lm.invalidateGlyphs(forCharacterRange: c, changeInLength: 0, actualCharacterRange: nil)
@@ -113,7 +116,8 @@ extension MarkdownNoteEditor {
     func revealFoldedItemsBeforeCaret() -> Bool {
         let sel = textView.selectedRange()
         guard sel.length == 0, sel.location > 0,
-              let r = layoutManagerNB.collapsedChecks.first(where: { $0.end == sel.location }) else { return false }
+              let r = (layoutManagerNB.collapsedChecks + layoutManagerNB.collapsedItems).first(where: { $0.end == sel.location })
+        else { return false }
         textView.setSelectedRange(NSRange(location: r.end - 1, length: 0))
         return true
     }
@@ -125,7 +129,7 @@ extension MarkdownNoteEditor {
         if n.hidesCompletedItems, isEditingFocused {
             // Folding with the caret in the items: put it at the end of the open items so they fold.
             let sel = textView.selectedRange()
-            if let g = completedGroups.first(where: { selection(sel, isIn: $0) }) {
+            if let g = completedGroups.first(where: { selection(sel, isIn: $0.range) }) {
                 textView.setSelectedRange(NSRange(location: max(0, g.range.location - 1), length: 0))
             }
         }
@@ -137,6 +141,7 @@ extension MarkdownNoteEditor {
     // MARK: Rows
 
     func positionCompletedRows() {
+        positionFoldChevrons()
         let groups = completedGroups
         guard !groups.isEmpty || !completedRows.isEmpty else { return }
         while completedRows.count > groups.count { completedRows.removeLast().removeFromSuperview() }

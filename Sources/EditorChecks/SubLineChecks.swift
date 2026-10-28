@@ -61,5 +61,81 @@ enum SubLineChecks {
         Check.equal(r.tv.selectedRange().location, tab + 1, "caret snaps past the hidden indent")
         r.tv.moveLeft(nil)
         Check.equal(r.tv.selectedRange().location, tab - 1, "left arrow from the text start goes to the line above")
+
+        foldChecks()
+    }
+
+    static func foldChecks() {
+        // Tree helpers.
+        let md = "T\n- [x] a\n\tx\n\t- b\n\t\ty\n- c\n\nplain"
+        let lines = BlockScanner.scan(md as NSString)
+        Check.equal(ListEditing.childLines(in: lines, of: 1), 2..<5, "children of an item")
+        Check.equal(ListEditing.childLines(in: lines, of: 5), 6..<6, "no children")
+        Check.equal((0..<lines.count).map { ListEditing.parentItem(in: lines, of: $0) }, [nil, nil, 1, 1, 3, nil, nil, nil], "parents")
+        Check.equal((0..<lines.count).map { ListEditing.hasCheckedAncestor(in: lines, line: $0) },
+                    [false, false, true, true, true, false, false, false], "under a checked item")
+
+        typealias H = BehaviorChecks.Harness
+        let h = H("List\n- [ ] a\n\tnote\n- [ ] b")
+        h.editor.frame.size.height = h.editor.intrinsicContentSize.height
+        h.editor.layoutSubtreeIfNeeded()
+        Check.equal(h.editor.foldChevronsForTesting.map(\.collapsed), [false], "one open chevron (only items with children)")
+        if let f = h.editor.foldChevronsForTesting.first?.frame {
+            let lm = h.tv.layoutManager!
+            let a = (h.tv.string as NSString).range(of: "a").location
+            let ga = lm.boundingRect(forGlyphRange: NSRange(location: lm.glyphIndexForCharacter(at: a), length: 1), in: h.tv.textContainer!)
+            Check.expect(f.minX >= ga.minX + 1 && f.midY > ga.minY && f.midY < ga.maxY, "chevron sits after the item text (\(f) vs \(ga))")
+            // A click just after the last letter puts the caret at the end of the line, not before the letter.
+            let end = h.tv.characterIndexForInsertion(at: NSPoint(x: ga.maxX + 1, y: ga.midY))
+            Check.equal(end, a + 1, "click after the last letter: caret at the end of the item")
+            Check.expect(f.minX >= ga.maxX, "chevron is after the last letter")
+        }
+        let open = h.editor.intrinsicContentSize.height
+        h.editor.toggleFoldForTesting(0)
+        BehaviorChecks.spin()
+        Check.equal(h.env.store.note(id: h.note.id)?.foldOverrides, ["a"], "fold saved on the note")
+        Check.equal(h.editor.foldChevronsForTesting.map(\.collapsed), [true], "chevron shows folded")
+        let folded = h.editor.intrinsicContentSize.height
+        Check.expect(folded < open - 5, "folded children take less space (\(open) -> \(folded))")
+        let note = (h.tv.string as NSString).range(of: "note").location
+        Check.expect(h.editor.glyphIsHiddenForTesting(at: note), "folded children are hidden")
+        // The caret in the children shows them (not saved).
+        h.focus(at: note + 2)
+        Check.expect(!h.editor.glyphIsHiddenForTesting(at: note), "caret in folded children shows them")
+        Check.equal(h.env.store.note(id: h.note.id)?.foldOverrides, ["a"], "still saved folded")
+        h.editor.toggleFoldForTesting(0)
+        BehaviorChecks.spin()
+        Check.equal(h.env.store.note(id: h.note.id)?.foldOverrides, [], "unfold saved")
+
+        // A long item wraps early enough for the chevron to fit, whatever its length.
+        var misses: [Int] = []
+        for n in 1...24 {
+            let w = H("List\n- [ ] " + String(repeating: "wd ", count: n) + "x\n\tnote")
+            w.editor.frame.size.height = w.editor.intrinsicContentSize.height
+            w.editor.layoutSubtreeIfNeeded()
+            guard let f = w.editor.foldChevronsForTesting.first?.frame, f.maxX <= w.tv.textContainer!.size.width + 0.5 else {
+                misses.append(n); continue
+            }
+        }
+        Check.equal(misses, [], "chevron fits in the line for every item length")
+
+        // Checking an item folds its children and strikes them through; unfolding keeps the strike.
+        let c = H("List\n- [ ] a\n\tnote\n- [ ] b")
+        c.env.settings.sortCheckedItems = false
+        c.editor.toggleCheckbox(at: 5)
+        BehaviorChecks.spin()
+        let cn = (c.tv.string as NSString).range(of: "note").location
+        Check.expect(c.editor.glyphIsHiddenForTesting(at: cn), "checked item: children folded")
+        Check.expect(c.tv.textStorage?.attribute(.strikethroughStyle, at: cn, effectiveRange: nil) != nil, "children of a checked item are struck")
+        c.editor.toggleFoldForTesting(0)
+        BehaviorChecks.spin()
+        Check.expect(!c.editor.glyphIsHiddenForTesting(at: cn), "checked item: unfolded")
+        Check.equal(c.env.store.note(id: c.note.id)?.foldOverrides, ["a"], "unfolded checked item is an override")
+        // Unchecking drops the override: open items show their children.
+        c.editor.toggleCheckbox(at: 5)
+        BehaviorChecks.spin()
+        Check.equal(c.env.store.note(id: c.note.id)?.foldOverrides, [], "toggling a checkbox resets the fold")
+        Check.expect(!c.editor.glyphIsHiddenForTesting(at: cn), "unchecked item: children shown")
+        Check.expect(c.tv.textStorage?.attribute(.strikethroughStyle, at: cn, effectiveRange: nil) == nil, "unchecked: no strike")
     }
 }

@@ -77,16 +77,20 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     public var archivedAt: Date?
     /// The checked items at the end of each checklist are folded behind an "N completed" row.
     public var hidesCompletedItems: Bool
+    /// List items whose fold differs from the default, by item text (`ListEditing.foldKey`). By
+    /// default the children of a checked item are folded and those of an open item are not.
+    public var foldOverrides: Set<String>
 
     public init(id: NoteID, folderId: FolderID, body: String, color: NoteColor = .none,
                 sortIndex: Double, isPinned: Bool = false, isFolded: Bool = false,
                 mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil,
-                archivedAt: Date? = nil, hidesCompletedItems: Bool = false) {
+                archivedAt: Date? = nil, hidesCompletedItems: Bool = false, foldOverrides: Set<String> = []) {
         self.id = id; self.folderId = folderId; self.body = body; self.color = color
         self.sortIndex = sortIndex; self.isPinned = isPinned; self.isFolded = isFolded
         self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
         self.archivedAt = archivedAt
         self.hidesCompletedItems = hidesCompletedItems
+        self.foldOverrides = foldOverrides
     }
 
     public var isArchived: Bool { archivedAt != nil }

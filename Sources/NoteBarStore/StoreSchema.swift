@@ -73,7 +73,12 @@ enum StoreSchema {
             try db.alter(table: "note") { t in t.add(column: "hidesCompletedItems", .boolean).notNull().defaults(to: false) }
         }
 
-        // Future migrations go here: m.registerMigration("v5-...") { db in ... }
+        // List items folded differently from the default (`Note.foldOverrides`), one item text per line.
+        m.registerMigration("v5-fold-overrides") { db in
+            try db.alter(table: "note") { t in t.add(column: "foldOverrides", .text).notNull().defaults(to: "") }
+        }
+
+        // Future migrations go here: m.registerMigration("v6-...") { db in ... }
         return m
     }
 
@@ -125,8 +130,16 @@ extension Note {
                   updatedAt: Date(timeIntervalSince1970: row["updatedAt"]),
                   deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
                   archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                  hidesCompletedItems: (row["hidesCompletedItems"] as Bool?) ?? false)
+                  hidesCompletedItems: (row["hidesCompletedItems"] as Bool?) ?? false,
+                  foldOverrides: Note.decodeFoldOverrides(row["foldOverrides"]))
     }
+
+    /// `foldOverrides` column: item texts (single lines) joined by newlines.
+    static func decodeFoldOverrides(_ s: String?) -> Set<String> {
+        Set((s ?? "").split(separator: "\n", omittingEmptySubsequences: true).map(String.init))
+    }
+
+    var encodedFoldOverrides: String { foldOverrides.sorted().joined(separator: "\n") }
 }
 
 extension Attachment {
@@ -143,8 +156,9 @@ extension Attachment {
 enum SQL {
     static let insertFolder = "INSERT INTO folder (name, sortIndex, isPinned, color, createdAt) VALUES (?, ?, ?, ?, ?)"
     static let insertNote = """
-        INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, hidesCompletedItems)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, hidesCompletedItems,
+        foldOverrides)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
     static let insertAttachment = """
         INSERT INTO attachment (noteId, kind, relativePath, bookmarkData, displayName, createdAt)
@@ -156,7 +170,7 @@ enum SQL {
     }
     static func noteInsertArgs(_ n: Note) -> StatementArguments {
         [n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.hidesCompletedItems]
+         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.hidesCompletedItems, n.encodedFoldOverrides]
     }
     static func attachmentInsertArgs(_ a: Attachment) -> StatementArguments {
         [a.noteId, a.kind.rawValue, a.relativePath, a.bookmarkData, a.displayName, a.createdAt.timeIntervalSince1970]

@@ -6,25 +6,67 @@ import Foundation
 /// its text and move with it). Shift-Enter on an item or sub-line starts a sub-line; Enter on a
 /// sub-line starts another; Enter on an empty sub-line turns it into the item's next sibling.
 public enum ListEditing {
-    /// The list item that line `i` is a sub-line of, or nil. A sub-line is an indented text line (or
-    /// an indented whitespace-only line) below a list item with a smaller indent, with only that
-    /// item's children (deeper list lines, other sub-lines) between them.
-    public static func subLineOwner(in lines: [MarkdownLine], line i: Int) -> Int? {
-        func isText(_ l: MarkdownLine) -> Bool { (l.kind == .paragraph || l.kind == .blank) && !l.isTitle && l.indent > 0 }
-        guard i >= 0, i < lines.count, isText(lines[i]) else { return nil }
+    /// A line that can belong to a list item above it: a list line, or an indented text or
+    /// whitespace-only line. Never the title.
+    static func isNestable(_ l: MarkdownLine) -> Bool {
+        !l.isTitle && (l.kind.isList || ((l.kind == .paragraph || l.kind == .blank) && l.indent > 0))
+    }
+
+    /// True when `l` is a child of a list item at indent `base` (it follows the item or its other children).
+    public static func isChildLine(_ l: MarkdownLine, base: Int) -> Bool { isNestable(l) && l.indent > base }
+
+    /// The list item that line `i` belongs to: the nearest list line above with a smaller indent, with
+    /// only nestable lines between them. nil for top-level lines.
+    public static func parentItem(in lines: [MarkdownLine], of i: Int) -> Int? {
+        guard i >= 0, i < lines.count, isNestable(lines[i]), lines[i].indent > 0 else { return nil }
         let ind = lines[i].indent
         var j = i - 1
         while j >= 0 {
             let l = lines[j]
-            if l.kind.isList {
-                if l.isTitle { return nil }
-                if l.indent < ind { return j }
-            } else if !isText(l) {
-                return nil
-            }
+            guard isNestable(l) else { return nil }
+            if l.kind.isList, l.indent < ind { return j }
             j -= 1
         }
         return nil
+    }
+
+    /// The list item that line `i` is a sub-line of, or nil. A sub-line is an indented text line (or
+    /// an indented whitespace-only line) below a list item with a smaller indent, with only that
+    /// item's children (deeper list lines, other sub-lines) between them.
+    public static func subLineOwner(in lines: [MarkdownLine], line i: Int) -> Int? {
+        guard i >= 0, i < lines.count, lines[i].kind == .paragraph || lines[i].kind == .blank else { return nil }
+        return parentItem(in: lines, of: i)
+    }
+
+    /// Lines of list item `i`'s children (empty when it has none, or `i` is not a list item).
+    public static func childLines(in lines: [MarkdownLine], of i: Int) -> Range<Int> {
+        guard i >= 0, i < lines.count, lines[i].kind.isList, !lines[i].isTitle else { return (i + 1)..<(i + 1) }
+        var j = i + 1
+        while j < lines.count, isChildLine(lines[j], base: lines[i].indent) { j += 1 }
+        return (i + 1)..<j
+    }
+
+    /// True when list item `i` can fold: it has text (`foldKey`) and children that are not all blank.
+    public static func isFoldable(in lines: [MarkdownLine], item i: Int, string ns: NSString) -> Bool {
+        let c = childLines(in: lines, of: i)
+        return !c.isEmpty && c.contains { lines[$0].kind != .blank } && foldKey(ns, lines[i]) != nil
+    }
+
+    /// True when a list item above line `i` (its parent, grandparent, ...) is checked.
+    public static func hasCheckedAncestor(in lines: [MarkdownLine], line i: Int) -> Bool {
+        var p = parentItem(in: lines, of: i)
+        while let j = p {
+            if case .checklist(true) = lines[j].kind { return true }
+            p = parentItem(in: lines, of: j)
+        }
+        return false
+    }
+
+    /// Identity of a list item for its saved fold (`Note.foldOverrides`): its trimmed text. nil when empty.
+    public static func foldKey(_ ns: NSString, _ line: MarkdownLine) -> String? {
+        let t = FormatEditing.trimmed(ns, line.contentRange)
+        guard t.length > 0 else { return nil }
+        return ns.substring(with: t)
     }
 
     /// Marker of the item after list line `line` ("- ", "3. ", "- [ ] ").

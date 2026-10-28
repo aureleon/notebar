@@ -153,7 +153,9 @@ do {
     Check.equal(c, [.note(id: first.id)], "metadata-only update posts only .note")
     Check.equal(store.note(id: first.id)?.isFolded, true, "fold stored")
     var hiding = store.note(id: first.id)!; hiding.hidesCompletedItems = true
+    hiding.foldOverrides = ["Buy milk", "Trip **plan**"]
     store.updateNote(hiding)
+    Check.equal(store.note(id: first.id)?.foldOverrides, ["Buy milk", "Trip **plan**"], "fold overrides stored")
     Check.equal(store.note(id: first.id)?.hidesCompletedItems, true, "hidden completed items stored")
 
     // Reorder.
@@ -204,6 +206,7 @@ do {
     Check.equal(store2.note(id: third.id)?.color, .yellow, "color persisted")
     Check.equal(store2.note(id: third.id)?.isPinned, true, "pin persisted")
     Check.equal(store2.note(id: first.id)?.hidesCompletedItems, true, "hidden completed items persisted")
+    Check.equal(store2.note(id: first.id)?.foldOverrides, ["Buy milk", "Trip **plan**"], "fold overrides persisted")
     try! store2.close()
 
     // Delete folder: never the last one; deletes notes.
