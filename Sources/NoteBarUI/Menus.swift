@@ -189,6 +189,18 @@ enum MenuBuilder {
         let m = NSMenu()
         m.autoenablesItems = false
         let env = actions.env
+        // To another folder: an existing one (submenu) or a new one.
+        let folderItem = NSMenuItem(title: "Move to Folder", action: nil, keyEquivalent: "")
+        folderItem.image = Symbols.image("folder", size: 13)
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        for f in env.store.folders() {
+            let item = ClosureMenuItem(f.name, key: "", symbol: "folder", state: f.id == note.folderId ? .on : .off,
+                                       enabled: f.id != note.folderId) { actions.move(note.id, toFolder: f.id) }
+            sub.addItem(item)
+        }
+        folderItem.submenu = sub
+        m.addItem(folderItem)
         m.addItem(ClosureMenuItem("Move to a New Folder…", key: "m", modifiers: [.option, .command], symbol: "folder.badge.plus") {
             actions.moveToNewFolder(note.id)
         })
@@ -206,17 +218,6 @@ enum MenuBuilder {
         m.addItem(ClosureMenuItem("Move to Bottom", key: "", symbol: "arrow.down.to.line", enabled: idx < zone.upperBound) {
             actions.move(note.id, .bottom)
         })
-        m.addItem(.sectionHeader(title: "Move to Folder"))
-        let folderItem = NSMenuItem(title: "Folder", action: nil, keyEquivalent: "")
-        folderItem.image = Symbols.image("folder", size: 13)
-        let sub = NSMenu()
-        for f in env.store.folders() {
-            let item = ClosureMenuItem(f.name, key: "", symbol: "folder", state: f.id == note.folderId ? .on : .off,
-                                       enabled: f.id != note.folderId) { actions.move(note.id, toFolder: f.id) }
-            sub.addItem(item)
-        }
-        folderItem.submenu = sub
-        m.addItem(folderItem)
         return m
     }
 

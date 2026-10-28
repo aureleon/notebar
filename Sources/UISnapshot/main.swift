@@ -358,8 +358,9 @@ MainActor.assumeIsolated {
 
     // Menus.
     let moveItems = probe.showMoveMenuItems(for: hello)
-    Check.expect(moveItems.contains("Move to a New Folder…") && moveItems.contains("Move Up") && moveItems.contains("Folder"),
+    Check.expect(moveItems.contains("Move to a New Folder…") && moveItems.contains("Move Up") && moveItems.contains("Move to Folder"),
                  "move menu items: \(moveItems)")
+    Check.equal(Array(moveItems.prefix(2)), ["Move to Folder", "Move to a New Folder…"], "existing and new folder side by side, first")
     let gear = probe.gearMenuItems(for: hello)
     Check.expect(gear.contains("<colors>") && gear.contains("Standard (Markdown) ✓") && gear.contains("Code"), "gear menu: \(gear)")
     Check.expect(!gear.contains { $0.hasPrefix("Pin") || $0.hasPrefix("Unpin") || $0.hasPrefix("Fold") || $0.hasPrefix("Unfold") },
