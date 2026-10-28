@@ -71,7 +71,7 @@ struct ShortcutsPane: View {
         ("Pin note", "gp · :pin"),
         ("Fold note", "za · zc · zo · :fold · :unfold"),
         ("Color & Mode", "gc · :color [name] · :mode [name]"),
-        ("Move to folder", "gm · :move [folder]"),
+        ("Move to folder", "gm · :move [folder] (Tab completes)"),
         ("Move note down / up in folder", "gj · gk"),
         ("Copy note", "gy · :copy"),
         ("Expand / collapse card", "ge"),

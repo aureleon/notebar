@@ -6,6 +6,8 @@ enum VimKey: Equatable {
     case char(Character)
     case ctrl(Character)
     case escape, enter, backspace, tab
+    /// ⇧Tab: the previous completion in the `:` prompt; otherwise like Tab.
+    case backtab
     /// Arrows, Home / End, Page Up / Down: the text view moves the caret.
     case navigation
     /// ⌘ shortcuts: the text view handles them.
@@ -21,7 +23,7 @@ enum VimKey: Equatable {
         case 36, 76: return mods.isEmpty || mods == [.shift] ? .enter : .ignored
         case 51: return mods.isEmpty ? .backspace : .ignored
         case 117: return mods.isEmpty ? .char("x") : .ignored
-        case 48: return mods.isEmpty ? .tab : .ignored
+        case 48: return mods.isEmpty ? .tab : mods == [.shift] ? .backtab : .ignored
         case 123, 124, 125, 126, 115, 119, 116, 121: return .navigation
         default: break
         }
@@ -76,6 +78,14 @@ struct VimState {
         var text = ""
         /// Caret when the prompt opened (search starts there; Esc goes back there).
         var origin: Int
+        /// Tab completion in progress (`VimEx.completions`): Tab / ⇧Tab cycle while the text is unchanged.
+        var completion: Completion?
+    }
+    struct Completion {
+        var head: String
+        var matches: [String]
+        var index: Int
+        var text: String { head + matches[index] }
     }
 
     var mode: VimMode = .normal
@@ -423,7 +433,7 @@ extension MarkdownNoteEditor {
             // No other control key may edit the text in Normal mode (⌃K, ⌃D, ⌃T ...).
             vim.resetPending()
             return true
-        case .tab:
+        case .tab, .backtab:
             // Not a fold key (za / zc / zo are); Tab must not type a tab in Normal mode either.
             vim.resetPending()
             return true
@@ -790,8 +800,15 @@ extension MarkdownNoteEditor {
 
     private func refreshPrompt() {
         guard let p = vim.prompt, let v = vimPrompt else { return }
-        v.configure(prefix: String(p.kind.rawValue), text: p.text, font: mode == .code ? style.monoFont : style.bodyFont,
+        // While completing: which match this is ("2/5").
+        let hint = p.completion.flatMap { $0.matches.count > 1 ? "\($0.index + 1)/\($0.matches.count)" : nil }
+        v.configure(prefix: String(p.kind.rawValue), text: p.text, hint: hint, font: mode == .code ? style.monoFont : style.bodyFont,
                     color: style.text, secondary: style.text.withAlphaComponent(0.55))
+    }
+
+    /// Folders `:move` can go to (all but the note's own), in folder list order.
+    private var moveTargetFolderNames: [String] {
+        env.store.folders().filter { $0.id != note.folderId }.map(\.name)
     }
 
     private func handlePromptKey(_ key: VimKey) -> Bool {
@@ -810,17 +827,35 @@ extension MarkdownNoteEditor {
                 return true
             }
             p.text.removeLast()
+            p.completion = nil
             vim.prompt = p
             promptTextChanged()
         case .ctrl("u"):
             p.text = ""
+            p.completion = nil
             vim.prompt = p
             promptTextChanged()
         case .char(let c):
             p.text.append(c)
+            p.completion = nil
             vim.prompt = p
             promptTextChanged()
-        case .tab, .ctrl, .ignored, .navigation:
+        case .tab, .backtab:
+            guard p.kind == .command else { break }
+            let step = key == .tab ? 1 : -1
+            if var c = p.completion, c.text == p.text {
+                c.index = (c.index + step + c.matches.count) % c.matches.count
+                p.completion = c
+            } else if let (head, matches) = VimEx.completions(p.text, folders: moveTargetFolderNames), !matches.isEmpty {
+                p.completion = VimState.Completion(head: head, matches: matches, index: step > 0 ? 0 : matches.count - 1)
+            } else {
+                NSSound.beep()
+                break
+            }
+            p.text = p.completion!.text
+            vim.prompt = p
+            refreshPrompt()
+        case .ctrl, .ignored, .navigation:
             break
         case .other:
             return false
@@ -963,7 +998,7 @@ extension MarkdownNoteEditor {
             vim.count = n
             moveVisual(key == .ctrl("d") ? .down : .up)
             return true
-        case .navigation, .ignored, .ctrl, .tab:
+        case .navigation, .ignored, .ctrl, .tab, .backtab:
             return true
         case .enter:
             moveVisual(.nextLineStart)
@@ -1147,18 +1182,25 @@ final class VimPromptView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    func configure(prefix: String, text: String, font: NSFont, color: NSColor, secondary: NSColor) {
+    func configure(prefix: String, text: String, hint: String? = nil, font: NSFont, color: NSColor, secondary: NSColor) {
         let s = NSMutableAttributedString(string: prefix, attributes: [.font: font, .foregroundColor: secondary])
         s.append(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]))
         s.append(NSAttributedString(string: "▏", attributes: [.font: font, .foregroundColor: color]))
+        if let hint { s.append(NSAttributedString(string: "  " + hint, attributes: [.font: font, .foregroundColor: secondary])) }
+        hintLength = hint.map { 2 + $0.count } ?? 0
         label.attributedStringValue = s
         lineColor = secondary.withAlphaComponent(0.3)
         needsLayout = true
         needsDisplay = true
     }
 
-    /// For checks: the shown command line (without the caret mark).
-    var displayedText: String { String(label.stringValue.dropLast()) }
+    private var hintLength = 0
+
+    /// For checks: the shown command line (without the caret mark and the completion hint).
+    var displayedText: String { String(label.stringValue.dropLast(hintLength + 1)) }
+
+    /// For checks: the completion hint ("2/5"), or nil.
+    var displayedHint: String? { hintLength > 0 ? String(label.stringValue.suffix(hintLength - 2)) : nil }
 
     override func layout() {
         super.layout()

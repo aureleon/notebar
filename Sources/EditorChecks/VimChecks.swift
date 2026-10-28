@@ -372,6 +372,37 @@ enum VimChecks {
         h.editor.vimKeysForTesting(":x<BS><BS>")
         Check.equal(h.editor.vimPromptTextForTesting, nil, "Backspace on an empty command line closes it")
 
+        // Tab completes the folder of :move.
+        let folders = ["Notes", "Work", "Homework", "Ideas"]
+        func comp(_ s: String) -> [String]? { VimEx.completions(s, folders: folders).map { [$0.head] + $0.matches } }
+        Check.equal(comp("move w"), ["move ", "Work", "Homework"], "prefix matches first, then names containing it")
+        Check.equal(comp("mv"), ["mv ", "Notes", "Work", "Homework", "Ideas"], "no name yet: every folder")
+        Check.equal(comp("m ID"), ["m ", "Ideas"], "any case")
+        Check.equal(comp("m zz"), ["m "], "no match")
+        Check.equal(comp("pin"), nil, "other commands do not complete")
+        let store = h.env.store
+        store.createFolder(name: "Work")
+        store.createFolder(name: "Homework")
+        let others = store.folders().filter { $0.id != h.note.folderId }.map(\.name)
+        let wk = others.filter { $0.lowercased().hasPrefix("w") } + others.filter { !$0.lowercased().hasPrefix("w") && $0.lowercased().contains("w") }
+        h.editor.vimKeysForTesting(":move w<Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":move " + wk[0], "Tab completes the first match")
+        Check.equal(h.editor.vimPromptHintForTesting, "1/\(wk.count)", "hint shows which match")
+        h.editor.vimKeysForTesting("<Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":move " + wk[1], "Tab again: the next match")
+        h.editor.vimKeysForTesting("<S-Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":move " + wk[0], "⇧Tab: the previous match")
+        h.editor.vimKeysForTesting("<CR>")
+        Check.equal(lastVim(), .moveToFolder(wk[0]), "Return moves to the completed folder")
+        h.editor.vimKeysForTesting(":m <Tab>")
+        Check.expect(!(h.editor.vimPromptTextForTesting ?? "").hasSuffix(store.folder(id: h.note.folderId)!.name),
+                     "the note's own folder is not offered")
+        h.editor.vimKeysForTesting("<BS>")
+        Check.equal(h.editor.vimPromptHintForTesting, nil, "typing ends the completion")
+        h.editor.vimKeysForTesting("<Esc>:pin<Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":pin", "Tab after another command does nothing")
+        h.editor.vimKeysForTesting("<Esc>")
+
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.
         let keys: [(String, VimCardCommand)] = [
             ("gp", .togglePin), ("gc", .showColorMenu), ("gm", .showMoveMenu), ("gy", .copyNote),

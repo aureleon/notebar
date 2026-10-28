@@ -420,6 +420,7 @@ extension MarkdownNoteEditor {
                 case "CR": special = .enter
                 case "BS": special = .backspace
                 case "Tab": special = .tab
+                case "S-Tab": special = .backtab
                 default:
                     if name.hasPrefix("C-"), name.count == 3, let ch = name.last { special = .ctrl(Character(ch.lowercased())) }
                 }
@@ -443,6 +444,8 @@ extension MarkdownNoteEditor {
         guard let p = vim.prompt else { return nil }
         return String(p.kind.rawValue) + p.text
     }
+    /// The completion hint shown in the vim prompt ("2/5"), or nil.
+    public var vimPromptHintForTesting: String? { vimPrompt?.displayedHint }
     /// The vim prompt view's frame in editor coordinates.
     public var vimPromptFrameForTesting: NSRect? { vimPrompt?.frame }
     /// The Normal-mode block caret rectangle (text view coordinates), or nil.

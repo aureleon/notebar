@@ -181,7 +181,7 @@ Contexts:
 | :format :fmt | Format menu |
 | :color [name] | Color menu, or set the color |
 | :mode [standard\|code\|plain] | Mode menu, or set the mode |
-| :move [folder] :m :mv | Move menu, or move to the folder |
+| :move [folder] :m :mv | Move menu, or move to the folder. Tab / ⇧Tab complete and cycle the folder name |
 
 ## 9. Text fields
 
