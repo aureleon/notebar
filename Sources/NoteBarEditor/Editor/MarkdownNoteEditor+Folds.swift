@@ -144,9 +144,10 @@ extension MarkdownNoteEditor {
     }
 
     /// Areas of the text view (its coordinates) with a cursor other than the I-beam: the pointing hand
-    /// on fold controls and the visible checkboxes and file tiles.
+    /// on fold controls and the visible checkboxes and file tiles, the arrow on the code copy button.
     var cursorAreas: [(frame: NSRect, cursor: NSCursor)] {
         var out = foldControlFrames.map { ($0, NSCursor.pointingHand) }
+        if let b = codeCopyButton, !b.isHidden { out.append((b.frame, .arrow)) }
         let lm = layoutManagerNB
         let len = textStorage.length
         guard len > 0 else { return out }
@@ -170,9 +171,9 @@ extension MarkdownNoteEditor {
 
     var handCursorFrames: [NSRect] { cursorAreas.filter { $0.cursor == .pointingHand }.map(\.frame) }
 
-    /// The text view's cursor rects follow `cursorAreas`: rebuild them when those move.
+    /// The text view's cursor rects follow `cursorAreas` and the tables: rebuild them when those move.
     func cursorAreasDidChange() {
-        let frames = cursorAreas.map(\.frame)
+        let frames = cursorAreas.map(\.frame) + visibleTableFrames
         guard frames != lastHandCursorFrames else { return }
         lastHandCursorFrames = frames
         textView.window?.invalidateCursorRects(for: textView)

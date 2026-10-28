@@ -53,6 +53,18 @@ enum TableChecks {
         syntaxChecks()
         scannerChecks()
         editorChecks()
+        cursorChecks()
+    }
+
+    /// Links in a grid get pointing-hand rects; a table that fits has no scroll bar area.
+    static func cursorChecks() {
+        let h = BehaviorChecks.Harness("T\n| a | b |\n|---|---|\n| [site](https://example.com) | y |\nafter", hideMarkup: true)
+        let links = h.editor.tableLinkRectsForTesting
+        Check.equal(links.count, 1, "one link rect in the grid")
+        Check.expect(links.first.map { $0.width > 10 } == true, "link rect covers the link text")
+        if let t = h.editor.renderedTablesForTesting.first?.frame {
+            Check.expect(!h.editor.isTableScrollerForTesting(at: NSPoint(x: t.midX, y: t.maxY - 2)), "no scroll bar on a table that fits")
+        }
     }
 
     static func editorChecks() {

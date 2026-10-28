@@ -47,11 +47,14 @@ extension MarkdownNoteEditor {
         b.contentTintColor = style.secondary
         b.isHidden = false
         codeCopyBlock = block
+        cursorAreasDidChange()
     }
 
     func hideCodeCopyButton() {
+        guard codeCopyButton?.isHidden == false || codeCopyBlock != nil else { return }
         codeCopyButton?.isHidden = true
         codeCopyBlock = nil
+        cursorAreasDidChange()
     }
 
     private func makeCodeCopyButton() -> NSButton {

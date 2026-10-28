@@ -88,8 +88,9 @@ final class MarkdownTextView: NSTextView {
         if editor.isFoldControl(at: p) || editor.clickableAttachment(at: p) || isLink(at: p) || editor.isTableLink(at: p) {
             return .hand
         }
-        // The code copy button gets the arrow.
+        // The code copy button and a table's scroll bar get the arrow.
         if let b = editor.codeCopyButton, !b.isHidden, b.frame.contains(p) { return .arrow }
+        if editor.isTableScroller(at: p) { return .arrow }
         // A card control drawn over the text (the date, buttons) sets its own cursor.
         if let content = w.contentView, let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)),
            hit !== self, !hit.isDescendant(of: self), !self.isDescendant(of: hit) {
@@ -99,9 +100,9 @@ final class MarkdownTextView: NSTextView {
     }
 
     /// NSTextView's cursor rects (used while the window is key) leave out the areas with another cursor
-    /// (`MarkdownNoteEditor.cursorAreas`).
+    /// (`MarkdownNoteEditor.cursorAreas`) and the tables, whose grids set their own.
     override func addCursorRect(_ rect: NSRect, cursor object: NSCursor) {
-        let holes = editor?.cursorAreas.map(\.frame) ?? []
+        let holes = (editor?.cursorAreas.map(\.frame) ?? []) + (editor?.visibleTableFrames ?? [])
         for r in CursorRects.subtract(holes, from: rect) { super.addCursorRect(r, cursor: object) }
     }
 

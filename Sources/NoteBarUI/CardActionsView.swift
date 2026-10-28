@@ -90,6 +90,7 @@ final class CardActionsView: NSView {
 
     /// Arrow over the column, never the editor's I-beam.
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     /// Clicks on the empty parts fall through to the card (so they can start a card drag).
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -124,6 +125,7 @@ final class CardDateView: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     override func draw(_ dirtyRect: NSRect) {
         let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]

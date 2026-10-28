@@ -197,6 +197,23 @@ extension MarkdownNoteEditor {
     }
 
     /// True when `p` (text view coordinates) is on a link in a rendered table.
+    /// For checks: link rects of the first rendered table (grid coordinates).
+    public var tableLinkRectsForTesting: [NSRect] { tableViews.first { !$0.isHidden }?.grid.linkRects ?? [] }
+
+    /// For checks: `isTableScroller(at:)`.
+    public func isTableScrollerForTesting(at p: NSPoint) -> Bool { isTableScroller(at: p) }
+
+    /// Frames (text view coordinates) of the tables drawn as grids.
+    var visibleTableFrames: [NSRect] { tableViews.filter { !$0.isHidden }.map(\.frame) }
+
+    /// True when `p` (text view coordinates) is on the scroll bar of a table that scrolls sideways.
+    func isTableScroller(at p: NSPoint) -> Bool {
+        for v in tableViews where !v.isHidden && v.frame.contains(p) {
+            return v.scrollerFrame.map { $0.contains(v.convert(p, from: textView)) } ?? false
+        }
+        return false
+    }
+
     func isTableLink(at p: NSPoint) -> Bool {
         for v in tableViews where !v.isHidden && v.frame.contains(p) {
             return v.grid.isLink(at: v.grid.convert(p, from: textView))

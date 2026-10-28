@@ -91,7 +91,7 @@ struct TableGridLayout: Equatable {
 
 /// Draws a table: rounded border, tinted header row, row and column lines, styled cell text.
 final class TableGridView: NSView {
-    var model: TableModel?
+    var model: TableModel? { didSet { linkRectCache = nil } }
     var grid = TableGridLayout(columns: [], rows: [])
     var borderColor: NSColor = .separatorColor
     var headerColor: NSColor = .quaternaryLabelColor
@@ -168,6 +168,50 @@ final class TableGridView: NSView {
     /// True when `p` (grid coordinates) is on a link.
     func isLink(at p: NSPoint) -> Bool { hit(at: p)?.link != nil }
 
+    /// Rects of the link text in the cells (grid coordinates), laid out as drawn. Cached per model and layout.
+    private var linkRectCache: (layout: [CGFloat], rects: [NSRect])?
+
+    var linkRects: [NSRect] {
+        let key = grid.columns + grid.rows
+        if let c = linkRectCache, c.layout == key { return c.rects }
+        var out: [NSRect] = []
+        for (r, row) in (model?.rows ?? []).enumerated() where r < grid.rows.count {
+            for (c, cell) in row.enumerated() where c < grid.columns.count && cell.text.length > 0 {
+                let full = NSRange(location: 0, length: cell.text.length)
+                var links: [NSRange] = []
+                cell.text.enumerateAttribute(.link, in: full, options: []) { v, range, _ in if v != nil { links.append(range) } }
+                guard !links.isEmpty else { continue }
+                let rect = grid.cellRect(row: r, column: c)
+                let storage = NSTextStorage(attributedString: cell.text)
+                let lm = NSLayoutManager()
+                lm.usesFontLeading = true
+                let tc = NSTextContainer(size: NSSize(width: rect.width - 2 * TableGridLayout.padX, height: .greatestFiniteMagnitude))
+                tc.lineFragmentPadding = 0
+                lm.addTextContainer(tc)
+                storage.addLayoutManager(lm)
+                for l in links {
+                    let gr = lm.glyphRange(forCharacterRange: l, actualCharacterRange: nil)
+                    lm.enumerateEnclosingRects(forGlyphRange: gr, withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0),
+                                               in: tc) { box, _ in
+                        out.append(box.offsetBy(dx: rect.minX + TableGridLayout.padX, dy: rect.minY + TableGridLayout.padY))
+                    }
+                }
+            }
+        }
+        linkRectCache = (key, out)
+        return out
+    }
+
+    /// While the window is key: the pointing hand on links, the I-beam on the rest, the arrow (from
+    /// `TableScrollView`) on the scroll bar. The rects do not overlap (see `CursorRects`).
+    override func resetCursorRects() {
+        let links = linkRects
+        var holes = links
+        if let sv = enclosingScrollView as? TableScrollView, let s = sv.scrollerFrame { holes.append(convert(s, from: sv)) }
+        for r in CursorRects.subtract(holes, from: visibleRect) { addCursorRect(r, cursor: .iBeam) }
+        for r in links { addCursorRect(r, cursor: .pointingHand) }
+    }
+
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         guard let h = hit(at: p) else { return }
@@ -203,6 +247,17 @@ final class TableScrollView: NSScrollView {
 
     var overflows: Bool { grid.frame.width > contentView.bounds.width + 0.5 }
 
+    /// The horizontal scroll bar (own coordinates) while the table scrolls sideways, or nil.
+    var scrollerFrame: NSRect? {
+        guard overflows, let s = horizontalScroller, !s.isHidden else { return nil }
+        return s.frame
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let s = scrollerFrame { addCursorRect(s, cursor: .arrow) }
+    }
+
     override func scrollWheel(with event: NSEvent) {
         let gestureStart = event.phase == .began || event.phase == .mayBegin
         let legacy = event.phase == [] && event.momentumPhase == []
@@ -226,5 +281,7 @@ final class TableScrollView: NSScrollView {
         let f = NSRect(x: 0, y: 0, width: ceil(size.width), height: ceil(size.height))
         if grid.frame != f { grid.frame = f }
         grid.needsDisplay = true
+        window?.invalidateCursorRects(for: grid)
+        window?.invalidateCursorRects(for: self)
     }
 }

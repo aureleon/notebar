@@ -59,6 +59,8 @@ final class IconButton: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
+    /// The arrow also through cursor rects (window key), over the editor's I-beam below.
+    override func resetCursorRects() { addCursorRect(bounds, cursor: .arrow) }
 
     override func mouseEntered(with event: NSEvent) {
         hovering = true
