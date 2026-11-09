@@ -395,8 +395,10 @@ final class NoteCardView: NSView {
 
     /// The top-right part of the content area under the date (which is centered on the pin), in content
     /// coordinates. Text must not go there. Reserved for every card (not only hovered ones) so text
-    /// does not reflow when the date appears. nil: the date sits above the text (folder row).
+    /// does not reflow when the date appears. nil: the date sits above the text (folder row), or the
+    /// card has no date (Scratch).
     private func pinCornerRect(contentWidth w: CGFloat) -> NSRect? {
+        guard scratchRole == nil else { return nil }
         let minX = w - dateReserve - 6
         let dateBottom = Metrics.pinButtonInset + Metrics.pinButtonSize / 2 + 8
         let height = dateBottom - (Metrics.cardPaddingTop + folderRowHeight)
@@ -698,6 +700,7 @@ final class NoteCardView: NSView {
     func setHoveredForSnapshot(_ on: Bool) { mouseInside = on }
     var isShowingHoverForTesting: Bool { hovering }
     var pinButtonHiddenForChecks: Bool { pinButton.isHidden }
+    var hasDateLabelForChecks: Bool { dateLabel != nil }
     /// Folded row frames (badge, date, expand button), for checks. The date is nil until first shown.
     var foldedRowFramesForTesting: (badge: NSRect?, date: NSRect?, expand: NSRect) {
         layoutSubtreeIfNeeded()
@@ -853,12 +856,7 @@ final class NoteCardView: NSView {
     // MARK: Footer
 
     private func makeFooter() -> CardActionsView {
-        let d = CardDateView()
-        d.alphaValue = 0
-        d.isHidden = true
-        d.text = UIFormat.footerDate.string(from: note.updatedAt)
-        addSubview(d)
-        dateLabel = d
+        if scratchRole == nil { makeDateLabel() }
         let f = CardActionsView()
         f.alphaValue = 0
         f.isHidden = true
@@ -895,7 +893,26 @@ final class NoteCardView: NSView {
         }
     }
 
+    /// The date of the last edit, shown with the footer. A Scratch card has none: the header names
+    /// its day and the entries show their times.
+    private func makeDateLabel() {
+        let d = CardDateView()
+        d.alphaValue = footer?.alphaValue ?? 0
+        d.isHidden = footer?.isHidden ?? true
+        d.text = UIFormat.footerDate.string(from: note.updatedAt)
+        addSubview(d)
+        dateLabel = d
+    }
+
     private func scratchRoleChanged() {
+        if scratchRole != nil {
+            dateLabel?.removeFromSuperview()
+            dateLabel = nil
+        } else if footer != nil, dateLabel == nil {
+            makeDateLabel()
+        }
+        // The first line gets the room of the date back (or gives it up).
+        invalidateHeight()
         editor?.isReadOnly = isReadOnly
         updateArchiveButton()
         updateChrome(animated: false)

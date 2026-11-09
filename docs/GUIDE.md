@@ -152,7 +152,8 @@ afternoon. Every day it starts empty. To keep something, save it as a note.
   entries, with the time below it where the line showed one.
 - On today's card, the eraser button clears the note (Undo brings the text back). On an earlier day,
   the trash button deletes that day.
-- Search, the archive, pins and folds do not apply to Scratch notes.
+- Search, the archive, pins and folds do not apply to Scratch notes. The card shows no date: the
+  header names the day and the entries show their times.
 - Settings › General › Scratch:
   - **Daily Scratch note** turns the feature on (the default) or off. When it is off, the button, the
     menu item and the shortcut go away. The notes stay until they expire.
