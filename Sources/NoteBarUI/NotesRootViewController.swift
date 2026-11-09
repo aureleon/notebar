@@ -367,7 +367,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         switch screen {
         case .folders:
             header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder",
-                            showsScratch: env.settings.scratchEnabled, scratchToolTip: scratchToolTip)
+                            showsScratch: env.settings.scratchEnabled && !header.hostsTabs, scratchToolTip: scratchToolTip)
         case .scratch(let day):
             let s = env.scratch
             let days = s.days()
@@ -383,6 +383,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             header.setTitle(store.archivedFolder(id: id)?.name ?? "Archive", accent: true, showsBack: true, showsSettings: false,
                             showsPlus: false, plusToolTip: "")
         }
+        layoutFolderTabs()
     }
 
     private func setListVisibility() {

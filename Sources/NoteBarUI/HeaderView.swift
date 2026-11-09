@@ -106,6 +106,21 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     var pillRect: NSRect { bounds.insetBy(dx: Self.shadowPad, dy: Self.shadowPad) }
 
+    /// The folder tabs sit in the pill, where the back arrow and the title are otherwise.
+    var hostsTabs = false { didSet { if oldValue != hostsTabs { update(); needsLayout = true } } }
+    /// Room for the folder tabs: from the left end of the pill to the first button on the right.
+    var tabsFrame: NSRect {
+        let pill = pillRect
+        let s = Metrics.headerButtonSize
+        var right = pill.width - 8 - s                       // + (or ▶)
+        if stepper != nil || showsPlus { right -= 6 + s }    // search (or ◀)
+        if stepper == nil {
+            if showsScratch { right -= 6 + s }
+            if !settingsButton.isHidden { right -= 6 + s }
+        }
+        return NSRect(x: pill.minX + 8, y: pill.minY + (pill.height - s) / 2, width: max(0, right - 8 - 8), height: s)
+    }
+
     // MARK: State
 
     func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, showsPlus: Bool = true,
@@ -154,8 +169,9 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     private func update() {
         titleLabel.stringValue = title
-        titleLabel.isHidden = isSearching
-        backButton.isHidden = isSearching || !showsBack
+        // The folder tabs stand in for the title, and their all-folders button for the back arrow.
+        titleLabel.isHidden = isSearching || hostsTabs
+        backButton.isHidden = isSearching || !showsBack || hostsTabs
         settingsButton.isHidden = isSearching || !showsSettings
         searchButton.isHidden = isSearching || stepper != nil
         plusButton.isHidden = isSearching || !showsPlus

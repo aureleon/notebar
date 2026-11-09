@@ -62,8 +62,9 @@ public final class NotesUIProbe {
     /// Prototype: the look of the rail ("spine", "pill", "floating", "joined").
     public func setFolderTabStyle(_ name: String) {
         FolderTabRailView.style = FolderTabRailView.Style(rawValue: name) ?? .spine
-        FolderTabs.horizontal = FolderTabRailView.style == .bar
+        FolderTabs.horizontal = FolderTabRailView.style == .bar || FolderTabRailView.style == .header
         root.folderTabsSettingsChanged()
+        root.updateHeader()
         root.folderTabs.restyle()
         root.folderTabs.layoutTabs()
         for t in root.folderTabs.allTabs { t.needsDisplay = true }

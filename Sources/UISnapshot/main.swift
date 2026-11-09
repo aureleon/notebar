@@ -1181,7 +1181,7 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     resize()
 
     // The looks of the rail, side by side (prototype): 14 folders, one short note, then five folders.
-    for style in ["spine", "pill", "floating", "joined", "bar"] {
+    for style in ["spine", "pill", "floating", "joined", "bar", "header"] {
         probe.setFolderTabStyle(style)
         vc.showFolder(work.id)
         probe.layoutNow(); spin(); probe.layoutNow()
@@ -1190,9 +1190,17 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
         vc.showFolder(ideas.id)
         probe.layoutNow(); spin(); probe.layoutNow()
         render("62-style-\(style)-short-note-light")
+        if style == "header" {
+            probe.showScratch(edit: false)
+            probe.layoutNow(); spin(); probe.layoutNow()
+            render("65-style-header-scratch-light")
+            vc.showFolderList()
+            probe.layoutNow(); spin(); probe.layoutNow()
+            render("66-style-header-all-folders-light")
+        }
     }
     for f in many { store.deleteFolder(id: f.id) }
-    for style in ["spine", "pill", "floating", "joined", "bar"] {
+    for style in ["spine", "pill", "floating", "joined", "bar", "header"] {
         probe.setFolderTabStyle(style)
         vc.showFolder(work.id)
         probe.layoutNow(); spin(); probe.layoutNow()

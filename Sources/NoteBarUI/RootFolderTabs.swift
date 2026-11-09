@@ -30,9 +30,20 @@ extension NotesRootViewController {
     /// Rebuilds the tabs from the store and marks the one of the current screen.
     func updateFolderTabs() {
         guard let folderTabs else { return }
-        let on = env.settings.folderTabsEnabled
+        var on = env.settings.folderTabsEnabled
+        // In the header: not while the search field or an archive title is there.
+        var hosted = false
+        if on, FolderTabRailView.style == .header {
+            switch screen {
+            case .archive, .archivedFolder: on = false
+            default: on = search == nil
+            }
+            hosted = on
+        }
+        header?.hostsTabs = hosted
         folderTabs.isHidden = !on
         guard on else { return }
+        if case .scratch(let day) = screen { folderTabs.scratchTitle = "Scratch · \(env.scratch.title(for: day))" }
         folderTabs.reload(folders: store.folders(), showsScratch: env.settings.scratchEnabled, active: activeFolderTab)
         layoutFolderTabs()
     }
@@ -44,6 +55,13 @@ extension NotesRootViewController {
     func layoutFolderTabs() {
         guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return }
         let m = Metrics.outerMargin
+        if FolderTabRailView.style == .header {
+            let f = v.convert(header.tabsFrame, from: header)
+            if folderTabs.superview === v, v.subviews.last !== folderTabs { v.addSubview(folderTabs, positioned: .above, relativeTo: header) }
+            if folderTabs.frame != f { folderTabs.frame = f }
+            folderTabs.layoutTabs()
+            return
+        }
         if FolderTabs.horizontal {
             // A bar under the header, as wide as the header pill.
             let c = columnFrame
@@ -69,7 +87,7 @@ extension NotesRootViewController {
     /// Height of the rail from the top of the panel (0 while the tabs are off).
     /// Height the bar under the header takes from the lists (0 unless the tabs are a bar).
     var tabBarInset: CGFloat {
-        env.settings.folderTabsEnabled && FolderTabs.horizontal ? Metrics.gap + FolderTabRailView.barHeight : 0
+        env.settings.folderTabsEnabled && FolderTabRailView.style == .bar ? Metrics.gap + FolderTabRailView.barHeight : 0
     }
 
     public var railHeight: CGFloat {
