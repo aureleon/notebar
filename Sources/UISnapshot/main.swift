@@ -1032,9 +1032,10 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     render("41-tabs-folder-dark", dark: true)
     vc.showFolder(ideas.id)
     Check.equal(probe.activeFolderTabKey, key(ideas), "tabs: the active tab follows showFolder")
-    // A short folder: the rail is taller than the content and counts for the click region.
+    // A short folder: the rail ends with the notes, and the tabs that do not fit scroll.
     probe.layoutNow()
-    Check.expect(probe.railHeight > vc.contentHeight, "tabs: the rail is taller than a short folder (\(probe.railHeight) vs \(vc.contentHeight))")
+    Check.expect(probe.railHeight <= vc.contentHeight, "tabs: the rail is not taller than a short folder (\(probe.railHeight) vs \(vc.contentHeight))")
+    Check.expect(probe.folderTabsCanScroll, "tabs: a short folder, the tabs scroll")
     Check.equal(probe.railHeight, probe.folderTabRailFrame.maxY + 6, "tabs: the rail height ends below the last tab")
     probe.setFolderTabHovered(key(shopping), true)
     render("46-tabs-short-folder-hover-light")
@@ -1121,9 +1122,12 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     Check.equal(probe.activeFolderTabKey, "all", "tabs: after the open folder is deleted, the folder list is active")
     Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["all"], "tabs: back to the five folders")
 
-    // Many folders: the tabs shrink to fit the panel, then scroll.
+    // Many folders: the tabs shrink to fit beside the notes, then scroll.
+    vc.showFolder(work.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
     let railBefore = probe.railHeight
-    Check.equal(probe.folderTabHeight, 34, "tabs: full height while they fit")
+    Check.equal(probe.folderTabHeight, 34, "tabs: full height while they fit beside the notes")
+    Check.expect(!probe.folderTabsCanScroll, "tabs: five folders fit beside three notes")
     let names = ["Archive Ideas", "Budget", "Code", "Design", "Errands", "Fitness", "Garden", "House", "Journal"]
     let colors: [NoteColor] = [.none, .purple, .cream, .blue, .none, .green, .yellow, .none, .pink]
     var many: [Folder] = []
@@ -1132,13 +1136,24 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     vc.showFolder(work.id)
     probe.layoutNow(); spin(); probe.layoutNow()
     Check.equal(probe.folderTabKeys.count, 16, "tabs: 14 folder tabs, Scratch, and all folders")
-    Check.expect(probe.railHeight > railBefore, "tabs: the rail grows with the folders")
-    Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: 14 folders stay inside the panel (\(probe.folderTabRailFrame.maxY))")
-    Check.expect(probe.folderTabHeight < 34 && probe.folderTabHeight >= 22, "tabs: 14 folders, smaller tabs (\(probe.folderTabHeight))")
-    Check.expect(!probe.folderTabsCanScroll, "tabs: 14 folders fit without scrolling at this height")
-    Check.expect(many.allSatisfy { probe.isFolderTabInView(key($0)) }, "tabs: every tab is in view")
+    // Three notes are not as high as 16 tabs: the rail ends with the notes and the tabs scroll.
+    Check.expect(probe.railHeight >= railBefore && probe.railHeight <= vc.contentHeight,
+                 "tabs: 14 folders, the rail ends with the notes (\(probe.railHeight) vs \(vc.contentHeight))")
+    Check.equal(probe.folderTabHeight, 22, "tabs: 14 folders beside three notes, minimum tab height")
+    Check.expect(probe.folderTabsCanScroll, "tabs: 14 folders beside three notes scroll")
+    Check.expect(probe.isFolderTabInView(key(work)), "tabs: the open folder's tab is in view")
     render("44-tabs-14-folders-light")
     render("48-tabs-14-folders-dark", dark: true)
+    // Enough notes: every tab fits, smaller.
+    let filler = (0..<6).map { store.createNote(in: work.id, body: "Filler \($0)\nline\nline", mode: .standard, position: .bottom) }
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: 14 folders stay inside the panel (\(probe.folderTabRailFrame.maxY))")
+    Check.expect(probe.folderTabHeight < 34 && probe.folderTabHeight >= 22, "tabs: 14 folders, smaller tabs (\(probe.folderTabHeight))")
+    Check.expect(!probe.folderTabsCanScroll, "tabs: 14 folders fit without scrolling beside a long folder")
+    Check.expect(many.allSatisfy { probe.isFolderTabInView(key($0)) }, "tabs: every tab is in view")
+    render("49-tabs-14-folders-long-folder-light")
+    for n in filler { store.deleteNote(id: n.id) }
+    probe.layoutNow(); spin(); probe.layoutNow()
 
     // A short panel (small screen): minimum tab height, the folder tabs scroll between Scratch and all folders.
     height = 330

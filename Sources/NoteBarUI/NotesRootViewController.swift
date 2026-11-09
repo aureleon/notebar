@@ -1047,6 +1047,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// last element, with `outerMargin` around them.
     /// Also places the toast, then tells observers (the panel's click region, Hot Side) the new extent.
     func updateBackdrop() {
+        // The rail ends with the notes.
+        layoutFolderTabs()
         layoutToast()
         fitBackdrop()
         NotificationCenter.default.post(name: .contentExtentDidChange, object: self)

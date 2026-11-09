@@ -37,7 +37,10 @@ extension NotesRootViewController {
         layoutFolderTabs()
     }
 
-    /// Places the rail below the header, beside the first card. It ends at the panel bottom at most.
+    /// Places the rail below the header, beside the first card. It ends where the notes end (the last
+    /// card or folder row), so the panel is never taller than its content. The tabs that do not fit
+    /// scroll. A very short or empty list still leaves room for `minimumTabs` small tabs, otherwise
+    /// there would be no tab to leave it with.
     func layoutFolderTabs() {
         guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return }
         let m = Metrics.outerMargin
@@ -46,7 +49,9 @@ extension NotesRootViewController {
         let w = railInset + FolderTabRailView.tuck
         folderTabs.railOnLeft = railOnLeft
         let x = railOnLeft ? column.minX - railInset : column.maxX - FolderTabRailView.tuck
-        let available = max(0, v.bounds.height - top - m)
+        let panel = max(0, v.bounds.height - top - m)
+        let notes = min(v.bounds.height, listContentHeight) - m - top
+        let available = min(panel, max(notes, folderTabs.minimumHeight))
         let f = NSRect(x: x, y: top, width: w, height: folderTabs.fittingHeight(available: available))
         if folderTabs.frame != f { folderTabs.frame = f }
         folderTabs.layoutTabs()
