@@ -31,6 +31,44 @@ public final class NotesUIProbe {
     public var pendingDeletion: NoteID? { root.pendingDeletion }
     public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
     public var isSettingsButtonVisible: Bool { !root.header.settingsButton.isHidden }
+    // Folder tabs. Keys: "scratch", "folder:<id>", "all".
+    public var folderTabsVisible: Bool { !root.folderTabs.isHidden }
+    /// The tabs from top to bottom.
+    public var folderTabKeys: [String] { folderTabsVisible ? root.folderTabs.allTabs.map { Self.tabKey($0.kind) } : [] }
+    public var activeFolderTabKey: String? { root.folderTabs.allTabs.first(where: \.isActive).map { Self.tabKey($0.kind) } }
+    /// The letter on a folder tab (nil: a symbol tab).
+    public func folderTabLetter(_ key: String) -> String? { tab(key)?.letter }
+    public func folderTabToolTip(_ key: String) -> String? { tab(key)?.toolTip }
+    /// The tab's base colour and the colour it is drawn with (dimmer while not active).
+    public func folderTabFill(_ key: String) -> NSColor? { tab(key)?.fill }
+    public func folderTabDrawnFill(_ key: String) -> NSColor? { tab(key)?.drawnFill }
+    /// The drawn tab in root view coordinates. The open tab reaches the cards' edge.
+    public func folderTabFrame(_ key: String) -> NSRect? { tab(key).map { $0.convert($0.bodyRect, to: root.view) } }
+    public func clickFolderTab(_ key: String) { tab(key)?.onClick?() }
+    public func setFolderTabHovered(_ key: String, _ on: Bool) { tab(key)?.setHoveredForSnapshot(on) }
+    /// The rail and the notes column in root view coordinates.
+    public var folderTabRailFrame: NSRect { root.folderTabs.frame }
+    public var notesColumnFrame: NSRect { root.columnFrame }
+    public var railHeight: CGFloat { root.railHeight }
+    public var folderTabHeight: CGFloat { root.folderTabs.currentTabHeight }
+    public var folderTabsCanScroll: Bool { root.folderTabs.maxScrollOffset > 0 }
+    public var folderTabScrollOffset: CGFloat { root.folderTabs.scrollOffset }
+    public func scrollFolderTabs(by dy: CGFloat) { root.folderTabs.scroll(by: dy) }
+    /// Whether the tab is inside the visible part of the rail (a scrolled-out tab is not).
+    public func isFolderTabInView(_ key: String) -> Bool {
+        guard let t = tab(key), let sv = t.superview else { return false }
+        return sv.bounds.insetBy(dx: 0, dy: -0.5).contains(t.frame)
+    }
+    private func tab(_ key: String) -> FolderTabView? {
+        root.folderTabs.allTabs.first { Self.tabKey($0.kind) == key }
+    }
+    private static func tabKey(_ kind: FolderTabRailView.Kind) -> String {
+        switch kind {
+        case .scratch: "scratch"
+        case .folder(let id): "folder:\(id)"
+        case .allFolders: "all"
+        }
+    }
     // Scratch
     public var isScratchButtonVisible: Bool { !root.header.scratchButton.isHidden }
     public var isDayStepperVisible: Bool { !root.header.previousDayButton.isHidden }

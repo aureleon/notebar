@@ -80,6 +80,18 @@ public enum PanelWidth {
     public static let fallback: CGFloat = 380
 }
 
+/// The folder tab rail (`AppSettings.folderTabsEnabled`): binder tabs that hang off the cards on the
+/// panel edge that faces the screen centre. The panel window is wider by the rail, so the cards keep
+/// their width. Shared by the panel (window frame, click region) and the notes UI (layout).
+public enum FolderTabs {
+    /// Width the rail adds to the panel window.
+    public static let railWidth: CGFloat = 30
+    /// The rail width for the current settings (0 while the tabs are off).
+    @MainActor public static func railWidth(_ settings: AppSettings) -> CGFloat {
+        settings.folderTabsEnabled ? railWidth : 0
+    }
+}
+
 public extension Notification.Name {
     /// userInfo["key"] = the property name that changed (String).
     static let appSettingsDidChange = Notification.Name("NoteBar.appSettingsDidChange")
@@ -117,6 +129,7 @@ public final class AppSettings: ObservableObject {
         // A saved width without the flag was set by the user before automatic width existed: keep it fixed.
         panelWidthIsAutomatic = get("panelWidthIsAutomatic", defaults.object(forKey: "panelWidth") == nil)
         blurBackdrop = get("blurBackdrop", true)
+        folderTabsEnabled = get("folderTabsEnabled", false)
         if !defaults.bool(forKey: "migratedHotSideOptIn") {
             defaults.removeObject(forKey: "hotSideEnabled")
             defaults.set(true, forKey: "migratedHotSideOptIn")
@@ -172,6 +185,9 @@ public final class AppSettings: ObservableObject {
     @Published public var hotSideDelay: Double { didSet { save("hotSideDelay", hotSideDelay) } }
     /// Blur the screen area behind the panel (Notification Center style). Off = no backdrop.
     @Published public var blurBackdrop: Bool { didSet { save("blurBackdrop", blurBackdrop) } }
+    /// Experimental: folder tabs on the panel edge that faces the screen centre (`FolderTabs`). One
+    /// click switches folder. Off by default.
+    @Published public var folderTabsEnabled: Bool { didSet { save("folderTabsEnabled", folderTabsEnabled) } }
     /// Hide the panel when another app/window becomes active.
     @Published public var autoHide: Bool { didSet { save("autoHide", autoHide) } }
     /// Keep the panel open (overrides autoHide).

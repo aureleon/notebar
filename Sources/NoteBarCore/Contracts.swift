@@ -153,6 +153,9 @@ public protocol NotesPresenting: AnyObject {
     var currentFolderId: FolderID? { get }
     /// Height of the visible content elements from the top down (header to last item).
     var contentHeight: CGFloat { get }
+    /// Height of the folder tab rail from the top (0 = no rail). The rail can be taller than the
+    /// content of a short folder. The panel takes clicks over it like over the content.
+    var railHeight: CGFloat { get }
     func showFolderList()
     func showFolder(_ id: FolderID)
     /// Scrolls to the note (switching folder if needed). `edit` focuses its editor.
@@ -171,6 +174,7 @@ public protocol NotesPresenting: AnyObject {
 
 public extension NotesPresenting {
     var contentHeight: CGFloat { 0 }
+    var railHeight: CGFloat { 0 }
     func beginSearch(query: String) { beginSearch() }
     func showScratch(edit: Bool) {}
     func panelDidShow(focused: Bool) { panelDidShow() }

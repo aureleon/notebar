@@ -76,6 +76,7 @@ enum SnapshotMode {
         // The same width rule as the panel: automatic (27 % of the main screen, 380...600) unless the user set one.
         let panelWidth = PanelSizing.width(requested: PanelSizing.requestedWidth(settings),
                                            visibleWidth: NSScreen.main?.visibleFrame.width ?? 0)
+            + FolderTabs.railWidth(settings)
         let panelSize = NSSize(width: panelWidth, height: 760)
         setSize(panelSize)
 

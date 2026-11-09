@@ -1,0 +1,352 @@
+import AppKit
+import NoteBarCore
+
+/// The rail of binder tabs on the inner panel edge: Scratch, one tab per folder, and "all folders".
+/// Scratch and "all folders" stay in place. The folder tabs between them shrink down to
+/// `minTabHeight` when the panel is too short for all of them, and scroll after that.
+@MainActor
+final class FolderTabRailView: FlippedView {
+    enum Kind: Hashable { case scratch, folder(FolderID), allFolders }
+
+    static let tabHeight: CGFloat = 34
+    static let minTabHeight: CGFloat = 22
+    static let tabGap: CGFloat = 4
+    /// Visible width of a tab that is not active (the active one takes the full rail width).
+    static let inactiveWidth: CGFloat = 21
+    /// The rail view reaches this far into the notes column: the outer margin of the cards, where
+    /// the spine is. Nothing of the rail is under a card (cards can be translucent).
+    static let tuck: CGFloat = Metrics.outerMargin
+
+    var onSelect: ((Kind) -> Void)?
+    /// The rail got taller or shorter (folders changed).
+    var onHeightChange: (() -> Void)?
+    var railOnLeft = true {
+        didSet { if oldValue != railOnLeft { needsDisplay = true; for t in allTabs { t.railOnLeft = railOnLeft } } }
+    }
+
+    private let env: AppEnvironment
+    private var scratchTab: FolderTabView?
+    private(set) var folderTabs: [FolderTabView] = []
+    private let allTab = FolderTabView(kind: .allFolders)
+    /// Clips the folder tabs while they scroll.
+    private let clip = FlippedView()
+    private(set) var scrollOffset: CGFloat = 0
+    private(set) var active: Kind = .allFolders
+    private var folders: [Folder] = []
+    private var lastFittingHeight: CGFloat = -1
+
+    var allTabs: [FolderTabView] { (scratchTab.map { [$0] } ?? []) + folderTabs + [allTab] }
+
+    init(env: AppEnvironment) {
+        self.env = env
+        super.init(frame: .zero)
+        clip.clipsToBounds = true
+        addSubview(clip)
+        addSubview(allTab)
+        allTab.symbolName = "list.bullet"
+        allTab.toolTip = "All Folders"
+        allTab.setAccessibilityLabel("All Folders")
+        allTab.onClick = { [weak self] in self?.onSelect?(.allFolders) }
+        isHidden = true
+        setAccessibilityRole(.tabGroup)
+        setAccessibilityLabel("Folders")
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func reload(folders: [Folder], showsScratch: Bool, active: Kind) {
+        self.folders = folders
+        self.active = active
+        if showsScratch, scratchTab == nil {
+            let t = FolderTabView(kind: .scratch)
+            t.symbolName = "pencil.and.scribble"
+            t.toolTip = "Scratch"
+            t.setAccessibilityLabel("Scratch")
+            t.onClick = { [weak self] in self?.onSelect?(.scratch) }
+            addSubview(t)
+            scratchTab = t
+        } else if !showsScratch, let t = scratchTab {
+            t.removeFromSuperview()
+            scratchTab = nil
+        }
+        // Reuse the tab views by folder, so a hover survives a reload.
+        var old = Dictionary(uniqueKeysWithValues: folderTabs.map { ($0.kind, $0) })
+        folderTabs = folders.map { f in
+            let t = old.removeValue(forKey: .folder(f.id)) ?? FolderTabView(kind: .folder(f.id))
+            let name = f.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            t.letter = name.first.map { String($0).uppercased() } ?? "?"
+            t.toolTip = f.name
+            t.setAccessibilityLabel(f.name)
+            t.noteColor = f.color
+            t.onClick = { [weak self] in self?.onSelect?(.folder(f.id)) }
+            if t.superview !== clip { clip.addSubview(t) }
+            return t
+        }
+        for t in old.values { t.removeFromSuperview() }
+        for t in allTabs {
+            t.isActive = t.kind == active
+            t.railOnLeft = railOnLeft
+        }
+        updateTucks()
+        restyle()
+        needsLayout = true
+    }
+
+    func restyle() {
+        let appearance = effectiveAppearance
+        let ui = env.themes.ui(appearance)
+        for t in allTabs {
+            if t.noteColor == .none {
+                t.fill = ui.headerBackground
+                t.dimFill = ui.headerBackground.withAlphaComponent(ui.headerBackground.alphaComponent * 0.6)
+                t.ink = ui.text
+                t.dimInk = ui.text
+            } else {
+                // The open tab has the strong color of the folder icon, not the pale card fill: a tab
+                // is small and must read against any desktop. The others are halfway to the card fill.
+                let strong = env.themes.barColor(t.noteColor, appearance: appearance)
+                let card = env.themes.cardBackground(t.noteColor, appearance: appearance)
+                let dim = card.blended(withFraction: 0.5, of: strong) ?? strong
+                t.fill = strong
+                t.dimFill = dim
+                t.ink = Self.isLight(strong) ? NSColor.black.withAlphaComponent(0.8) : .white
+                t.dimInk = Self.isLight(dim) ? NSColor.black.withAlphaComponent(0.8) : .white
+            }
+            t.stroke = ui.isDark ? NSColor.white.withAlphaComponent(0.14) : NSColor.black.withAlphaComponent(0.10)
+            t.fontSize = env.themes.fontSize
+        }
+        spineFill = ui.headerBackground.withAlphaComponent(ui.headerBackground.alphaComponent * 0.6)
+        needsDisplay = true
+    }
+
+    private static func isLight(_ color: NSColor) -> Bool {
+        guard let c = color.usingColorSpace(.sRGB) else { return true }
+        return 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent > 0.62
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        restyle()
+    }
+
+    // MARK: Spine
+
+    /// The strip the tabs hang on: the outer margin of the notes column, down the whole rail. It
+    /// touches the cards, so a tab beside a gap or below the last card is still joined to something.
+    /// The open tab runs through it to the cards.
+    private var spineFill: NSColor = .clear
+    var spineRect: NSRect {
+        NSRect(x: railOnLeft ? bounds.width - Self.tuck : 0, y: 0, width: Self.tuck, height: bounds.height)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        spineFill.setFill()
+        NSBezierPath(roundedRect: spineRect, xRadius: 3, yRadius: 3).fill()
+    }
+
+    // MARK: Layout
+
+    private var fixedCount: Int { (scratchTab == nil ? 0 : 1) + 1 }
+
+    /// Tab height for a rail of `available` height: full size if every tab fits, else smaller, down
+    /// to `minTabHeight`.
+    func tabHeight(available: CGFloat) -> CGFloat {
+        let n = CGFloat(fixedCount + folderTabs.count)
+        let fit = floor((available + Self.tabGap) / n - Self.tabGap)
+        return min(Self.tabHeight, max(Self.minTabHeight, fit))
+    }
+
+    /// Height of the rail: all tabs, or `available` when they need to scroll.
+    func fittingHeight(available: CGFloat) -> CGFloat {
+        let n = CGFloat(fixedCount + folderTabs.count)
+        let h = min(available, n * (tabHeight(available: available) + Self.tabGap) - Self.tabGap)
+        if h != lastFittingHeight {
+            let first = lastFittingHeight < 0
+            lastFittingHeight = h
+            if !first { DispatchQueue.main.async { [weak self] in self?.onHeightChange?() } }
+        }
+        return h
+    }
+
+    /// Height of all folder tabs (the scrolled content).
+    private var folderContentHeight: CGFloat {
+        let n = CGFloat(folderTabs.count)
+        return n > 0 ? n * (currentTabHeight + Self.tabGap) - Self.tabGap : 0
+    }
+    private(set) var currentTabHeight: CGFloat = FolderTabRailView.tabHeight
+    var maxScrollOffset: CGFloat { max(0, folderContentHeight - clip.bounds.height) }
+
+    override func layout() {
+        super.layout()
+        layoutTabs()
+    }
+
+    func layoutTabs() {
+        let w = bounds.width
+        let h = tabHeight(available: bounds.height)
+        currentTabHeight = h
+        var top: CGFloat = 0
+        if let s = scratchTab {
+            s.frame = NSRect(x: 0, y: 0, width: w, height: h)
+            top = h + Self.tabGap
+        }
+        allTab.frame = NSRect(x: 0, y: max(top, bounds.height - h), width: w, height: h)
+        clip.frame = NSRect(x: 0, y: top, width: w, height: max(0, allTab.frame.minY - Self.tabGap - top))
+        // Keep the open folder's tab in view.
+        if let i = folderTabs.firstIndex(where: { $0.isActive }), maxScrollOffset > 0 {
+            let y = CGFloat(i) * (h + Self.tabGap)
+            if y < scrollOffset { scrollOffset = y }
+            if y + h > scrollOffset + clip.bounds.height { scrollOffset = y + h - clip.bounds.height }
+        }
+        scrollOffset = min(max(scrollOffset, 0), maxScrollOffset)
+        for (i, t) in folderTabs.enumerated() {
+            t.frame = NSRect(x: 0, y: CGFloat(i) * (h + Self.tabGap) - scrollOffset, width: w, height: h)
+        }
+        updateTucks()
+    }
+
+    /// Only the open tab crosses the spine.
+    private func updateTucks() {
+        for t in allTabs { t.tuck = t.isActive ? Self.tuck : 0 }
+    }
+
+    func scroll(by dy: CGFloat) {
+        let o = min(max(scrollOffset + dy, 0), maxScrollOffset)
+        guard o != scrollOffset else { return }
+        scrollOffset = o
+        for (i, t) in folderTabs.enumerated() {
+            t.frame.origin.y = CGFloat(i) * (currentTabHeight + Self.tabGap) - scrollOffset
+        }
+        updateTucks()
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        guard maxScrollOffset > 0 else { super.scrollWheel(with: event); return }
+        scroll(by: -event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 8))
+    }
+
+    /// Only the tabs take clicks. The gaps and the part tucked under the cards do not.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit is FolderTabView ? hit : nil
+    }
+}
+
+/// One tab. The view spans the rail and the spine. The drawn body is narrower while the tab is not
+/// active and ends at the spine. The active one is wider and runs through the spine to the cards,
+/// so it reads as the open divider.
+@MainActor
+final class FolderTabView: NSView {
+    let kind: FolderTabRailView.Kind
+    var letter: String? { didSet { if oldValue != letter { needsDisplay = true } } }
+    var symbolName: String? { didSet { if oldValue != symbolName { image = nil; needsDisplay = true } } }
+    var noteColor: NoteColor = .none
+    var fill: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
+    var ink: NSColor = .labelColor { didSet { needsDisplay = true } }
+    /// Fill and ink while the tab is not the open one.
+    var dimFill: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
+    var dimInk: NSColor = .labelColor { didSet { needsDisplay = true } }
+    var stroke: NSColor = .clear { didSet { needsDisplay = true } }
+    var fontSize: CGFloat = 14 { didSet { if oldValue != fontSize { image = nil; needsDisplay = true } } }
+    var isActive = false { didSet { if oldValue != isActive { image = nil; needsDisplay = true } } }
+    var railOnLeft = true { didSet { if oldValue != railOnLeft { needsDisplay = true } } }
+    var onClick: (() -> Void)?
+    /// How far the body reaches into the notes column (0: the tab ends at the spine).
+    var tuck: CGFloat = FolderTabRailView.tuck { didSet { if oldValue != tuck { needsDisplay = true } } }
+
+    private var image: NSImage?
+    private(set) var hovering = false { didSet { if oldValue != hovering { needsDisplay = true } } }
+    private var pressed = false { didSet { if oldValue != pressed { needsDisplay = true } } }
+    private var tracking: NSTrackingArea?
+
+    init(kind: FolderTabRailView.Kind) {
+        self.kind = kind
+        super.init(frame: .zero)
+        setAccessibilityRole(.button)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override var mouseDownCanMoveWindow: Bool { false }
+
+    /// The drawn tab: from its outer edge to the spine, or through it (`tuck`).
+    var bodyRect: NSRect {
+        let rail = bounds.width - FolderTabRailView.tuck
+        let visible = isActive || hovering ? rail : min(FolderTabRailView.inactiveWidth, rail)
+        let w = visible + tuck
+        let inner = FolderTabRailView.tuck - tuck
+        return NSRect(x: railOnLeft ? bounds.width - inner - w : inner, y: 0, width: w, height: bounds.height)
+    }
+
+    /// The part of the body outside the notes column (where the letter sits).
+    var faceRect: NSRect {
+        var r = bodyRect
+        r.size.width -= tuck
+        if !railOnLeft { r.origin.x += tuck }
+        return r
+    }
+
+    /// The fill as drawn: full colour for the open tab, dimmer for the others.
+    var drawnFill: NSColor {
+        if isActive { return fill }
+        return dimFill.withAlphaComponent(dimFill.alphaComponent * (pressed || hovering ? 1 : 0.85))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let body = bodyRect
+        let r = min(9, body.height / 2)
+        // Round the outer corners only: the rounded rect runs past the inner end, which is clipped.
+        var shape = body.insetBy(dx: 0, dy: 0.5)
+        shape.size.width += r
+        if !railOnLeft { shape.origin.x -= r }
+        shape = shape.insetBy(dx: 0.5, dy: 0)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(rect: body).addClip()
+        let path = NSBezierPath(roundedRect: shape, xRadius: r, yRadius: r)
+        drawnFill.setFill()
+        path.fill()
+        stroke.setStroke()
+        path.lineWidth = 1
+        path.stroke()
+        NSGraphicsContext.restoreGraphicsState()
+
+        let face = faceRect
+        let inkColor = isActive ? ink : dimInk.withAlphaComponent(hovering ? 1 : 0.8)
+        if let symbolName {
+            if image == nil { image = Symbols.image(symbolName, size: isActive ? fontSize - 1.5 : fontSize - 3, weight: .semibold) }
+            if let image { Symbols.draw(image, in: face, color: isActive ? ink : dimInk, fraction: isActive || hovering ? 1 : 0.8) }
+        } else if let letter {
+            let size = min(isActive ? fontSize - 1 : fontSize - 2.5, max(9, bounds.height - 8))
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: size, weight: isActive ? .bold : .semibold),
+                .foregroundColor: inkColor,
+            ]
+            let s = NSAttributedString(string: letter, attributes: attrs)
+            let sz = s.size()
+            s.draw(at: NSPoint(x: (face.midX - sz.width / 2).rounded(), y: (face.midY - sz.height / 2).rounded()))
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        // .activeAlways: the panel's app is usually not active.
+        let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                               owner: self, userInfo: nil)
+        addTrackingArea(t)
+        tracking = t
+    }
+
+    override func mouseEntered(with event: NSEvent) { hovering = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; pressed = false }
+    override func mouseDown(with event: NSEvent) { pressed = true }
+    override func mouseUp(with event: NSEvent) {
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        pressed = false
+        if inside { onClick?() }
+    }
+
+    func setHoveredForSnapshot(_ on: Bool) { hovering = on }
+}

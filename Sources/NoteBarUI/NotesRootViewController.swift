@@ -88,6 +88,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var notesList: NotesListView!
     var scopeBar: SearchScopeBar!
     var toast: ToastView!
+    /// Folder tabs on the inner panel edge (`settings.folderTabsEnabled`). Hidden while off.
+    var folderTabs: FolderTabRailView!
 
     public init(env: AppEnvironment) {
         self.env = env
@@ -118,7 +120,11 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         toast = ToastView(frame: .zero)
         toast.fontSize = env.themes.fontSize
         toast.onVisibilityChange = { [weak self] in self?.updateBackdrop() }
-        for sub in [backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
+        folderTabs = FolderTabRailView(env: env)
+        folderTabs.onSelect = { [weak self] kind in self?.folderTabPressed(kind) }
+        folderTabs.onHeightChange = { [weak self] in self?.updateBackdrop() }
+        // Lowest: the backdrop covers the spine, so in glass mode the tabs hang on the backdrop edge.
+        for sub in [folderTabs!, backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
         notesList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
         folderList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
         installClickMonitor()
@@ -160,15 +166,16 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     func layoutViews() {
-        guard let v = rootView else { return }
-        let b = v.bounds
+        guard rootView != nil else { return }
+        let b = columnFrame
         let m = Metrics.outerMargin
         let pad = HeaderView.shadowPad
         let hh = Metrics.headerHeight
-        header.frame = NSRect(x: m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
+        header.frame = NSRect(x: b.minX + m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
         // The lists start at the bottom of the header pill; cards fade out in the gap below it.
         let listTop = m + hh
-        let listFrame = NSRect(x: 0, y: listTop, width: b.width, height: max(0, b.height - listTop))
+        let listFrame = NSRect(x: b.minX, y: listTop, width: b.width, height: max(0, b.height - listTop))
+        layoutFolderTabs()
         let inset = Metrics.gap
         for list in [notesList!, folderList!] as [NSView] { list.frame = listFrame }
         if notesList.topInset != inset { notesList.topInset = inset }
@@ -197,6 +204,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             if key == "deletedItemsRetention" { MainActor.assumeIsolated { self?.reloadFolderList() }; return }
             if key == "scratchEnabled" || key == "scratchKeepDays" || key == "hotkeys" {
                 MainActor.assumeIsolated { self?.scratchSettingsChanged() }
+                return
+            }
+            if key == "folderTabsEnabled" || key == "panelSide" {
+                MainActor.assumeIsolated { self?.folderTabsSettingsChanged() }
                 return
             }
             guard key == "colorStyle" || key == "blurBackdrop" else { return }
@@ -271,6 +282,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func restyleAll() {
         guard header != nil else { return }
         header.restyle()
+        folderTabs.restyle()
         folderList.restyle()
         notesList.restyleAll()
         scopeBar.restyle()
@@ -351,6 +363,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     func updateHeader() {
+        updateFolderTabs()
         switch screen {
         case .folders:
             header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder",
@@ -1020,13 +1033,13 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     /// The toast sits just below the last element (at the bottom when the list fills the panel).
     private func layoutToast() {
-        guard let v = rootView, toast != nil else { return }
-        let b = v.bounds
+        guard rootView != nil, toast != nil else { return }
+        let b = columnFrame
         let m = Metrics.outerMargin
         let ts = toast.preferredSize(maxWidth: b.width - 4 * m)
         let lowest = b.height - m - ts.height - 8
         let y = min(listContentHeight - m + Metrics.gap, lowest)
-        let f = NSRect(x: (b.width - ts.width) / 2, y: max(y, 0), width: ts.width, height: ts.height)
+        let f = NSRect(x: b.minX + (b.width - ts.width) / 2, y: max(y, 0), width: ts.width, height: ts.height)
         if toast.frame != f { toast.frame = f }
     }
 
@@ -1055,7 +1068,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         } else {
             bottom = m + Metrics.headerHeight
         }
-        let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
+        let column = columnFrame
+        let f = NSRect(x: column.minX, y: 0, width: column.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
         guard backdrop.frame != f else { return }
         // The cards must never stick out below the backdrop. A card that grows without animation (typing,
         // pasting) grows the backdrop at once; otherwise the card's glass shows below the backdrop's

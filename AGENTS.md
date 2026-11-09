@@ -103,6 +103,11 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 - Inside a folder: Settings icon is hidden; displays **`[<] Folder Title`** and **`[🔍] [+]`**.
 - Scratch screen: **`[<] Scratch · Today`** and the day stepper **`[◀] [▶]`** (no search, no +).
 
+### Folder Tabs (experimental)
+- Opt-in (`settings.folderTabsEnabled = false`). `FolderTabRailView` draws binder tabs on the panel edge that faces the screen centre: Scratch, one tab per folder, and "all folders" (the folder list screen).
+- The panel window is wider by `FolderTabs.railWidth`, so the notes column keeps its width (`PanelGeometry.rail`, `NotesRootViewController.columnFrame`).
+- The rail can be taller than the content. `NotesPresenting.railHeight` counts like `contentHeight` for the click region (its own fill in `PanelContentView`), the passive hover zone, and the dynamic Hot Side.
+
 ### Daily Scratch
 - One Scratch note per day (`Note.scratchDay`, "yyyy-MM-dd") in a hidden folder (`Folder.isScratch`). `folders()`, `folder(id:)`, search and the archive never show it.
 - `ScratchService` (`env.scratch`) owns today (`scratchRolloverHour`), the rollover timer and the sweep: empty earlier days are deleted; days older than `scratchKeepDays` become normal trashed notes (`expireScratchNote`).

@@ -328,6 +328,7 @@ MainActor.assumeIsolated {
     }
 
     panelClickRegionChecks()
+    panelRailChecks()
 
     // Deleting the same note twice (undo in between) keeps the second deletion pending.
     let victim = store.createNote(in: folders.notes.id, body: "Victim", mode: .standard, position: .top).id
@@ -712,6 +713,7 @@ MainActor.assumeIsolated {
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
     vimScrollChecks(spin: spin)
     written += scratchEntryChecks(out: out, spin: spin)
+    written += folderTabChecks(out: out, spin: spin)
 
     // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
     renderHook = { render($0) }
@@ -823,6 +825,351 @@ MainActor.assumeIsolated {
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
+}
+
+/// The panel with the folder tab rail: the window is wider by the rail on the inner side, and the
+/// rail takes clicks down to its own height.
+@MainActor
+func panelRailChecks() {
+    let screen = CGRect(x: 0, y: 0, width: 1512, height: 982)
+    let visible = CGRect(x: 0, y: 0, width: 1512, height: 950)
+    func geometry(_ side: PanelSide, rail: CGFloat) -> PanelGeometry {
+        PanelGeometry(screenFrame: screen, visibleFrame: visible, side: side, requestedWidth: 400,
+                      hasNeighborOnSide: false, rail: rail)
+    }
+    let plain = geometry(.right, rail: 0), railed = geometry(.right, rail: 30)
+    Check.equal(plain.shownFrame, PanelGeometry(screenFrame: screen, visibleFrame: visible, side: .right, requestedWidth: 400,
+                                                hasNeighborOnSide: false).shownFrame, "rail: none by default")
+    Check.equal(railed.width, plain.width, "rail: the notes column keeps its width")
+    Check.equal(railed.shownFrame.width, plain.shownFrame.width + 30, "rail: the window is wider by the rail")
+    Check.equal(railed.shownFrame.maxX, plain.shownFrame.maxX, "rail: right panel grows to the left")
+    Check.expect(railed.hiddenFrame.minX >= screen.maxX, "rail: the hidden frame is off the screen")
+    let left = geometry(.left, rail: 30)
+    Check.equal(left.shownFrame.minX, geometry(.left, rail: 0).shownFrame.minX, "rail: left panel grows to the right")
+    Check.equal(left.shownFrame.width, plain.shownFrame.width + 30, "rail: left panel is wider by the rail")
+    Check.expect(left.hiddenFrame.maxX <= screen.minX, "rail: the left hidden frame is off the screen")
+    var small = railed
+    small.visibleFrame.size.width = 300
+    Check.expect(small.shownFrame.minX >= PanelMetrics.edgeInset, "rail: fits on a small screen")
+
+    let view = PanelContentView(frame: NSRect(x: 0, y: 0, width: 430, height: 800))
+    func alpha(x: CGFloat, atTop y: CGFloat) -> CGFloat {
+        view.layoutSubtreeIfNeeded()
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return -1 }
+        view.cacheDisplay(in: view.bounds, to: rep)
+        let scale = CGFloat(rep.pixelsHigh) / view.bounds.height
+        return rep.colorAt(x: Int(x * scale), y: Int(y * scale))?.alphaComponent ?? -1
+    }
+    view.rail = 30
+    view.solidHeight = 200
+    view.railSolidHeight = 400
+    view.layoutSubtreeIfNeeded()
+    Check.equal(view.solidFrameForChecks, NSRect(x: 30, y: 600, width: 400, height: 200), "rail: content fill covers the notes column")
+    Check.equal(view.railSolidFrameForChecks, NSRect(x: 0, y: 400, width: 30, height: 400), "rail: its own fill, as tall as the rail")
+    Check.expect(alpha(x: 15, atTop: 300) > 0, "rail: takes clicks below a short folder's content")
+    Check.equal(alpha(x: 200, atTop: 300), 0, "rail: the notes column below the content still passes clicks")
+    Check.equal(alpha(x: 15, atTop: 500), 0, "rail: below the rail clicks pass")
+    Check.equal(view.resizeHandle.frame.minX, 30, "rail: the resize handle stays on the notes column edge")
+    view.side = .left
+    view.layoutSubtreeIfNeeded()
+    Check.equal(view.solidFrameForChecks.minX, 0, "rail: left panel, the notes column is on the left")
+    Check.equal(view.railSolidFrameForChecks.minX, 400, "rail: left panel, the rail fill is on the right")
+    Check.equal(view.resizeHandle.frame.maxX, 400, "rail: left panel, the resize handle is on the notes column edge")
+    view.rail = 0
+    view.layoutSubtreeIfNeeded()
+    Check.equal(view.solidFrameForChecks, NSRect(x: 0, y: 600, width: 430, height: 200), "rail: off, the fill is the full width")
+    Check.equal(alpha(x: 15, atTop: 300), 0, "rail: off, no rail fill")
+}
+
+/// Folder tabs (`settings.folderTabsEnabled`): binder tabs on the inner panel edge.
+@MainActor
+func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
+    let suite = "NoteBarUISnapshotTabs"
+    UserDefaults().removePersistentDomain(forName: suite)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
+    let store = InMemoryNoteStore(seed: false)
+    let notes = store.folders()[0]
+    func folder(_ name: String, _ color: NoteColor) -> Folder {
+        var f = store.createFolder(name: name)
+        f.color = color
+        store.updateFolder(f)
+        return f
+    }
+    let work = folder("Work", .blue)
+    let ideas = folder("Ideas", .yellow)
+    let shopping = folder("Shopping", .green)
+    let reading = folder("Reading", .pink)
+    func add(_ f: Folder, _ body: String, _ color: NoteColor = .none) {
+        var n = store.createNote(in: f.id, body: body, mode: .standard, position: .bottom)
+        n.color = color
+        store.updateNote(n)
+    }
+    add(notes, "Hello!\nNoteBar is a notes panel that lives on the side of your screen.", .purple)
+    add(notes, "Tasks\n- [x] first task\n- [ ] second task\n- [ ] third task")
+    add(notes, "Colors\nHere are some colors.\nThey are written in #rrggbb format.", .yellow)
+    add(work, "Meeting notes\nRemember the agenda.\nAsk about the release date.", .blue)
+    add(work, "Quarterly plan\nShip the panel.\nPolish the editor.")
+    add(work, "Review\nTwo changes wait for a second look.", .green)
+    add(ideas, "Ideas\nA notes bar that slides in from the edge.")
+    add(shopping, "Groceries\nMilk\nBread", .green)
+    add(reading, "Books\nThe Soul of a New Machine", .pink)
+
+    let env = AppEnvironment(store: store, backups: nil, settings: settings,
+                             themes: ThemeManager(settings: settings, store: store), editorFactory: PlainNoteEditorFactory())
+    let vc = NotesRootViewController(env: env)
+    vc.stateDefaults = UserDefaults(suiteName: suite)!
+    env.presenter = vc
+    let probe = vc.probe
+    let rail = FolderTabs.railWidth
+    let columnWidth: CGFloat = 420
+    var height: CGFloat = 640
+    let backdrop = Backdrop(frame: .zero)
+    backdrop.addSubview(vc.view)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = backdrop
+    defer { window.contentView = nil; UserDefaults().removePersistentDomain(forName: suite) }
+    /// Like the panel: the root view is the notes column plus the rail while the tabs are on.
+    func resize() {
+        let w = columnWidth + FolderTabs.railWidth(settings)
+        window.setContentSize(NSSize(width: w + 60, height: height + 20))
+        backdrop.frame = NSRect(x: 0, y: 0, width: w + 60, height: height + 20)
+        vc.view.frame = NSRect(x: 30, y: 10, width: w, height: height)
+        probe.layoutNow(); spin(); probe.layoutNow()
+    }
+    var written: [String] = []
+    func render(_ name: String, dark: Bool = false) {
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+        window.appearance = appearance
+        backdrop.appearance = appearance
+        spin(); probe.layoutNow(); spin(); probe.layoutNow()
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.display()
+        // At 2x, so the small tabs can be judged.
+        let b = backdrop.bounds
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(b.width * 2), pixelsHigh: Int(b.height * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        rep.size = b.size
+        backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: out.appendingPathComponent(name + ".png"))
+            written.append(name)
+        }
+    }
+    func key(_ f: Folder) -> String { "folder:\(f.id)" }
+
+    // Off (the default): no rail, the notes use the whole width.
+    resize()
+    vc.showFolder(notes.id)
+    probe.layoutNow()
+    Check.expect(!settings.folderTabsEnabled, "tabs: off by default")
+    Check.expect(!probe.folderTabsVisible, "tabs: hidden while off")
+    Check.equal(probe.folderTabKeys, [], "tabs: no tabs while off")
+    Check.equal(probe.notesColumnFrame, vc.view.bounds, "tabs: off, the notes take the full width")
+    Check.equal(probe.railHeight, 0, "tabs: off, no rail height")
+    let cardOff = probe.cardFrame(of: store.notes(in: notes.id)[0].id) ?? .zero
+
+    // On: the root view grows by the rail (like the panel window), the cards keep their width.
+    settings.folderTabsEnabled = true
+    Check.equal(UserDefaults(suiteName: suite)!.bool(forKey: "folderTabsEnabled"), true, "tabs: the setting is saved")
+    resize()
+    Check.expect(probe.folderTabsVisible, "tabs: shown while on")
+    let all = [notes, work, ideas, shopping, reading]
+    Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["all"], "tabs: Scratch, the folders in order, all folders")
+    Check.equal(store.folders().map(\.id), all.map(\.id), "tabs: the seed order")
+    Check.equal(probe.notesColumnFrame, NSRect(x: rail, y: 0, width: columnWidth, height: height), "tabs: the rail is left of the notes")
+    let cardOn = probe.cardFrame(of: store.notes(in: notes.id)[0].id) ?? .zero
+    Check.equal(cardOn.width, cardOff.width, "tabs: the cards keep their width")
+    Check.equal(cardOn.minX, cardOff.minX + rail, "tabs: the cards move by the rail")
+    Check.equal(all.map { probe.folderTabLetter(key($0)) }, ["N", "W", "I", "S", "R"], "tabs: first letter of the folder")
+    Check.equal(probe.folderTabToolTip(key(work)), "Work", "tabs: the tooltip is the folder name")
+    Check.equal(probe.folderTabLetter("scratch"), nil, "tabs: Scratch shows a symbol")
+    // The strong folder color (the folder icon tint). In dark mode that is the card title color.
+    let dark = NSAppearance(named: .darkAqua)!
+    backdrop.appearance = dark
+    probe.layoutNow()
+    for f in [work, ideas, shopping, reading] {
+        Check.equal(probe.folderTabFill(key(f)), env.themes.cardTitle(f.color, appearance: dark), "tabs: \(f.name) has its folder color")
+    }
+    Check.expect(Set([work, ideas, shopping, reading, notes].map { probe.folderTabFill(key($0)) }).count == 5, "tabs: colors differ by folder")
+    Check.equal(probe.folderTabFill(key(notes)), probe.folderTabFill("all"), "tabs: a folder without a color has the neutral fill")
+    backdrop.appearance = NSAppearance(named: .aqua)!
+    probe.layoutNow()
+    Check.expect(probe.folderTabFill(key(work)) != env.themes.cardTitle(.blue, appearance: dark), "tabs: the color follows the appearance")
+
+    // The active tab follows the screen. It is wider and in full color.
+    Check.equal(probe.activeFolderTabKey, key(notes), "tabs: the open folder is active")
+    if let a = probe.folderTabFrame(key(notes)), let b = probe.folderTabFrame(key(work)), let c = probe.folderTabFrame("all") {
+        Check.expect(a.width > b.width, "tabs: the active tab is wider (\(a.width) vs \(b.width))")
+        Check.equal(a.minX, 0, "tabs: the active tab takes the whole rail")
+        Check.expect(b.minX > 0 && b.minX < rail, "tabs: an inactive tab is pulled in")
+        Check.equal(b.maxX, rail, "tabs: an inactive tab ends at the spine")
+        Check.equal(a.maxX, cardOn.minX, "tabs: the active tab is joined to the cards")
+        Check.expect(a.minY >= probe.notesColumnFrame.minY + 60, "tabs: the rail starts below the header")
+        Check.expect(c.maxY <= height, "tabs: the rail ends inside the panel")
+    } else {
+        Check.expect(false, "tabs: frames")
+    }
+    Check.equal(probe.folderTabDrawnFill(key(notes))?.alphaComponent, probe.folderTabFill(key(notes))?.alphaComponent,
+                "tabs: the active tab has its full color")
+    Check.expect((probe.folderTabDrawnFill(key(work))?.alphaComponent ?? 1) < (probe.folderTabFill(key(work))?.alphaComponent ?? 0),
+                 "tabs: inactive tabs are dimmer")
+    probe.setFolderTabHovered(key(work), true)
+    Check.equal(probe.folderTabFrame(key(work))?.minX, 0, "tabs: hover widens a tab")
+    probe.setFolderTabHovered(key(work), false)
+
+    // One click switches folder.
+    probe.clickFolderTab(key(work))
+    probe.layoutNow()
+    Check.equal(vc.currentFolderId, work.id, "tabs: a click opens the folder")
+    Check.equal(probe.headerTitle, "Work", "tabs: the header follows")
+    Check.equal(probe.displayedNoteIDs, store.notes(in: work.id).map(\.id), "tabs: the folder's notes show")
+    Check.equal(probe.activeFolderTabKey, key(work), "tabs: the clicked tab is active")
+    Check.equal(settings.lastFolderId, work.id, "tabs: lastFolderId follows")
+    render("40-tabs-folder-light")
+    render("41-tabs-folder-dark", dark: true)
+    vc.showFolder(ideas.id)
+    Check.equal(probe.activeFolderTabKey, key(ideas), "tabs: the active tab follows showFolder")
+    // A short folder: the rail is taller than the content and counts for the click region.
+    probe.layoutNow()
+    Check.expect(probe.railHeight > vc.contentHeight, "tabs: the rail is taller than a short folder (\(probe.railHeight) vs \(vc.contentHeight))")
+    Check.equal(probe.railHeight, probe.folderTabRailFrame.maxY + 6, "tabs: the rail height ends below the last tab")
+    probe.setFolderTabHovered(key(shopping), true)
+    render("46-tabs-short-folder-hover-light")
+    probe.setFolderTabHovered(key(shopping), false)
+
+    // Scratch tab.
+    probe.clickFolderTab("scratch")
+    probe.layoutNow()
+    Check.equal(probe.scratchDay, env.scratch.todayKey, "tabs: the Scratch tab opens today's Scratch")
+    Check.equal(probe.activeFolderTabKey, "scratch", "tabs: Scratch is active on the Scratch screen")
+    Check.equal(probe.focusedNoteID, nil, "tabs: the Scratch tab does not start typing")
+    render("42-tabs-scratch-light")
+    settings.scratchEnabled = false
+    probe.layoutNow()
+    Check.equal(probe.folderTabKeys.first, key(notes), "tabs: Scratch off, no Scratch tab")
+    Check.equal(probe.activeFolderTabKey, "all", "tabs: Scratch off, back on the folder list")
+    settings.scratchEnabled = true
+    probe.layoutNow()
+    Check.equal(probe.folderTabKeys.first, "scratch", "tabs: Scratch on, the tab is back")
+
+    // The last tab shows the folder list. The back button goes there too.
+    vc.showFolder(shopping.id)
+    probe.clickFolderTab("all")
+    probe.layoutNow()
+    Check.expect(probe.folderRowsVisible, "tabs: the last tab shows the folder list")
+    Check.equal(probe.activeFolderTabKey, "all", "tabs: the last tab is active on the folder list")
+    Check.equal(probe.folderRowIDs, store.folders().map(\.id), "tabs: the folder list has its rows")
+    render("43-tabs-all-folders-light")
+    vc.showFolder(shopping.id)
+    probe.goBack()
+    Check.expect(probe.folderRowsVisible, "tabs: the back button still goes to the folder list")
+    vc.showArchive()
+    Check.equal(probe.activeFolderTabKey, "all", "tabs: the archive counts as the folder list")
+    vc.showFolder(work.id)
+    vc.beginSearch()
+    Check.equal(probe.activeFolderTabKey, key(work), "tabs: search keeps the tab of its folder")
+    probe.clickFolderTab(key(reading))
+    Check.expect(!probe.isSearching, "tabs: a click ends search")
+    Check.equal(vc.currentFolderId, reading.id, "tabs: and opens the folder")
+
+    // Panel on the left: the rail is on the right of the notes.
+    vc.showFolder(work.id)
+    settings.panelSide = .left
+    resize()
+    Check.equal(probe.notesColumnFrame, NSRect(x: 0, y: 0, width: columnWidth, height: height), "tabs: left panel, the notes are on the left")
+    if let a = probe.folderTabFrame(key(work)), let b = probe.folderTabFrame(key(ideas)) {
+        Check.equal(a.maxX, columnWidth + rail, "tabs: left panel, the active tab reaches the right edge")
+        Check.equal(a.minX, probe.cardFrame(of: store.notes(in: work.id)[0].id)?.maxX, "tabs: left panel, the active tab is joined to the cards")
+        Check.expect(b.maxX < columnWidth + rail && b.minX == columnWidth, "tabs: left panel, an inactive tab is pulled in")
+    } else {
+        Check.expect(false, "tabs: left panel frames")
+    }
+    Check.equal(probe.cardFrame(of: store.notes(in: work.id)[0].id)?.minX, cardOff.minX, "tabs: left panel, the cards stay at the screen edge")
+    render("45-tabs-panel-left-light")
+    settings.panelSide = .right
+    resize()
+
+    // Create, rename, recolor, reorder, delete.
+    let extra = store.createFolder(name: "zebra")
+    probe.layoutNow()
+    Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["all"], "tabs: a new folder gets a tab")
+    Check.equal(probe.folderTabLetter(key(extra)), "Z", "tabs: the letter is uppercase")
+    var renamed = extra
+    renamed.name = "Quotes"
+    renamed.color = .purple
+    store.updateFolder(renamed)
+    probe.layoutNow()
+    Check.equal(probe.folderTabLetter(key(extra)), "Q", "tabs: rename changes the letter")
+    Check.equal(probe.folderTabToolTip(key(extra)), "Quotes", "tabs: rename changes the tooltip")
+    Check.expect(probe.folderTabFill(key(extra)) != probe.folderTabFill(key(notes)), "tabs: a color change shows")
+    var pinned = store.folder(id: reading.id)!
+    pinned.isPinned = true
+    store.updateFolder(pinned)
+    probe.layoutNow()
+    Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["all"], "tabs: follow the folder order (pin)")
+    Check.equal(probe.folderTabKeys[1], key(reading), "tabs: a pinned folder is first")
+    pinned.isPinned = false
+    store.updateFolder(pinned)
+    vc.showFolder(extra.id)
+    Check.equal(probe.activeFolderTabKey, key(extra), "tabs: the new folder is active")
+    store.deleteFolder(id: extra.id)
+    probe.layoutNow()
+    Check.expect(!probe.folderTabKeys.contains(key(extra)), "tabs: a deleted folder loses its tab")
+    Check.equal(probe.activeFolderTabKey, "all", "tabs: after the open folder is deleted, the folder list is active")
+    Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["all"], "tabs: back to the five folders")
+
+    // Many folders: the tabs shrink to fit the panel, then scroll.
+    let railBefore = probe.railHeight
+    Check.equal(probe.folderTabHeight, 34, "tabs: full height while they fit")
+    let names = ["Archive Ideas", "Budget", "Code", "Design", "Errands", "Fitness", "Garden", "House", "Journal"]
+    let colors: [NoteColor] = [.none, .purple, .cream, .blue, .none, .green, .yellow, .none, .pink]
+    var many: [Folder] = []
+    for (n, c) in zip(names, colors) { many.append(folder(n, c)) }
+    Check.equal(store.folders().count, 14, "tabs: 14 folders")
+    vc.showFolder(work.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.equal(probe.folderTabKeys.count, 16, "tabs: 14 folder tabs, Scratch, and all folders")
+    Check.expect(probe.railHeight > railBefore, "tabs: the rail grows with the folders")
+    Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: 14 folders stay inside the panel (\(probe.folderTabRailFrame.maxY))")
+    Check.expect(probe.folderTabHeight < 34 && probe.folderTabHeight >= 22, "tabs: 14 folders, smaller tabs (\(probe.folderTabHeight))")
+    Check.expect(!probe.folderTabsCanScroll, "tabs: 14 folders fit without scrolling at this height")
+    Check.expect(many.allSatisfy { probe.isFolderTabInView(key($0)) }, "tabs: every tab is in view")
+    render("44-tabs-14-folders-light")
+    render("48-tabs-14-folders-dark", dark: true)
+
+    // A short panel (small screen): minimum tab height, the folder tabs scroll between Scratch and all folders.
+    height = 330
+    resize()
+    Check.equal(probe.folderTabHeight, 22, "tabs: short panel, minimum tab height")
+    Check.expect(probe.folderTabsCanScroll, "tabs: short panel, the tabs scroll")
+    Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: short panel, the rail stays inside")
+    Check.expect(probe.railHeight <= height, "tabs: short panel, the rail height is capped")
+    if let s = probe.folderTabFrame("scratch"), let a = probe.folderTabFrame("all") {
+        Check.expect(s.minY >= 0 && a.maxY <= height, "tabs: Scratch and all folders stay in view")
+    }
+    Check.expect(probe.isFolderTabInView(key(work)), "tabs: the open folder's tab is in view")
+    Check.expect(!probe.isFolderTabInView(key(many.last!)), "tabs: the last folder is scrolled out")
+    vc.showFolder(many.last!.id)
+    probe.layoutNow()
+    Check.expect(probe.isFolderTabInView(key(many.last!)), "tabs: opening a folder scrolls its tab into view")
+    Check.expect(probe.folderTabScrollOffset > 0, "tabs: scrolled")
+    render("47-tabs-14-folders-short-panel-light")
+    probe.scrollFolderTabs(by: -10_000)
+    Check.equal(probe.folderTabScrollOffset, 0, "tabs: the wheel scrolls back to the top")
+    Check.expect(probe.isFolderTabInView(key(notes)), "tabs: the first folder is in view again")
+    height = 640
+    resize()
+
+    // Off again: everything as before.
+    settings.folderTabsEnabled = false
+    resize()
+    Check.expect(!probe.folderTabsVisible, "tabs: off hides the rail")
+    Check.equal(probe.notesColumnFrame, vc.view.bounds, "tabs: off, the notes take the full width again")
+    Check.equal(probe.railHeight, 0, "tabs: off, no rail height again")
+    return written
 }
 
 /// Scratch entries in the panel: opening Scratch to type starts an entry, Save as Note, a long day.

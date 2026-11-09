@@ -26,6 +26,11 @@ struct AppearancePane: View {
                     Text("Glass cards")
                     Text("Notes and folders use translucent Liquid Glass in their theme color, like Notification Center widgets.")
                 }
+
+                Toggle(isOn: $settings.folderTabsEnabled) {
+                    Text("Folder tabs (experimental)")
+                    Text("Binder tabs on the panel edge, one per folder. One click switches folder.")
+                }
             }
 
             Section {
