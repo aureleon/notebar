@@ -83,14 +83,14 @@ public enum DroppedFileStorage {
                                                         options: [.skipsHiddenFiles]), !folders.isEmpty else { return 0 }
         var used = Set<String>()
         let rootPath = root.path + "/"
-        for folder in store.folders() {
-            for note in store.notes(in: folder.id) {
-                for a in store.attachments(for: note.id) where a.kind == .fileBookmark {
-                    guard let url = store.url(for: a)?.standardizedFileURL.resolvingSymlinksInPath() else { continue }
-                    let p = url.path
-                    guard p.hasPrefix(rootPath) else { continue }
-                    if let first = p.dropFirst(rootPath.count).split(separator: "/").first { used.insert(String(first)) }
-                }
+        // Archived notes and the notes of archived folders keep their files too.
+        let notes = (store.folders() + store.archivedFolders()).flatMap { store.notes(in: $0.id) } + store.archivedNotes()
+        for note in notes {
+            for a in store.attachments(for: note.id) where a.kind == .fileBookmark {
+                guard let url = store.url(for: a)?.standardizedFileURL.resolvingSymlinksInPath() else { continue }
+                let p = url.path
+                guard p.hasPrefix(rootPath) else { continue }
+                if let first = p.dropFirst(rootPath.count).split(separator: "/").first { used.insert(String(first)) }
             }
         }
         let cutoff = Date().addingTimeInterval(-age)

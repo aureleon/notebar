@@ -22,7 +22,8 @@ public struct MarkdownExporter {
         var folderNames = FileNames.existingNames(in: directory)
 
         let archived = Dictionary(grouping: store.archivedNotes(), by: \.folderId)
-        for folder in store.folders() {
+        // Archived folders are exported like the others, with their notes (not those archived on their own).
+        for folder in store.folders() + store.archivedFolders() {
             let folderDir = directory.appendingPathComponent(
                 FileNames.unique(FileNames.sanitize(folder.name, fallback: "Folder"), ext: "", taken: &folderNames),
                 isDirectory: true)

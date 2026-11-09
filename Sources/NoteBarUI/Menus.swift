@@ -249,7 +249,7 @@ enum MenuBuilder {
                            delete: { actions.deleteForGood(folder: f.id) }))
         }
         if !notes.isEmpty { m.addItem(.sectionHeader(title: "Notes")) }
-        let names = Dictionary(uniqueKeysWithValues: store.folders().map { ($0.id, $0.name) })
+        let names = Dictionary(uniqueKeysWithValues: (store.folders() + store.archivedFolders()).map { ($0.id, $0.name) })
         for n in notes {
             let title = n.title.isEmpty ? "Untitled" : String(n.title.prefix(60))
             m.addItem(item(title, symbol: "doc.text", subtitle: (names[n.folderId].map { "In \($0) · " } ?? "") + when(n.deletedAt),
@@ -292,8 +292,8 @@ enum MenuBuilder {
         for item in modeItems(current: note.mode, onPick: { actions.setMode($0, for: note.id) }) { modes.addItem(item) }
         modeItem.submenu = modes
         m.addItem(modeItem)
-        if !note.isArchived {
-            // Archived notes are not moved (unarchive first).
+        if !env.store.isInArchive(note) {
+            // Archived notes (also those of an archived folder) are not moved (unarchive first).
             let moveItem = NSMenuItem(title: "Move", action: nil, keyEquivalent: "")
             moveItem.image = Symbols.image("arrow.up.and.down.and.arrow.left.and.right", size: 13)
             moveItem.submenu = moveMenu(for: note, actions: actions)
@@ -328,9 +328,43 @@ enum MenuBuilder {
         colorItem.submenu = colorSubmenu(current: folder.color, env: env) { actions.setFolderColor($0, folder.id) }
         m.addItem(colorItem)
         m.addItem(.separator())
+        m.addItem(ClosureMenuItem("Archive Folder", key: "a", modifiers: [.option, .command], symbol: "archivebox",
+                                  enabled: env.store.folders().count > 1) {
+            actions.toggleArchiveFolder(folder.id)
+        })
         m.addItem(ClosureMenuItem("Delete Folder…", key: "", symbol: "trash", enabled: env.store.folders().count > 1) {
             actions.deleteFolder(folder.id)
         })
+        return m
+    }
+
+    /// Archive row when folders are archived: the archived notes, then every archived folder with
+    /// Open / Unarchive / Delete.
+    static func archiveMenu(actions: NoteActions) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        let store = actions.env.store
+        let ago = RelativeDateTimeFormatter()
+        ago.unitsStyle = .full
+        func count(_ n: Int) -> String { "\(n) \(n == 1 ? "note" : "notes")" }
+        let notes = ClosureMenuItem("Archived Notes", key: "", symbol: "doc.text") { actions.root?.showArchive() }
+        notes.subtitle = count(store.archivedNotes().count)
+        m.addItem(notes)
+        m.addItem(.sectionHeader(title: "Folders"))
+        for f in store.archivedFolders() {
+            let it = NSMenuItem(title: f.name, action: nil, keyEquivalent: "")
+            it.image = Symbols.image("folder", size: 13)
+            it.subtitle = count(store.noteCount(in: f.id))
+                + (f.archivedAt.map { " · Archived " + ago.localizedString(for: $0, relativeTo: Date()) } ?? "")
+            let sub = NSMenu()
+            sub.autoenablesItems = false
+            sub.addItem(ClosureMenuItem("Open", key: "", symbol: "folder") { actions.root?.showArchivedFolder(f.id) })
+            sub.addItem(ClosureMenuItem("Unarchive", key: "", symbol: "tray.and.arrow.up") { actions.toggleArchiveFolder(f.id) })
+            sub.addItem(.separator())
+            sub.addItem(ClosureMenuItem("Delete Folder…", key: "", symbol: "trash") { actions.deleteFolder(f.id) })
+            it.submenu = sub
+            m.addItem(it)
+        }
         return m
     }
 }

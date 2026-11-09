@@ -78,7 +78,12 @@ enum StoreSchema {
             try db.alter(table: "note") { t in t.add(column: "foldOverrides", .text).notNull().defaults(to: "") }
         }
 
-        // Future migrations go here: m.registerMigration("v6-...") { db in ... }
+        // Folder archive: an archived folder has `archivedAt` (seconds since 1970) until it is unarchived.
+        m.registerMigration("v6-folder-archive") { db in
+            try db.alter(table: "folder") { t in t.add(column: "archivedAt", .double) }
+        }
+
+        // Future migrations go here: m.registerMigration("v7-...") { db in ... }
         return m
     }
 
@@ -114,7 +119,8 @@ extension Folder {
         self.init(id: row["id"], name: row["name"], sortIndex: row["sortIndex"], isPinned: row["isPinned"],
                   color: NoteColor(rawValue: colorRaw) ?? .none,
                   createdAt: Date(timeIntervalSince1970: row["createdAt"]),
-                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
+                  deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
     }
 }
 

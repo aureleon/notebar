@@ -98,7 +98,7 @@ extension NotesRootViewController {
             case "gm": showMoveMenu(for: id)
             case "gj", "gk":
                 // Reorder within the folder; search results are not a folder order.
-                guard search == nil, !note.isArchived else { return false }
+                guard search == nil, !store.isInArchive(note) else { return false }
                 actions.move(id, chord == "gj" ? .down : .up)
             case "gy": actions.copyText(id)
             case "ge": toggleExpand(id)
@@ -122,6 +122,7 @@ extension NotesRootViewController {
                 self?.actions.setFolderColor(c, id)
             })
             popUpFolderMenu(m, for: id)
+        case "ga": actions.toggleArchiveFolder(id)
         case "gx", "dd": actions.deleteFolder(id)
         case "cw": beginRenameFolder(id)
         default: return false
@@ -220,7 +221,7 @@ extension NotesRootViewController {
 
     /// `:move <name>`: exact name first (any case), then a name that starts with / contains it.
     func vimMove(_ id: NoteID, toFolderNamed raw: String) {
-        guard let note = store.note(id: id), !note.isArchived else { NSSound.beep(); return }
+        guard let note = store.note(id: id), !store.isInArchive(note) else { NSSound.beep(); return }
         let name = raw.trimmingCharacters(in: .whitespaces).lowercased()
         let folders = store.folders()
         let match = folders.first { $0.name.lowercased() == name }

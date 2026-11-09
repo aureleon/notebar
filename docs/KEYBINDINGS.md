@@ -34,6 +34,7 @@ Contexts:
 | ⌥⌘M | Panel | Move the active note to a new folder | ″ |
 | ⌥⌘← / ⌥⌘→ | Panel, notes visible | Fold / unfold the active note | ″ |
 | ⌥⌘A | Panel, notes visible (also while editing) | Archive / unarchive the active note | ″ |
+| ⌥⌘A | Folder list | Archive the selected folder | ″ |
 | ⌥⇧⌘↑ / ↓ | Panel, not in search | Move the active note up / down | ″ |
 | ⌘⌫ | List | Delete the selected note (alert) | ″ |
 | ⌘↩ | Editor | Stop editing, keep the card selected | ″, `MarkdownTextView.keyDown` |
@@ -52,7 +53,7 @@ Contexts:
 |---|---|---|---|
 | ↑ / ↓ | Select row (folders, then Archive and Recently Deleted) | Select card | `RootKeyboard.handleKeyDown` |
 | Home / End | First / last row | First / last card | ″ |
-| ↩ / Enter | Open folder / the archive / the Recently Deleted menu | Edit the card (unfolds it first) | ″ |
+| ↩ / Enter | Open folder / the archive (the Archive menu when folders are archived) / the Recently Deleted menu | Edit the card (unfolds it first) | ″ |
 | → | Open folder | — | ″ |
 | ← | — | Back to the folder list (not in search) | ″ |
 | ⌫ / ⌦ | — | Delete the selected card (alert) | ″ |
@@ -80,7 +81,7 @@ Contexts:
 | gj / gk | — | Move note down / up in its folder (not in search) |
 | gy | — | Copy the note text |
 | ge | — | Expand / collapse |
-| ga | — | Archive / unarchive |
+| ga | Archive the selected folder | Archive / unarchive |
 | za / zc / zo | — | Toggle / fold / unfold |
 | Other letters | Swallowed (do nothing) | Swallowed |
 

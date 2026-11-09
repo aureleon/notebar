@@ -115,9 +115,11 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     /// Diffs the displayed cards against `notes`: inserts / removes / reorders card views and keeps
     /// the existing editors.
-    /// `marksArchived`: archived cards add "· Archived" to their folder name (search results).
+    /// `marksArchived`: archived cards (also those of `archivedFolderIDs`) add "· Archived" to their
+    /// folder name (search results).
     func setNotes(_ notes: [Note], animated: Bool, folderNames: [FolderID: String]? = nil,
-                  forceUnfolded: Bool = false, query: String = "", marksArchived: Bool = true) {
+                  forceUnfolded: Bool = false, query: String = "", marksArchived: Bool = true,
+                  archivedFolderIDs: Set<FolderID> = []) {
         var old = cardsByID
         var newCards: [NoteCardView] = []
         var inserted: [NoteCardView] = []
@@ -135,7 +137,8 @@ final class NotesListView: NSView, NoteCardDelegate {
                 inserted.append(card)
             }
             card.forceUnfolded = forceUnfolded
-            card.folderName = folderNames?[n.folderId].map { n.isArchived && marksArchived ? "\($0) · Archived" : $0 }
+            let archived = n.isArchived || archivedFolderIDs.contains(n.folderId)
+            card.folderName = folderNames?[n.folderId].map { archived && marksArchived ? "\($0) · Archived" : $0 }
             card.searchQuery = query
             newCards.append(card)
         }

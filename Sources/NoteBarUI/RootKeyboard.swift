@@ -200,9 +200,15 @@ extension NotesRootViewController {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.moveToNewFolder(id); return true
             }
-            // ⌥⌘A archives / unarchives the edited or selected note (also while typing in it).
+            // ⌥⌘A archives / unarchives the edited or selected note (also while typing in it). On the
+            // folder list it archives the selected folder.
             if key == "a" || code == 0 {
-                guard notesVisible, let id = activeNoteID else { NSSound.beep(); return true }
+                if !notesVisible {
+                    guard folderList.renamingFolderID == nil else { return false }
+                    guard let id = folderList.selectedFolderID else { NSSound.beep(); return true }
+                    actions.toggleArchiveFolder(id); return true
+                }
+                guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.toggleArchive(id); return true
             }
             return false
@@ -229,9 +235,9 @@ extension NotesRootViewController {
         createNewNote()
     }
 
-    /// Archived notes cannot be moved (unarchive first): no menu.
+    /// Archived notes (also those of an archived folder) cannot be moved (unarchive first): no menu.
     func showMoveMenu(for id: NoteID) {
-        guard let note = store.note(id: id), !note.isArchived else { NSSound.beep(); return }
+        guard let note = store.note(id: id), !store.isInArchive(note) else { NSSound.beep(); return }
         popUpCardMenu(MenuBuilder.moveMenu(for: note, actions: actions), for: id)
     }
 }

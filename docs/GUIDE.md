@@ -35,6 +35,7 @@ Settings › General.
 | Go back to the folder list | ⌘[ or the back button |
 | Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), or the fold button |
 | Archive or unarchive a note | ⌥⌘A (also while you type), or the archive button on the card |
+| Archive a folder | ⌥⌘A on the selected folder, or Archive Folder in its menu |
 | Move a note to a different folder | ⌘⇧M |
 | Settings | ⌘, |
 
@@ -111,6 +112,20 @@ The bottom-left corner of an unfolded card always shows two buttons:
 - Search does not show archived notes. To find them too, turn on the **Archive** chip above the
   results. A search in the Archive finds only archived notes.
 - You cannot move an archived note to a different folder. Unarchive it first.
+
+### Archived folders
+
+- To archive a folder, right-click it and choose **Archive Folder**, or select it and push ⌥⌘A
+  (`ga` with vim keys). The folder and its notes leave the folder list. Undo on the message, or ⌘Z,
+  brings it back. You cannot archive the last folder.
+- While a folder is archived, a click on the **Archive** row opens a menu: **Archived Notes** opens
+  the archived notes, and each archived folder has **Open**, **Unarchive**, and **Delete Folder…**.
+- An open archived folder shows its notes. You can edit them, but you cannot add notes or move them
+  to a different folder.
+- Unarchive puts the folder back in the folder list with its notes. If another folder has the same
+  name now, the folder gets a number ("Work 2"). Notes that you archived on their own stay archived.
+- Search finds the notes of archived folders only with the **Archive** chip, or in the Archive.
+- A deleted archived folder goes to Recently Deleted. If you restore it, it goes back to the archive.
 
 ## Look
 

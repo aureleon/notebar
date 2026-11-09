@@ -214,6 +214,26 @@ public final class NotesUIProbe {
     }
     public var archiveRowCount: Int? { root.folderList.archiveRow == nil ? nil : root.folderList.archiveCount }
     public func clickArchiveRow() { _ = root.folderList.archiveRow?.accessibilityPerformPress() }
+    public func selectFolder(_ id: FolderID?) { root.folderList.selectedFolderID = id }
+    /// Titles of a folder row's context menu, and running one of its items.
+    public func folderMenuItems(for id: FolderID) -> [String] {
+        MenuBuilder.folderContextMenu(for: root.store.folder(id: id), actions: root.actions).items.map(\.title)
+    }
+    public func folderMenuRun(_ id: FolderID, _ title: String) {
+        let m = MenuBuilder.folderContextMenu(for: root.store.folder(id: id), actions: root.actions)
+        guard let i = m.items.firstIndex(where: { $0.title == title }), m.items[i].isEnabled else { return }
+        m.performActionForItem(at: i)
+    }
+    /// Titles of the Archive menu (top level), and running one of its items:
+    /// `archiveMenuRun("Old Project", "Unarchive")`, `archiveMenuRun("Archived Notes")`.
+    public var archiveMenuTitles: [String] { MenuBuilder.archiveMenu(actions: root.actions).items.map(\.title) }
+    public func archiveMenuRun(_ title: String, _ sub: String? = nil) {
+        let m = MenuBuilder.archiveMenu(actions: root.actions)
+        guard var item = m.items.first(where: { $0.title == title }) else { return }
+        if let sub, let s = item.submenu?.items.first(where: { $0.title == sub }) { item = s }
+        guard let menu = item.menu, let i = menu.items.firstIndex(of: item) else { return }
+        menu.performActionForItem(at: i)
+    }
     public func modeButtonSymbol(_ id: NoteID) -> String? { list.card(for: id)?.modeButtonSymbolForChecks }
     public func isFormatButtonShown(_ id: NoteID) -> Bool { list.card(for: id)?.isFormatButtonShown ?? false }
     public func modeButtonFrame(of id: NoteID) -> NSRect? {
@@ -346,6 +366,7 @@ extension NotesRootViewController {
         case .folders: return "NoteBar"
         case .folder(let id): return store.folder(id: id)?.name ?? "Notes"
         case .archive: return "Archive"
+        case .archivedFolder(let id): return store.archivedFolder(id: id)?.name ?? "Archive"
         }
     }
 }

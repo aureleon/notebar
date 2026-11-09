@@ -969,6 +969,89 @@ do {
     try! store.close()
 }
 
+// MARK: - Folder archive, both stores
+
+@MainActor func folderArchiveChecks(_ store: NoteStore, _ label: String) {
+    let home = store.folders()[0]
+    let old = store.createFolder(name: "Old Project")
+    let a = store.createNote(in: old.id, body: "plum one", mode: .standard, position: .bottom)
+    let b = store.createNote(in: old.id, body: "plum two", mode: .standard, position: .bottom)
+    let h = store.createNote(in: home.id, body: "plum home", mode: .standard, position: .bottom)
+    store.archiveNote(id: b.id)
+
+    let posted = changes { store.archiveFolder(id: old.id) }
+    Check.expect(posted.contains(.notes(folderId: old.id)) && posted.contains(.folders), "\(label): folder archive posts .notes + .folders")
+    Check.equal(store.folders().map(\.id), [home.id], "\(label): archived folder hidden from folders()")
+    Check.equal(store.folder(id: old.id), nil, "\(label): and from folder(id:)")
+    Check.equal(store.archivedFolders().map(\.id), [old.id], "\(label): archivedFolders lists it")
+    Check.expect(store.archivedFolder(id: old.id)?.isArchived == true, "\(label): archivedFolder(id:)")
+    Check.equal(store.notes(in: old.id).map(\.id), [a.id], "\(label): its notes stay with it")
+    Check.expect(store.note(id: a.id) != nil && store.isInArchive(store.note(id: a.id)!), "\(label): its notes are in the archive")
+    Check.equal(store.archivedNotes().map(\.id), [], "\(label): archivedNotes skips notes of archived folders")
+    Check.equal(store.search("plum", in: nil).map(\.id), [h.id], "\(label): search skips archived folders")
+    Check.equal(store.search("plum", in: nil, includeArchived: true).map(\.id), [h.id, a.id, b.id],
+                "\(label): includeArchived finds the notes of archived folders (after the visible ones)")
+    Check.equal(store.search("plum", in: old.id).map(\.id), [a.id], "\(label): search in an archived folder")
+
+    // Archived folders take no new notes or moved notes.
+    let n = store.createNote(in: old.id, body: "lands elsewhere", mode: .standard, position: .top)
+    Check.equal(n.folderId, home.id, "\(label): createNote in an archived folder uses a visible folder")
+    store.moveNote(id: h.id, toFolder: old.id, position: .top)
+    Check.equal(store.note(id: h.id)?.folderId, home.id, "\(label): no move into an archived folder")
+    store.deleteNote(id: n.id)
+
+    // The last visible folder is never archived.
+    store.archiveFolder(id: home.id)
+    Check.equal(store.folders().map(\.id), [home.id], "\(label): the last visible folder is not archived")
+
+    // updateFolder keeps the archive state; renames work.
+    var renamed = store.archivedFolder(id: old.id)!; renamed.name = "Old"; renamed.archivedAt = nil
+    store.updateFolder(renamed)
+    Check.equal(store.archivedFolder(id: old.id)?.name, "Old", "\(label): updateFolder changes an archived folder")
+    Check.expect(store.folder(id: old.id) == nil, "\(label): updateFolder cannot unarchive")
+
+    // Unarchive: back in the list, a taken name gets a number, individually archived notes stay archived.
+    let clash = store.createFolder(name: "Old")
+    store.unarchiveFolder(id: old.id)
+    Check.equal(store.folder(id: old.id)?.name, "Old 2", "\(label): unarchive renames on a clash")
+    Check.equal(store.archivedFolders().map(\.id), [], "\(label): unarchived folder leaves the archive")
+    Check.equal(store.notes(in: old.id).map(\.id), [a.id], "\(label): its notes come back")
+    Check.equal(store.archivedNotes().map(\.id), [b.id], "\(label): a note archived on its own stays archived")
+    store.deleteFolder(id: clash.id)
+
+    // Trash: an archived folder can be trashed; restored, it is archived again.
+    store.archiveFolder(id: old.id)
+    store.trashFolder(id: old.id)
+    Check.equal(store.archivedFolders().map(\.id), [], "\(label): a trashed archived folder leaves the archive")
+    Check.equal(store.trashedFolders().map(\.id), [old.id], "\(label): and is in the trash")
+    store.restoreFolder(id: old.id)
+    Check.equal(store.archivedFolders().map(\.id), [old.id], "\(label): restored, it is archived again")
+    Check.equal(store.folders().map(\.id), [home.id], "\(label): and not visible")
+
+    // Deleting for good also works while the last visible folder remains.
+    store.deleteFolder(id: old.id)
+    Check.equal(store.archivedFolders().map(\.id), [], "\(label): deleteFolder removes an archived folder")
+    Check.equal(store.note(id: a.id), nil, "\(label): with its notes")
+    store.deleteNote(id: h.id)
+}
+
+folderArchiveChecks(InMemoryNoteStore(), "memory")
+do {
+    let dir = freshDir("folder-archive")
+    let store = try! GRDBNoteStore(directory: dir)
+    folderArchiveChecks(store, "grdb")
+    let f = store.createFolder(name: "Shelved")
+    let n = store.createNote(in: f.id, body: "shelved note", mode: .standard, position: .top)
+    store.archiveFolder(id: f.id)
+    try! store.reopen()
+    Check.equal(store.archivedFolders().map(\.id), [f.id], "grdb: folder archive persisted")
+    Check.equal(store.notes(in: f.id).map(\.id), [n.id], "grdb: its notes after reopen")
+    store.unarchiveFolder(id: f.id)
+    try! store.reopen()
+    Check.expect(store.folder(id: f.id) != nil && store.archivedFolders().isEmpty, "grdb: unarchive persisted")
+    try! store.close()
+}
+
 // v1 database (before the trash): migrates, keeps the data, nothing is trashed.
 do {
     let dir = freshDir("migrate-v1")
@@ -994,6 +1077,7 @@ do {
     try! store.reopen()
     Check.equal(store.trashedNotes().count, 1, "v1 → v2: trash works after the migration")
     Check.expect(store.archivedNotes().isEmpty, "v1 → v3: nothing is archived after the migration")
+    Check.expect(store.archivedFolders().isEmpty, "v1 → v6: no folder is archived after the migration")
     try! store.close()
 }
 }

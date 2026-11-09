@@ -48,12 +48,19 @@ public struct Folder: Identifiable, Hashable, Codable, Sendable {
     /// Set while the folder is in the trash (soft delete). Store queries hide trashed folders and
     /// their notes. Only `NoteStore.trashFolder` / `restoreFolder` change it.
     public var deletedAt: Date?
+    /// Set while the folder is in the archive. `folders()` and `folder(id:)` hide it; its notes stay
+    /// with it (`notes(in:)`, `note(id:)` still return them). Only `NoteStore.archiveFolder` /
+    /// `unarchiveFolder` change it.
+    public var archivedAt: Date?
 
     public init(id: FolderID, name: String, sortIndex: Double, isPinned: Bool = false,
-                color: NoteColor = .none, createdAt: Date = Date(), deletedAt: Date? = nil) {
+                color: NoteColor = .none, createdAt: Date = Date(), deletedAt: Date? = nil, archivedAt: Date? = nil) {
         self.id = id; self.name = name; self.sortIndex = sortIndex
         self.isPinned = isPinned; self.color = color; self.createdAt = createdAt; self.deletedAt = deletedAt
+        self.archivedAt = archivedAt
     }
+
+    public var isArchived: Bool { archivedAt != nil }
 }
 
 public struct Note: Identifiable, Hashable, Codable, Sendable {

@@ -51,6 +51,7 @@ public enum NoteStoreError: Error, LocalizedError {
 /// - `folders()`: pinned first, then `sortIndex` ascending.
 /// - `notes(in:)`: pinned first, then `sortIndex` ascending ("top" = first).
 /// - There is always at least one folder (the store creates "Notes" if empty).
+/// - `folders()` / `folder(id:)` return only visible folders: neither trashed nor archived.
 @MainActor
 public protocol NoteStore: AnyObject {
     // MARK: Folders
@@ -59,20 +60,21 @@ public protocol NoteStore: AnyObject {
     func noteCount(in folderId: FolderID) -> Int
     @discardableResult func createFolder(name: String) -> Folder
     func updateFolder(_ folder: Folder)
-    /// Deletes the folder and all its notes + attachments for good (also a trashed folder). Never
-    /// deletes the last folder. The UI uses `trashFolder` (undoable) instead.
+    /// Deletes the folder and all its notes + attachments for good (also a trashed or archived folder).
+    /// Never deletes the last visible folder. The UI uses `trashFolder` (undoable) instead.
     func deleteFolder(id: FolderID)
     /// Moves the folder to `index` in the `folders()` order. The folder stays in its pinned/unpinned
     /// zone: the index is clamped to that zone and only same-zone neighbors define the new sortIndex.
     func moveFolder(id: FolderID, toIndex index: Int)
 
     // MARK: Notes
-    /// The folder's notes, without archived notes.
+    /// The folder's notes, without archived notes (also for an archived folder).
     func notes(in folderId: FolderID) -> [Note]
-    /// Also returns archived notes (not trashed ones).
+    /// Also returns archived notes and notes of archived folders (not trashed ones).
     func note(id: NoteID) -> Note?
-    /// Case-insensitive substring search over bodies. `folderId == nil` searches everything.
-    /// Archived notes are found only with `includeArchived` (see the `search(_:in:)` shortcut).
+    /// Case-insensitive substring search over bodies. `folderId == nil` searches every visible folder.
+    /// Archived notes, and the notes of archived folders, are found only with `includeArchived`
+    /// (see the `search(_:in:)` shortcut).
     func search(_ query: String, in folderId: FolderID?, includeArchived: Bool) -> [Note]
     @discardableResult func createNote(in folderId: FolderID, body: String, mode: NoteMode, position: InsertPosition) -> Note
     /// Called on every keystroke. Implementations debounce persistence and post `.noteBody`.
@@ -94,8 +96,21 @@ public protocol NoteStore: AnyObject {
     func archiveNote(id: NoteID)
     /// Puts the note back in its folder, at the place it had.
     func unarchiveNote(id: NoteID)
-    /// Archived notes of folders that are not in the trash, most recently archived first.
+    /// Archived notes of visible folders (not trashed, not archived), most recently archived first.
     func archivedNotes() -> [Note]
+
+    // An archived folder keeps its notes and its place; `folders()` and `folder(id:)` hide it until
+    // it is unarchived. Notes archived on their own stay archived. Changes post `.folders` and
+    // `.notes(folderId:)`.
+
+    /// Never archives the last visible folder.
+    func archiveFolder(id: FolderID)
+    /// Puts the folder back in the folder list. A name that is taken now gets a number ("Work 2").
+    func unarchiveFolder(id: FolderID)
+    /// Archived folders that are not in the trash, most recently archived first.
+    func archivedFolders() -> [Folder]
+    /// The folder if it is archived (and not in the trash).
+    func archivedFolder(id: FolderID) -> Folder?
 
     // MARK: Trash (soft delete)
     // A trashed note or folder is hidden from every query above (`folders`, `folder(id:)`, `notes`,
@@ -104,7 +119,8 @@ public protocol NoteStore: AnyObject {
 
     /// Moves a note to the trash.
     func trashNote(id: NoteID)
-    /// Moves a folder to the trash; its notes are hidden with it. Never trashes the last folder.
+    /// Moves a folder to the trash; its notes are hidden with it. Never trashes the last visible folder.
+    /// An archived folder can be trashed; restored, it is archived again.
     func trashFolder(id: FolderID)
     /// Brings a trashed note back. When its folder is in the trash too, the folder comes back first.
     @discardableResult func restoreNote(id: NoteID) -> Bool
@@ -152,6 +168,9 @@ public extension NoteStore {
 
     /// Search without archived notes.
     func search(_ query: String, in folderId: FolderID?) -> [Note] { search(query, in: folderId, includeArchived: false) }
+
+    /// In the archive: archived on its own, or in an archived folder.
+    func isInArchive(_ note: Note) -> Bool { note.isArchived || archivedFolder(id: note.folderId) != nil }
 
     func folder(named name: String) -> Folder? {
         folders().first { $0.name.compare(name, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame }

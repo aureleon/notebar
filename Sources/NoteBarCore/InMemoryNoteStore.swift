@@ -24,15 +24,17 @@ public final class InMemoryNoteStore: NoteStore {
 
     /// Not trashed (a note: neither the note nor its folder).
     private func isLive(_ f: Folder) -> Bool { f.deletedAt == nil }
+    /// Live and not archived (listed by `folders()`).
+    private func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived }
     private func isLive(_ n: Note) -> Bool { n.deletedAt == nil && folderMap[n.folderId].map(isLive) == true }
     private var liveNotes: [Note] { noteMap.values.filter(isLive) }
 
     // MARK: Folders
     public func folders() -> [Folder] {
-        folderMap.values.filter(isLive)
+        folderMap.values.filter(isVisible)
             .sorted { ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id) }
     }
-    public func folder(id: FolderID) -> Folder? { folderMap[id].flatMap { isLive($0) ? $0 : nil } }
+    public func folder(id: FolderID) -> Folder? { folderMap[id].flatMap { isVisible($0) ? $0 : nil } }
     public func noteCount(in folderId: FolderID) -> Int { liveNotes.filter { $0.folderId == folderId && !$0.isArchived }.count }
 
     @discardableResult public func createFolder(name: String) -> Folder {
@@ -43,15 +45,16 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func updateFolder(_ folder: Folder) {
-        guard let old = self.folder(id: folder.id) else { return }
+        guard let old = folderMap[folder.id], isLive(old) else { return }
         var f = folder
         f.deletedAt = old.deletedAt
+        f.archivedAt = old.archivedAt
         folderMap[folder.id] = f
         postStoreChange(.folders, sender: self)
     }
 
     public func deleteFolder(id: FolderID) {
-        guard let f = folderMap[id], !isLive(f) || folders().count > 1 else { return }
+        guard let f = folderMap[id], !isVisible(f) || folders().count > 1 else { return }
         for n in noteMap.values where n.folderId == id { removeNote(n.id) }
         folderMap[id] = nil
         postStoreChange(.notes(folderId: id), sender: self)
@@ -81,7 +84,9 @@ public final class InMemoryNoteStore: NoteStore {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return [] }
         let a: Bool? = includeArchived ? nil : false
-        let pool = folderId.map { notes(in: $0, archived: a) } ?? folders().flatMap { notes(in: $0.id, archived: a) }
+        var pool = folderId.map { notes(in: $0, archived: a) } ?? folders().flatMap { notes(in: $0.id, archived: a) }
+        // Archived folders after the visible ones (most recently archived first).
+        if folderId == nil, includeArchived { pool += archivedFolders().flatMap { notes(in: $0.id, archived: nil) } }
         return pool.filter { $0.body.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
@@ -172,7 +177,32 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func archivedNotes() -> [Note] {
-        liveNotes.filter(\.isArchived).sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+        liveNotes.filter { $0.isArchived && folderMap[$0.folderId].map(isVisible) == true }.sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+    }
+
+    public func archiveFolder(id: FolderID) {
+        guard var f = folder(id: id), folders().count > 1 else { return }
+        f.archivedAt = Date()
+        folderMap[id] = f
+        postStoreChange(.notes(folderId: id), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func unarchiveFolder(id: FolderID) {
+        guard var f = archivedFolder(id: id) else { return }
+        f.name = availableFolderName(f.name)
+        f.archivedAt = nil
+        folderMap[id] = f
+        postStoreChange(.notes(folderId: id), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func archivedFolders() -> [Folder] {
+        folderMap.values.filter { isLive($0) && $0.isArchived }.sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+    }
+
+    public func archivedFolder(id: FolderID) -> Folder? {
+        folderMap[id].flatMap { isLive($0) && $0.isArchived ? $0 : nil }
     }
 
     // MARK: Trash
@@ -185,7 +215,7 @@ public final class InMemoryNoteStore: NoteStore {
     }
 
     public func trashFolder(id: FolderID) {
-        guard var f = folder(id: id), folders().count > 1 else { return }
+        guard var f = folderMap[id], isLive(f), f.isArchived || folders().count > 1 else { return }
         f.deletedAt = Date()
         folderMap[id] = f
         postStoreChange(.notes(folderId: id), sender: self)
@@ -206,7 +236,8 @@ public final class InMemoryNoteStore: NoteStore {
 
     @discardableResult public func restoreFolder(id: FolderID) -> Bool {
         guard var f = folderMap[id], !isLive(f) else { return false }
-        f.name = availableFolderName(f.name)
+        // An archived folder comes back to the archive (its name is checked when it is unarchived).
+        if !f.isArchived { f.name = availableFolderName(f.name) }
         f.deletedAt = nil
         folderMap[id] = f
         postStoreChange(.notes(folderId: id), sender: self)

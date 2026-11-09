@@ -718,6 +718,7 @@ MainActor.assumeIsolated {
 
     // MARK: Archive
     archiveChecks(vc: vc, probe: probe, store: store, spin: spin)
+    folderArchiveChecks(vc: vc, probe: probe, store: store, spin: spin)
 
     // MARK: Cursor over card buttons: arrow, not the text I-beam
     vc.showFolder(folders.notes.id)
@@ -1392,3 +1393,103 @@ func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     store.deleteFolder(id: af.id)
 }
 
+
+@MainActor
+func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore, spin: () -> Void) {
+    func cmdZ() { spin(); probe.press(keyCode: 6, characters: "z", modifiers: [.command]); spin() }
+    func optCmdA() { probe.press(keyCode: 0, characters: "a", modifiers: [.command, .option]) }
+    let shelf = store.createFolder(name: "Shelf")
+    let s1 = store.createNote(in: shelf.id, body: "Quince jam\nfirst", mode: .standard, position: .bottom)
+    let s2 = store.createNote(in: shelf.id, body: "Shelf two", mode: .standard, position: .bottom)
+    vc.showFolderList()
+    probe.layoutNow(); spin()
+    Check.equal(probe.archiveRowCount, nil, "folder archive: nothing archived yet")
+
+    // Folder menu.
+    Check.expect(probe.folderMenuItems(for: shelf.id).contains("Archive Folder"), "the folder menu has Archive Folder")
+    probe.folderMenuRun(shelf.id, "Archive Folder")
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "Archive Folder archives the folder")
+    Check.expect(!probe.folderRowIDs.contains(shelf.id), "the archived folder leaves the folder list")
+    Check.equal(probe.archiveRowCount, 1, "the Archive row counts the folder")
+    Check.equal(probe.toastMessage, "Folder archived", "folder archive toast")
+    probe.tapToastAction()
+    Check.expect(store.folder(id: shelf.id) != nil, "toast Undo unarchives the folder")
+    Check.expect(probe.folderRowIDs.contains(shelf.id), "and it is back in the list")
+
+    // ⌥⌘A on the selected folder row, ⌘Z.
+    probe.focusList()
+    probe.selectFolder(shelf.id)
+    let ids = probe.folderRowIDs
+    let next = ids.firstIndex(of: shelf.id).map { $0 + 1 < ids.count ? ids[$0 + 1] : ids[$0 - 1] }
+    optCmdA()
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "⌥⌘A archives the selected folder")
+    Check.equal(probe.selectedFolderID, next, "the neighbor row gets the selection")
+    cmdZ()
+    Check.expect(store.folder(id: shelf.id) != nil, "⌘Z unarchives the folder")
+
+    // vim: ga on the selected folder.
+    probe.settings.vimKeybinds = true
+    probe.focusList()
+    probe.selectFolder(shelf.id)
+    probe.press(keyCode: 5, characters: "g"); probe.press(keyCode: 0, characters: "a")
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "vim: ga archives the selected folder")
+    probe.settings.vimKeybinds = false
+
+    // The Archive row opens the Archive menu while folders are archived.
+    var menus = 0
+    probe.captureMenus { _ in menus += 1 }
+    probe.clickArchiveRow()
+    Check.equal(menus, 1, "the Archive row opens the Archive menu")
+    probe.captureMenus(nil)
+    Check.expect(probe.archiveMenuTitles.contains("Archived Notes") && probe.archiveMenuTitles.contains("Shelf"),
+                 "the Archive menu lists the archived notes and the folder")
+
+    // Open: the archived folder's notes, no + and no Move.
+    probe.archiveMenuRun("Shelf", "Open")
+    probe.layoutNow(); spin()
+    Check.equal(probe.headerTitle, "Shelf", "Open shows the archived folder")
+    Check.equal(probe.displayedNoteIDs, [s1.id, s2.id], "with its notes")
+    Check.expect(!probe.isPlusButtonVisible, "no + button in an archived folder")
+    Check.expect(!probe.cardMenuItems(for: s1.id).contains("Move"), "no Move for notes of an archived folder")
+    renderHook?("26-archived-folder-light")
+    probe.goBack()
+    Check.expect(probe.folderRowsVisible, "back from the archived folder goes to the folder list")
+    Check.equal(probe.selectedSpecialRow, "archive", "and selects the Archive row")
+
+    // Unarchive while it is open: it becomes a normal folder.
+    probe.archiveMenuRun("Shelf", "Open")
+    probe.archiveMenuRun("Shelf", "Unarchive")
+    probe.layoutNow(); spin()
+    Check.expect(store.folder(id: shelf.id) != nil, "Unarchive puts the folder back")
+    Check.equal(probe.headerTitle, "Shelf", "the open archived folder stays open as a normal folder")
+    Check.expect(probe.isPlusButtonVisible, "with its + button")
+    Check.equal(probe.toastMessage, "“Shelf” is back in the folder list", "unarchive toast")
+
+    // Search: notes of archived folders only with the Archive chip, and from the archive.
+    store.archiveFolder(id: shelf.id)
+    vc.showFolderList()
+    probe.setSearchQuery("quince", allFolders: true)
+    Check.equal(probe.displayedNoteIDs, [], "search skips archived folders")
+    probe.setSearchIncludesArchive(true)
+    Check.equal(probe.displayedNoteIDs, [s1.id], "the Archive chip finds notes of archived folders")
+    Check.equal(probe.cardFolderLabel(s1.id), "Shelf · Archived", "and marks them")
+    probe.goBack()
+    vc.showArchive()
+    probe.setSearchQuery("quince")
+    Check.equal(probe.displayedNoteIDs, [s1.id], "search from the archive finds notes of archived folders")
+    probe.goBack()
+
+    // Delete from the Archive menu: to the trash, restored it is archived again.
+    vc.showFolderList()
+    probe.confirmDestructiveAlerts(true)
+    probe.archiveMenuRun("Shelf", "Delete Folder…")
+    probe.confirmDestructiveAlerts(nil)
+    Check.equal(store.trashedFolders().map(\.id), [shelf.id], "Delete Folder… moves the archived folder to the trash")
+    Check.equal(probe.archiveRowCount, nil, "the Archive row goes with it")
+    store.restoreFolder(id: shelf.id)
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "restored, it is archived again")
+    probe.commitDelete()
+    store.deleteFolder(id: shelf.id)
+    vc.showFolderList()
+    Check.equal(probe.archiveRowCount, nil, "folder archive: clean at the end")
+}

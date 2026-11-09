@@ -215,9 +215,9 @@ extension GRDBNoteStore {
 
 extension SQL {
     static let upsertFolder = """
-        INSERT INTO folder (id, name, sortIndex, isPinned, color, createdAt, deletedAt) VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO folder (id, name, sortIndex, isPinned, color, createdAt, deletedAt, archivedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET name = excluded.name, sortIndex = excluded.sortIndex,
-        isPinned = excluded.isPinned, color = excluded.color, deletedAt = excluded.deletedAt
+        isPinned = excluded.isPinned, color = excluded.color, deletedAt = excluded.deletedAt, archivedAt = excluded.archivedAt
         """
     static let upsertNote = """
         INSERT INTO note (id, folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, deletedAt, archivedAt,
@@ -236,7 +236,7 @@ extension SQL {
 
     static func folderUpsertArgs(_ f: Folder) -> StatementArguments {
         [f.id, f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970,
-         f.deletedAt?.timeIntervalSince1970]
+         f.deletedAt?.timeIntervalSince1970, f.archivedAt?.timeIntervalSince1970]
     }
     static func noteUpsertArgs(_ n: Note) -> StatementArguments {
         [n.id, n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,

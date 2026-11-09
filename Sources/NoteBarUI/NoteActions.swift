@@ -44,8 +44,9 @@ final class NoteActions {
         root?.noteRestored(id)
     }
 
+    /// Also an archived folder (it comes back to the archive).
     func trashFolderUndoably(_ id: FolderID, name: String) {
-        guard store.folder(id: id) != nil, store.folders().count > 1 else { return }
+        guard store.archivedFolder(id: id) != nil || (store.folder(id: id) != nil && store.folders().count > 1) else { return }
         store.trashFolder(id: id)
         if env.settings.lastFolderId == id { env.settings.lastFolderId = nil }
         registerUndo(name) { $0.restoreFolderUndoably(id, name: name) }
@@ -111,6 +112,25 @@ final class NoteActions {
     func toggleArchive(_ id: NoteID) {
         guard let n = store.note(id: id) else { return }
         if let root { root.setArchived(!n.isArchived, id: id) } else { setArchived(!n.isArchived, id: id) }
+    }
+
+    /// Archives / unarchives a folder with undo. UI entry points use `toggleArchiveFolder` (toast).
+    func setFolderArchived(_ archived: Bool, id: FolderID) {
+        if archived {
+            guard store.folder(id: id) != nil, store.folders().count > 1 else { return }
+            store.archiveFolder(id: id)
+            if env.settings.lastFolderId == id { env.settings.lastFolderId = nil }
+        } else {
+            guard store.archivedFolder(id: id) != nil else { return }
+            store.unarchiveFolder(id: id)
+        }
+        registerUndo(archived ? "Archive Folder" : "Unarchive Folder") { $0.setFolderArchived(!archived, id: id) }
+    }
+
+    /// Folder menu, ⌥⌘A and `ga` on the folder list, the Archive menu.
+    func toggleArchiveFolder(_ id: FolderID) {
+        let archived = store.archivedFolder(id: id) == nil
+        if let root { root.setFolderArchived(archived, id: id) } else { setFolderArchived(archived, id: id) }
     }
 
     func togglePin(_ id: NoteID) {
@@ -186,7 +206,7 @@ final class NoteActions {
 
     /// Creates a folder, moves the note there and starts renaming the new folder.
     func moveToNewFolder(_ id: NoteID) {
-        guard let note = store.note(id: id), !note.isArchived,
+        guard let note = store.note(id: id), !store.isInArchive(note),
               let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         let folder = store.createFolder(name: uniqueFolderName("New Folder", in: store))
         store.moveNote(id: id, toFolder: folder.id, position: .top)
@@ -268,9 +288,10 @@ final class NoteActions {
         registerUndo("Folder Color") { $0.setFolderColor(old, id) }
     }
 
+    /// Also an archived folder (Archive menu).
     func deleteFolder(_ id: FolderID) {
-        guard let f = store.folder(id: id) else { return }
-        guard store.folders().count > 1 else {
+        guard let f = store.folder(id: id) ?? store.archivedFolder(id: id) else { return }
+        guard f.isArchived || store.folders().count > 1 else {
             root?.showToast("The last folder cannot be deleted")
             return
         }

@@ -13,7 +13,7 @@ protocol FolderListDelegate: AnyObject {
     /// Click on the Recently Deleted row.
     func folderListOpenTrash(_ list: FolderListView, from row: NSView)
     /// Click on the Archive row.
-    func folderListOpenArchive(_ list: FolderListView)
+    func folderListOpenArchive(_ list: FolderListView, from row: NSView)
 }
 
 /// Root view: the folder list (icon, name, pin mark, note count) inside one rounded group.
@@ -48,7 +48,7 @@ final class FolderListView: NSView {
     /// Number of items in Recently Deleted; nil hides the row.
     var trashCount: Int? { didSet { if oldValue != trashCount { updateTrashRow() } } }
     private(set) var trashRow: SpecialRowView?
-    /// Number of archived notes; nil hides the Archive row.
+    /// Number of archived notes and folders; nil hides the Archive row.
     var archiveCount: Int? { didSet { if oldValue != archiveCount { updateArchiveRow() } } }
     private(set) var archiveRow: SpecialRowView?
 
@@ -220,9 +220,9 @@ final class FolderListView: NSView {
         if let n = archiveCount {
             let row = archiveRow ?? {
                 let r = SpecialRowView(env: env, kind: .archive)
-                r.onClick = { [weak self] _ in
+                r.onClick = { [weak self] v in
                     guard let self else { return }
-                    self.delegate?.folderListOpenArchive(self)
+                    self.delegate?.folderListOpenArchive(self, from: v)
                 }
                 doc.addSubview(r)
                 archiveRow = r
@@ -700,7 +700,8 @@ final class DropIndicatorView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-/// "Archive" and "Recently Deleted" at the end of the folder list. Archive opens the archived notes;
+/// "Archive" and "Recently Deleted" at the end of the folder list. Archive opens the archived notes
+/// (with archived folders: the Archive menu);
 /// Recently Deleted opens the trash menu (Restore / Delete Now per item, Empty).
 @MainActor
 final class SpecialRowView: NSView {
@@ -721,8 +722,7 @@ final class SpecialRowView: NSView {
     var count = 0 {
         didSet {
             countLabel.stringValue = "\(count)"
-            let noun = kind == .archive ? (count == 1 ? "note" : "notes") : (count == 1 ? "item" : "items")
-            setAccessibilityLabel("\(Self.title(kind)), \(count) \(noun)")
+            setAccessibilityLabel("\(Self.title(kind)), \(count) \(count == 1 ? "item" : "items")")
             needsLayout = true
         }
     }
@@ -739,7 +739,7 @@ final class SpecialRowView: NSView {
         countLabel.alignment = .right
         for v in [icon, nameLabel, countLabel] as [NSView] { addSubview(v) }
         setAccessibilityRole(.button)
-        toolTip = kind == .archive ? "Archived notes" : "Deleted notes and folders"
+        toolTip = kind == .archive ? "Archived notes and folders" : "Deleted notes and folders"
         restyle()
     }
 

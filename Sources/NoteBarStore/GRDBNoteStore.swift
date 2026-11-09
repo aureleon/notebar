@@ -182,20 +182,23 @@ public final class GRDBNoteStore: NoteStore {
     func isLive(_ f: Folder) -> Bool { f.deletedAt == nil }
     func isLive(_ n: Note) -> Bool { n.deletedAt == nil && folderMap[n.folderId].map(isLive) == true }
     func liveFolder(_ id: FolderID) -> Folder? { folderMap[id].flatMap { isLive($0) ? $0 : nil } }
+    /// Live and not archived (listed by `folders()`).
+    func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived }
+    func visibleFolder(_ id: FolderID) -> Folder? { folderMap[id].flatMap { isVisible($0) ? $0 : nil } }
     func liveNote(_ id: NoteID) -> Note? { noteMap[id].flatMap { isLive($0) ? $0 : nil } }
 
     // MARK: - Folders
 
     public func folders() -> [Folder] {
         if let cached = sortedFoldersCache { return cached }
-        let list = folderMap.values.filter(isLive).sorted {
+        let list = folderMap.values.filter(isVisible).sorted {
             ($0.isPinned ? 0 : 1, $0.sortIndex, $0.id) < ($1.isPinned ? 0 : 1, $1.sortIndex, $1.id)
         }
         sortedFoldersCache = list
         return list
     }
 
-    public func folder(id: FolderID) -> Folder? { liveFolder(id) }
+    public func folder(id: FolderID) -> Folder? { visibleFolder(id) }
 
     public func noteCount(in folderId: FolderID) -> Int { notes(in: folderId).count }
 
@@ -219,6 +222,7 @@ public final class GRDBNoteStore: NoteStore {
         var f = folder
         f.createdAt = old.createdAt
         f.deletedAt = old.deletedAt
+        f.archivedAt = old.archivedAt
         folderMap[f.id] = f
         pendingFolderIDs.insert(f.id)
         flush()
@@ -227,7 +231,7 @@ public final class GRDBNoteStore: NoteStore {
     }
 
     public func deleteFolder(id: FolderID) {
-        guard let f = folderMap[id], !isLive(f) || folders().count > 1 else { return }
+        guard let f = folderMap[id], !isVisible(f) || folders().count > 1 else { return }
         let noteIDs = Set(noteMap.values.filter { $0.folderId == id }.map(\.id))
         let (removed, newOwners) = detachAttachments(ofDeleted: noteIDs)
         for nid in noteIDs { noteMap[nid] = nil; pendingNoteIDs.remove(nid) }
@@ -299,15 +303,18 @@ public final class GRDBNoteStore: NoteStore {
         func pool(_ fid: FolderID) -> [Note] {
             guard includeArchived else { return notes(in: fid) }
             // Archived notes after the folder's other notes, most recently archived first.
-            return notes(in: fid) + archivedNotes().filter { $0.folderId == fid }
+            return notes(in: fid) + noteMap.values.filter { $0.folderId == fid && isLive($0) && $0.isArchived }
+                .sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
         }
-        let pool = folderId.map { pool($0) } ?? folders().flatMap { pool($0.id) }
-        return pool.filter { $0.body.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        var list = folderId.map { pool($0) } ?? folders().flatMap { pool($0.id) }
+        // Archived folders after the visible ones (most recently archived first).
+        if folderId == nil, includeArchived { list += archivedFolders().flatMap { pool($0.id) } }
+        return list.filter { $0.body.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
 
     @discardableResult
     public func createNote(in folderId: FolderID, body: String, mode: NoteMode, position: InsertPosition) -> Note {
-        let fid = liveFolder(folderId) != nil ? folderId : folders()[0].id
+        let fid = visibleFolder(folderId) != nil ? folderId : folders()[0].id
         let list = notes(in: fid).filter { !$0.isPinned }
         let idx = position == .top ? SortIndex.between(nil, list.first?.sortIndex)
                                    : SortIndex.between(list.last?.sortIndex, nil)
@@ -343,7 +350,7 @@ public final class GRDBNoteStore: NoteStore {
         var n = note
         n.deletedAt = old.deletedAt
         n.archivedAt = old.archivedAt
-        if liveFolder(n.folderId) == nil { n.folderId = old.folderId }
+        if visibleFolder(n.folderId) == nil { n.folderId = old.folderId }
         n.createdAt = n.createdAt.storeNormalized
         n.updatedAt = .storeNow
         noteMap[n.id] = n
@@ -400,7 +407,7 @@ public final class GRDBNoteStore: NoteStore {
     }
 
     public func moveNote(id: NoteID, toFolder folderId: FolderID, position: InsertPosition) {
-        guard var n = liveNote(id), liveFolder(folderId) != nil else { return }
+        guard var n = liveNote(id), visibleFolder(folderId) != nil else { return }
         let old = n.folderId
         let list = notes(in: folderId).filter { !$0.isPinned && $0.id != id }
         n.folderId = folderId
@@ -433,7 +440,39 @@ public final class GRDBNoteStore: NoteStore {
     }
 
     public func archivedNotes() -> [Note] {
-        noteMap.values.filter { isLive($0) && $0.isArchived }.sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+        noteMap.values.filter { $0.isArchived && isLive($0) && folderMap[$0.folderId].map(isVisible) == true }
+            .sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+    }
+
+    public func archiveFolder(id: FolderID) {
+        guard var f = visibleFolder(id), folders().count > 1 else { return }
+        f.archivedAt = .storeNow
+        saveFolderVisibility(f)
+    }
+
+    public func unarchiveFolder(id: FolderID) {
+        guard var f = archivedFolder(id: id) else { return }
+        f.name = availableFolderName(f.name)
+        f.archivedAt = nil
+        saveFolderVisibility(f)
+    }
+
+    /// Writes a folder whose archive / trash state changed and posts the changes.
+    private func saveFolderVisibility(_ f: Folder) {
+        folderMap[f.id] = f
+        pendingFolderIDs.insert(f.id)
+        invalidateAll()
+        flush()
+        postStoreChange(.notes(folderId: f.id), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    public func archivedFolders() -> [Folder] {
+        folderMap.values.filter { isLive($0) && $0.isArchived }.sorted { ($0.archivedAt!, $0.id) > ($1.archivedAt!, $1.id) }
+    }
+
+    public func archivedFolder(id: FolderID) -> Folder? {
+        folderMap[id].flatMap { isLive($0) && $0.isArchived ? $0 : nil }
     }
 
     // MARK: - Trash
@@ -450,14 +489,9 @@ public final class GRDBNoteStore: NoteStore {
     }
 
     public func trashFolder(id: FolderID) {
-        guard var f = liveFolder(id), folders().count > 1 else { return }
+        guard var f = liveFolder(id), f.isArchived || folders().count > 1 else { return }
         f.deletedAt = .storeNow
-        folderMap[id] = f
-        pendingFolderIDs.insert(id)
-        invalidateAll()
-        flush()
-        postStoreChange(.notes(folderId: id), sender: self)
-        postStoreChange(.folders, sender: self)
+        saveFolderVisibility(f)
     }
 
     @discardableResult
@@ -479,14 +513,10 @@ public final class GRDBNoteStore: NoteStore {
     @discardableResult
     public func restoreFolder(id: FolderID) -> Bool {
         guard var f = folderMap[id], !isLive(f) else { return false }
-        f.name = availableFolderName(f.name)
+        // An archived folder comes back to the archive (its name is checked when it is unarchived).
+        if !f.isArchived { f.name = availableFolderName(f.name) }
         f.deletedAt = nil
-        folderMap[id] = f
-        pendingFolderIDs.insert(id)
-        invalidateAll()
-        flush()
-        postStoreChange(.notes(folderId: id), sender: self)
-        postStoreChange(.folders, sender: self)
+        saveFolderVisibility(f)
         return true
     }
 
