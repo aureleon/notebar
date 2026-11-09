@@ -1197,6 +1197,10 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
             vc.showFolderList()
             probe.layoutNow(); spin(); probe.layoutNow()
             render("66-style-header-all-folders-light")
+            vc.showFolder(many[5].id)
+            probe.layoutNow(); spin(); probe.layoutNow()
+            render("67-style-header-14-folders-middle-light")
+            render("68-style-header-14-folders-middle-dark", dark: true)
         }
     }
     for f in many { store.deleteFolder(id: f.id) }

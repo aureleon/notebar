@@ -35,7 +35,8 @@ extension NotesRootViewController {
         var hosted = false
         if on, FolderTabRailView.style == .header {
             switch screen {
-            case .archive, .archivedFolder: on = false
+            // The folder list shows every folder itself.
+            case .archive, .archivedFolder, .folders: on = false
             default: on = search == nil
             }
             hosted = on
