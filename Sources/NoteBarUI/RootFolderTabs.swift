@@ -37,14 +37,14 @@ extension NotesRootViewController {
         layoutFolderTabs()
     }
 
-    /// Places the rail below the header, beside the first card. It ends where the notes end (the last
+    /// Places the rail from the top of the panel, beside the header. It ends where the notes end (the last
     /// card or folder row), so the panel is never taller than its content. The tabs that do not fit
     /// scroll. A very short or empty list still leaves room for `minimumTabs` small tabs, otherwise
     /// there would be no tab to leave it with.
     func layoutFolderTabs() {
         guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return }
         let m = Metrics.outerMargin
-        let top = m + Metrics.headerHeight + Metrics.gap
+        let top = m
         let column = columnFrame
         let w = railInset + FolderTabRailView.tuck
         folderTabs.railOnLeft = railOnLeft

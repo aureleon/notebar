@@ -1007,7 +1007,7 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
         Check.expect(b.minX > 0 && b.minX < rail, "tabs: an inactive tab is pulled in")
         Check.equal(b.maxX, rail, "tabs: an inactive tab ends at the spine")
         Check.equal(a.maxX, cardOn.minX, "tabs: the active tab is joined to the cards")
-        Check.expect(a.minY >= probe.notesColumnFrame.minY + 60, "tabs: the rail starts below the header")
+        Check.equal(probe.folderTabRailFrame.minY, 6, "tabs: the rail starts at the top of the panel, beside the header")
         Check.expect(c.maxY <= height, "tabs: the rail ends inside the panel")
     } else {
         Check.expect(false, "tabs: frames")
@@ -1139,7 +1139,9 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     // Three notes are not as high as 16 tabs: the rail ends with the notes and the tabs scroll.
     Check.expect(probe.railHeight >= railBefore && probe.railHeight <= vc.contentHeight,
                  "tabs: 14 folders, the rail ends with the notes (\(probe.railHeight) vs \(vc.contentHeight))")
-    Check.equal(probe.folderTabHeight, 22, "tabs: 14 folders beside three notes, minimum tab height")
+    Check.expect(probe.folderTabHeight >= 22 && probe.folderTabHeight < 27, "tabs: 14 folders beside three notes, small tabs (\(probe.folderTabHeight))")
+    Check.equal(probe.folderTabRailFrame.maxY, vc.contentHeight - 6, "tabs: the last tab ends flush with the last note")
+    Check.equal(probe.folderTabFrame("all")?.maxY, probe.folderTabRailFrame.maxY, "tabs: the all-folders tab is the last piece")
     Check.expect(probe.folderTabsCanScroll, "tabs: 14 folders beside three notes scroll")
     Check.expect(probe.isFolderTabInView(key(work)), "tabs: the open folder's tab is in view")
     render("44-tabs-14-folders-light")
@@ -1148,7 +1150,7 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     let filler = (0..<6).map { store.createNote(in: work.id, body: "Filler \($0)\nline\nline", mode: .standard, position: .bottom) }
     probe.layoutNow(); spin(); probe.layoutNow()
     Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: 14 folders stay inside the panel (\(probe.folderTabRailFrame.maxY))")
-    Check.expect(probe.folderTabHeight < 34 && probe.folderTabHeight >= 22, "tabs: 14 folders, smaller tabs (\(probe.folderTabHeight))")
+    Check.expect(probe.folderTabHeight <= 34 && probe.folderTabHeight >= 22, "tabs: 14 folders beside a long folder (\(probe.folderTabHeight))")
     Check.expect(!probe.folderTabsCanScroll, "tabs: 14 folders fit without scrolling beside a long folder")
     Check.expect(many.allSatisfy { probe.isFolderTabInView(key($0)) }, "tabs: every tab is in view")
     render("49-tabs-14-folders-long-folder-light")
@@ -1158,7 +1160,7 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     // A short panel (small screen): minimum tab height, the folder tabs scroll between Scratch and all folders.
     height = 330
     resize()
-    Check.equal(probe.folderTabHeight, 22, "tabs: short panel, minimum tab height")
+    Check.expect(probe.folderTabHeight >= 22 && probe.folderTabHeight < 27, "tabs: short panel, small tabs (\(probe.folderTabHeight))")
     Check.expect(probe.folderTabsCanScroll, "tabs: short panel, the tabs scroll")
     Check.expect(probe.folderTabRailFrame.maxY <= height - 6 + 0.5, "tabs: short panel, the rail stays inside")
     Check.expect(probe.railHeight <= height, "tabs: short panel, the rail height is capped")

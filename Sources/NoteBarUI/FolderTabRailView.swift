@@ -30,7 +30,6 @@ final class FolderTabRailView: FlippedView {
     private let allTab = FolderTabView(kind: .allFolders)
     /// Clips the folder tabs while they scroll.
     private let clip = FlippedView()
-    private(set) var scrollOffset: CGFloat = 0
     private(set) var active: Kind = .allFolders
     private var folders: [Folder] = []
     private var lastFittingHeight: CGFloat = -1
@@ -156,10 +155,19 @@ final class FolderTabRailView: FlippedView {
 
     /// Tab height for a rail of `available` height: full size if every tab fits, else smaller, down
     /// to `minTabHeight`.
+    /// When they do not fit even then, the rail holds as many whole tabs as it can, stretched a
+    /// little so the last one ends flush with the rail's end (the bottom of the last note).
     func tabHeight(available: CGFloat) -> CGFloat {
         let n = CGFloat(fixedCount + folderTabs.count)
-        let fit = floor((available + Self.tabGap) / n - Self.tabGap)
-        return min(Self.tabHeight, max(Self.minTabHeight, fit))
+        let fit = (available + Self.tabGap) / n - Self.tabGap
+        if fit >= Self.minTabHeight { return min(Self.tabHeight, fit) }
+        return (available + Self.tabGap) / slots(available: available) - Self.tabGap
+    }
+
+    /// Whole tabs a scrolling rail of `available` height shows.
+    private func slots(available: CGFloat) -> CGFloat {
+        max(CGFloat(fixedCount + min(1, folderTabs.count)),
+            floor((available + Self.tabGap) / (Self.minTabHeight + Self.tabGap)))
     }
 
     /// Height of the rail: all tabs, or, when they need to scroll, as many whole tabs as `available`
@@ -167,11 +175,8 @@ final class FolderTabRailView: FlippedView {
     func fittingHeight(available: CGFloat) -> CGFloat {
         let n = CGFloat(fixedCount + folderTabs.count)
         let step = tabHeight(available: available) + Self.tabGap
-        var h = n * step - Self.tabGap
-        if h > available {
-            let slots = max(CGFloat(fixedCount + min(1, folderTabs.count)), floor((available + Self.tabGap) / step))
-            h = slots * step - Self.tabGap
-        }
+        let fits = n * step - Self.tabGap <= available + 0.5
+        let h = ((fits ? n : min(n, slots(available: available))) * step - Self.tabGap).rounded()
         if h != lastFittingHeight {
             let first = lastFittingHeight < 0
             lastFittingHeight = h
@@ -180,13 +185,18 @@ final class FolderTabRailView: FlippedView {
         return h
     }
 
-    /// Height of all folder tabs (the scrolled content).
-    private var folderContentHeight: CGFloat {
-        let n = CGFloat(folderTabs.count)
-        return n > 0 ? n * (currentTabHeight + Self.tabGap) - Self.tabGap : 0
-    }
     private(set) var currentTabHeight: CGFloat = FolderTabRailView.tabHeight
-    var maxScrollOffset: CGFloat { max(0, folderContentHeight - clip.bounds.height) }
+    private var step: CGFloat { currentTabHeight + Self.tabGap }
+    /// Tab slots the rail shows (fixed tabs included), and those left for the folder tabs.
+    private var shownSlots: Int { max(fixedCount, Int(((bounds.height + Self.tabGap) / step).rounded())) }
+    private var folderSlots: Int { shownSlots - fixedCount }
+    private var maxScrollSlots: Int { max(0, folderTabs.count - folderSlots) }
+    var maxScrollOffset: CGFloat { CGFloat(maxScrollSlots) * step }
+    /// Folder tabs scrolled out above. The tabs scroll by whole tabs, so none is ever cut off.
+    private var scrollSlots = 0
+    var scrollOffset: CGFloat { CGFloat(scrollSlots) * step }
+    /// Wheel movement that did not add up to a whole tab yet.
+    private var wheelRemainder: CGFloat = 0
 
     override func layout() {
         super.layout()
@@ -194,36 +204,33 @@ final class FolderTabRailView: FlippedView {
     }
 
     func layoutTabs() {
-        let w = bounds.width
-        let h = tabHeight(available: bounds.height)
-        currentTabHeight = h
-        var top: CGFloat = 0
-        if let s = scratchTab {
-            s.frame = NSRect(x: 0, y: 0, width: w, height: h)
-            top = h + Self.tabGap
-        }
-        allTab.frame = NSRect(x: 0, y: max(top, bounds.height - h), width: w, height: h)
-        clip.frame = NSRect(x: 0, y: top, width: w, height: max(0, allTab.frame.minY - Self.tabGap - top))
+        currentTabHeight = tabHeight(available: bounds.height)
         // Keep the open folder's tab in view.
-        if let i = folderTabs.firstIndex(where: { $0.isActive }), maxScrollOffset > 0 {
-            let y = CGFloat(i) * (h + Self.tabGap)
-            if y < scrollOffset { scrollOffset = y }
-            if y + h > scrollOffset + clip.bounds.height { scrollOffset = y + h - clip.bounds.height }
+        if let i = folderTabs.firstIndex(where: { $0.isActive }), folderSlots > 0 {
+            scrollSlots = min(scrollSlots, i)
+            scrollSlots = max(scrollSlots, i - folderSlots + 1)
         }
-        scrollOffset = snapped(scrollOffset)
+        placeTabs()
+    }
+
+    /// Slot edges are whole points, so tab heights can differ by a point and the last tab ends
+    /// exactly at the rail's end.
+    private func placeTabs() {
+        let w = bounds.width
+        let step = self.step
+        func edge(_ slot: Int) -> CGFloat { (CGFloat(slot) * step).rounded() }
+        scrollSlots = min(max(scrollSlots, 0), maxScrollSlots)
+        let first = scratchTab == nil ? 0 : 1
+        scratchTab?.frame = NSRect(x: 0, y: 0, width: w, height: edge(1) - Self.tabGap)
+        let last = shownSlots - 1
+        allTab.frame = NSRect(x: 0, y: edge(last), width: w, height: max(0, bounds.height - edge(last)))
+        clip.frame = NSRect(x: 0, y: edge(first), width: w, height: max(0, edge(last) - Self.tabGap - edge(first)))
         for (i, t) in folderTabs.enumerated() {
-            t.frame = NSRect(x: 0, y: CGFloat(i) * (h + Self.tabGap) - scrollOffset, width: w, height: h)
+            let slot = first + i - scrollSlots
+            t.frame = NSRect(x: 0, y: edge(slot) - edge(first), width: w, height: edge(slot + 1) - edge(slot) - Self.tabGap)
         }
         updateTucks()
     }
-
-    /// The tabs scroll by whole tabs, so the first and last one in view are never cut off.
-    private func snapped(_ offset: CGFloat) -> CGFloat {
-        let step = currentTabHeight + Self.tabGap
-        return min(max((offset / step).rounded() * step, 0), maxScrollOffset)
-    }
-    /// Wheel movement that did not add up to a whole tab yet.
-    private var wheelRemainder: CGFloat = 0
 
     /// Only the open tab crosses the spine.
     private func updateTucks() {
@@ -231,18 +238,14 @@ final class FolderTabRailView: FlippedView {
     }
 
     func scroll(by dy: CGFloat) {
-        let step = currentTabHeight + Self.tabGap
         wheelRemainder += dy
-        let steps = (wheelRemainder / step).rounded(.towardZero)
+        let steps = Int((wheelRemainder / step).rounded(.towardZero))
         guard steps != 0 else { return }
-        wheelRemainder -= steps * step
-        let o = snapped(scrollOffset + steps * step)
-        guard o != scrollOffset else { wheelRemainder = 0; return }
-        scrollOffset = o
-        for (i, t) in folderTabs.enumerated() {
-            t.frame.origin.y = CGFloat(i) * (currentTabHeight + Self.tabGap) - scrollOffset
-        }
-        updateTucks()
+        wheelRemainder -= CGFloat(steps) * step
+        let before = scrollSlots
+        scrollSlots += steps
+        placeTabs()
+        if scrollSlots == before { wheelRemainder = 0 }
     }
 
     override func scrollWheel(with event: NSEvent) {
