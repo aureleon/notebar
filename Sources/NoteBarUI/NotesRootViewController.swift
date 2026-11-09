@@ -173,7 +173,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         let hh = Metrics.headerHeight
         header.frame = NSRect(x: b.minX + m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
         // The lists start at the bottom of the header pill; cards fade out in the gap below it.
-        let listTop = m + hh
+        let listTop = m + hh + tabBarInset
         let listFrame = NSRect(x: b.minX, y: listTop, width: b.width, height: max(0, b.height - listTop))
         layoutFolderTabs()
         let inset = Metrics.gap

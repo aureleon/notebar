@@ -13,7 +13,10 @@ final class FolderTabRailView: FlippedView {
     /// - pill: one capsule in the header's material with a round button per tab.
     /// - floating: rounded tabs a gap away from the cards, nothing behind them.
     /// - joined: like floating, but the open tab reaches the cards, in its folder's card color.
-    enum Style: String, CaseIterable { case spine, pill, floating, joined }
+    /// - bar: a horizontal capsule under the header, above the first note. Round buttons, and the open
+    ///   Scratch and all folders, and a chip with the name of each folder.
+    enum Style: String, CaseIterable { case spine, pill, floating, joined, bar }
+    static let barHeight: CGFloat = 32
     static var style: Style = .spine
     /// Pill style: width of the capsule and diameter of its buttons.
     static let pillWidth: CGFloat = 28
@@ -86,6 +89,7 @@ final class FolderTabRailView: FlippedView {
             let name = f.name.trimmingCharacters(in: .whitespacesAndNewlines)
             t.letter = name.first.map { String($0).uppercased() } ?? "?"
             t.toolTip = f.name
+            t.title = name
             t.setAccessibilityLabel(f.name)
             t.noteColor = f.color
             t.onClick = { [weak self] in self?.onSelect?(.folder(f.id)) }
@@ -127,7 +131,7 @@ final class FolderTabRailView: FlippedView {
                 // The open tab is a piece of the folder's cards.
                 t.fill = env.themes.cardBackground(t.noteColor, appearance: appearance)
                 t.ink = ui.text
-            case .pill where t.noteColor == .none:
+            case .pill where t.noteColor == .none, .bar where t.noteColor == .none:
                 // On the capsule (the header's material) a plain button is a shade of the text color.
                 t.fill = ui.text.withAlphaComponent(0.85)
                 t.ink = ui.headerBackground.withAlphaComponent(1)
@@ -182,10 +186,67 @@ final class FolderTabRailView: FlippedView {
             pillStroke.setStroke()
             path.lineWidth = 1
             path.stroke()
+        case .bar:
+            let r = bounds.height / 2
+            let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: r, yRadius: r)
+            pillFill.setFill()
+            path.fill()
+            pillStroke.setStroke()
+            path.lineWidth = 1
+            path.stroke()
         case .floating, .joined:
             break
         }
     }
+
+    // MARK: Bar
+
+    /// First folder tab shown in the bar. The bar scrolls by whole tabs.
+    private var barFirst = 0
+    private func barShown(from first: Int, widths: [CGFloat], room: CGFloat) -> Int {
+        var x: CGFloat = 0, n = 0
+        for w in widths[first...] {
+            if x + w > room + 0.5 { break }
+            x += w + Self.tabGap
+            n += 1
+        }
+        return n
+    }
+
+    /// Scratch at the left end, all folders at the right end, and between them as many whole folder
+    /// tabs as fit. The open folder's tab is always one of them.
+    private func placeBar() {
+        let pad: CGFloat = 4
+        let d = bounds.height - 2 * pad
+        var left = pad
+        if let s = scratchTab {
+            s.frame = NSRect(x: left, y: pad, width: d, height: d)
+            left += d + Self.tabGap
+        }
+        allTab.frame = NSRect(x: bounds.width - pad - d, y: pad, width: d, height: d)
+        let room = max(0, allTab.frame.minX - Self.tabGap - left)
+        clip.frame = NSRect(x: left, y: pad, width: room, height: d)
+        let widths = folderTabs.map { min(room, max(d, $0.titleWidth + 20)) }
+        guard !widths.isEmpty else { return }
+        barFirst = min(max(barFirst, 0), widths.count - 1)
+        // Do not leave room unused at the end.
+        while barFirst > 0, barFirst + barShown(from: barFirst, widths: widths, room: room) == widths.count,
+              barFirst - 1 + barShown(from: barFirst - 1, widths: widths, room: room) == widths.count { barFirst -= 1 }
+        if let i = folderTabs.firstIndex(where: { $0.isActive }) {
+            barFirst = min(barFirst, i)
+            while barFirst < i, barFirst + barShown(from: barFirst, widths: widths, room: room) <= i { barFirst += 1 }
+        }
+        let shown = barShown(from: barFirst, widths: widths, room: room)
+        var x: CGFloat = 0
+        for (i, t) in folderTabs.enumerated() {
+            t.isHidden = i < barFirst || i >= barFirst + shown
+            guard !t.isHidden else { continue }
+            t.frame = NSRect(x: x, y: 0, width: widths[i], height: d)
+            x += widths[i] + Self.tabGap
+        }
+        barCanScroll = shown < widths.count
+    }
+    private(set) var barCanScroll = false
 
     // MARK: Layout
 
@@ -248,6 +309,8 @@ final class FolderTabRailView: FlippedView {
     }
 
     func layoutTabs() {
+        if Self.style == .bar { placeBar(); return }
+        for t in folderTabs { t.isHidden = false }
         currentTabHeight = tabHeight(available: bounds.height)
         // Keep the open folder's tab in view.
         if let i = folderTabs.firstIndex(where: { $0.isActive }), folderSlots > 0 {
@@ -283,6 +346,15 @@ final class FolderTabRailView: FlippedView {
     }
 
     func scroll(by dy: CGFloat) {
+        if Self.style == .bar {
+            wheelRemainder += dy
+            let steps = Int((wheelRemainder / 24).rounded(.towardZero))
+            guard steps != 0 else { return }
+            wheelRemainder = 0
+            barFirst += steps
+            placeBar()
+            return
+        }
         wheelRemainder += dy
         let steps = Int((wheelRemainder / step).rounded(.towardZero))
         guard steps != 0 else { return }
@@ -294,6 +366,12 @@ final class FolderTabRailView: FlippedView {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        if Self.style == .bar {
+            guard barCanScroll || barFirst > 0 else { super.scrollWheel(with: event); return }
+            let d = abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) ? event.scrollingDeltaX : event.scrollingDeltaY
+            scroll(by: -d * (event.hasPreciseScrollingDeltas ? 1 : 8))
+            return
+        }
         guard maxScrollOffset > 0 else { super.scrollWheel(with: event); return }
         scroll(by: -event.scrollingDeltaY * (event.hasPreciseScrollingDeltas ? 1 : 8))
     }
@@ -312,6 +390,12 @@ final class FolderTabRailView: FlippedView {
 final class FolderTabView: NSView {
     let kind: FolderTabRailView.Kind
     var letter: String? { didSet { if oldValue != letter { needsDisplay = true } } }
+    /// Bar style: the folder name, shown on the open tab.
+    var title: String? { didSet { if oldValue != title { needsDisplay = true } } }
+    private var titleAttributes: [NSAttributedString.Key: Any] {
+        [.font: NSFont.systemFont(ofSize: fontSize - 1.5, weight: .semibold), .foregroundColor: ink]
+    }
+    var titleWidth: CGFloat { ceil(((title ?? "") as NSString).size(withAttributes: titleAttributes).width) }
     var symbolName: String? { didSet { if oldValue != symbolName { image = nil; needsDisplay = true } } }
     var noteColor: NoteColor = .none
     var fill: NSColor = .windowBackgroundColor { didSet { needsDisplay = true } }
@@ -376,6 +460,7 @@ final class FolderTabView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         let style = FolderTabRailView.style
+        if style == .bar { drawBarButton(); return }
         let body = bodyRect
         let r = min(9, body.height / 2)
         var face = faceRect
@@ -417,6 +502,32 @@ final class FolderTabView: NSView {
             let sz = s.size()
             s.draw(at: NSPoint(x: (face.midX - sz.width / 2).rounded(), y: (face.midY - sz.height / 2).rounded()))
         }
+    }
+
+    /// Bar style: a round button, or a capsule with the folder name for the open folder.
+    private func drawBarButton() {
+        let b = bounds
+        let r = b.height / 2
+        drawnFill.setFill()
+        NSBezierPath(roundedRect: b, xRadius: r, yRadius: r).fill()
+        let inkColor = isActive ? ink : dimInk.withAlphaComponent(hovering ? 1 : 0.8)
+        if let symbolName {
+            if image == nil { image = Symbols.image(symbolName, size: fontSize - 3, weight: .semibold) }
+            if let image { Symbols.draw(image, in: b, color: inkColor, fraction: 1) }
+            return
+        }
+        var attrs = titleAttributes
+        attrs[.foregroundColor] = inkColor
+        let showsTitle = title != nil
+        let para = NSMutableParagraphStyle()
+        para.alignment = .center
+        para.lineBreakMode = .byTruncatingTail
+        attrs[.paragraphStyle] = para
+        let text = (showsTitle ? title : letter) ?? ""
+        let h = (text as NSString).size(withAttributes: attrs).height
+        let inset: CGFloat = showsTitle ? 9 : 0
+        (text as NSString).draw(with: NSRect(x: inset, y: ((b.height - h) / 2).rounded(), width: b.width - 2 * inset, height: h),
+                                options: [.usesLineFragmentOrigin, .truncatesLastVisibleLine], attributes: attrs)
     }
 
     override func updateTrackingAreas() {

@@ -88,8 +88,11 @@ public enum FolderTabs {
     public static let railWidth: CGFloat = 30
     /// The rail width for the current settings (0 while the tabs are off).
     @MainActor public static func railWidth(_ settings: AppSettings) -> CGFloat {
-        settings.folderTabsEnabled ? railWidth : 0
+        settings.folderTabsEnabled && !horizontal ? railWidth : 0
     }
+    /// Prototype switch: the tabs are a bar under the header instead of a rail beside the notes, so
+    /// the panel is not wider.
+    nonisolated(unsafe) public static var horizontal = false
 }
 
 public extension Notification.Name {

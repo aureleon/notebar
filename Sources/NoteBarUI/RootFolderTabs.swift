@@ -44,6 +44,15 @@ extension NotesRootViewController {
     func layoutFolderTabs() {
         guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return }
         let m = Metrics.outerMargin
+        if FolderTabs.horizontal {
+            // A bar under the header, as wide as the header pill.
+            let c = columnFrame
+            let f = NSRect(x: c.minX + m, y: m + Metrics.headerHeight + Metrics.gap, width: max(0, c.width - 2 * m),
+                           height: FolderTabRailView.barHeight)
+            if folderTabs.frame != f { folderTabs.frame = f }
+            folderTabs.layoutTabs()
+            return
+        }
         let top = m
         let column = columnFrame
         let w = railInset + FolderTabRailView.tuck
@@ -58,8 +67,13 @@ extension NotesRootViewController {
     }
 
     /// Height of the rail from the top of the panel (0 while the tabs are off).
+    /// Height the bar under the header takes from the lists (0 unless the tabs are a bar).
+    var tabBarInset: CGFloat {
+        env.settings.folderTabsEnabled && FolderTabs.horizontal ? Metrics.gap + FolderTabRailView.barHeight : 0
+    }
+
     public var railHeight: CGFloat {
-        guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return 0 }
+        guard let v = rootView, let folderTabs, !folderTabs.isHidden, !FolderTabs.horizontal else { return 0 }
         return min(v.bounds.height, folderTabs.frame.maxY + Metrics.outerMargin)
     }
 
