@@ -136,10 +136,20 @@ afternoon. Every day it starts empty. To keep something, save it as a note.
 
 - To open it, push ⌃⌥⌘S from any app, click the Scratch button (the pencil) on the folder list, or
   choose **Scratch Note** in the menu bar icon's menu. NoteBar opens today's note, ready to type.
+- The note is a log of entries, newest at the end. Each time you open it to type, a new entry starts
+  below a thin line. The line shows the time when 30 minutes or more passed since the last time
+  shown. If your last edit is less than 2 minutes old, you continue the last entry instead. An entry
+  you leave empty goes away.
+- To change an earlier entry, click into it. That does not start a new entry. Backspace at the start
+  of an entry joins it with the entry above.
+- Older entries are dimmer, so the newest one stands out. The entry you edit shows in full.
+- Right-click in an entry for **Save Entry as Note**, **Copy Entry**, **Mark Entry Done** (the entry
+  is struck through) and **Delete Entry**.
 - ◀ and ▶ in the header (⇧⌘[ and ⇧⌘]) go to the earlier days that still have text. You can read and
   copy earlier days, but you cannot change them.
 - **Save as Note** (the button on the card, or right-click) puts a copy in a folder you choose.
-  The Scratch note keeps its text.
+  The Scratch note keeps its text. In the copy, a rule (`---`) stands for each line between
+  entries, with the time below it where the line showed one.
 - On today's card, the eraser button clears the note (Undo brings the text back). On an earlier day,
   the trash button deletes that day.
 - Search, the archive, pins and folds do not apply to Scratch notes.

@@ -274,6 +274,21 @@ enum MenuBuilder {
         return m
     }
 
+    /// Right click in an entry of a Scratch note: a copy of that entry's text as a note.
+    static func saveEntryAsNoteItem(text: String, noteID id: NoteID, actions: NoteActions) -> NSMenuItem {
+        let item = NSMenuItem(title: "Save Entry as Note", action: nil, keyEquivalent: "")
+        let m = NSMenu()
+        m.autoenablesItems = false
+        m.addItem(.sectionHeader(title: "Save a Copy in"))
+        for f in actions.env.store.folders() {
+            m.addItem(ClosureMenuItem(f.name, key: "", symbol: "folder") {
+                actions.saveScratchAsNote(id, toFolder: f.id, entryText: text)
+            })
+        }
+        item.submenu = m
+        return item
+    }
+
     /// Right click on a Scratch card.
     static func scratchContextMenu(for note: Note, actions: NoteActions, role: ScratchRole) -> NSMenu {
         let m = NSMenu()

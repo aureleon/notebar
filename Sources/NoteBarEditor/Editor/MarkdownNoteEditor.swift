@@ -36,6 +36,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     var styledLines: [MarkdownLine] = []
     /// Characters edited since the last restyle.
     private var pendingDirty: NSRange?
+    /// An edit is in the storage that `textDidChange` has not handled yet.
+    var hasPendingEdit: Bool { pendingDirty != nil }
     /// Last body reported to / received from the host.
     private(set) var lastBody: String
     /// Suppresses the change pipeline while the editor itself edits the storage.
@@ -76,8 +78,20 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// smart insert are off. nil = not decided yet.
     private var caretInCodeState: Bool?
 
+    /// Scratch entries (see `MarkdownNoteEditor+Entries`): the entry of each line as of the last
+    /// restyle, the entry that holds the caret, and the body the host has while a new entry that
+    /// nothing was typed in yet is only in the editor.
+    var entryOfLine: [Int] = []
+    var activeEntry: Int?
+    var provisionalBase: String?
+    public var entryMenuItems: ((String) -> [NSMenuItem])?
+
     var style: EditorStyle { styler.style }
-    var codecOptions: CodecOptions { .forMode(mode) }
+    var codecOptions: CodecOptions {
+        var o = CodecOptions.forMode(mode)
+        o.entries = usesEntries
+        return o
+    }
 
     public init(note: Note, env: AppEnvironment) {
         self.noteID = note.id
@@ -314,7 +328,14 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         let md = markdown
         guard md != lastBody else { return }
         lastBody = md
+        provisionalBase = nil
         onBodyChange?(md)
+    }
+
+    /// Tells the host a body that was set with `replaceMarkdown(undoable: false)`.
+    func reportReplacedBody() {
+        provisionalBase = nil
+        onBodyChange?(lastBody)
     }
 
     var markdownSelection: NSRange {
@@ -395,7 +416,8 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     func currentLines() -> [MarkdownLine] {
         if linesStale {
             lines = BlockScanner.scan(textStorage.string as NSString, checkbox: { [unowned self] in self.checkboxState(at: $0) },
-                                      tables: mode == .standard)
+                                      tables: mode == .standard,
+                                      entry: { [unowned self] in self.isEntryMarker(at: $0) }, titles: !usesEntries)
             linesStale = false
         }
         return lines
@@ -411,7 +433,9 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         var indices: [Int] = []
         let groups = makeCompletedGroups(new)
         let heads = Set(groups.map(\.head))
-        if dirty == nil || old.isEmpty || len < 2000 {
+        updateEntryStyle(new)
+        // Scratch entries: the text of every entry can change with one edit (fade, done).
+        if dirty == nil || old.isEmpty || len < 2000 || usesEntries {
             indices = Array(new.indices)
         } else if let d = dirty {
             let delta = new.count - old.count
@@ -463,7 +487,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         let d = NSRange(location: min(dirty.location, s.length), length: min(dirty.length, s.length - min(dirty.location, s.length)))
         let para = s.paragraphRange(for: d)
         let sub = s.substring(with: para)
-        guard sub.contains("[") else { return }
+        guard sub.contains("[") || (usesEntries && sub.contains("--- ")) else { return }
         var tokens = MarkdownCodec.tokens(in: sub, options: codecOptions)
         guard !tokens.isEmpty else { return }
         let lines = BlockScanner.scan(s)
@@ -527,6 +551,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !isApplyingInternal else { return }
         if textView.hasMarkedText() { layoutDidChange(); return }
         if let d = pendingDirty { convertRawTokens(in: d) }
+        normalizeEntries()
         hideCodeCopyButton()
         restyle(dirty: pendingDirty ?? NSRange(location: 0, length: textStorage.length))
         clearSearchHighlight()
@@ -539,6 +564,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         guard !isApplyingInternal else { return }
         if !isTrackingMouse { updateReveal() }
         if isVimNormal { textView.needsDisplay = true }
+        entrySelectionChanged()
         updateCodeTypingSettings()
         scheduleToolbarUpdate()
     }
@@ -547,6 +573,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     /// it snaps to the text start, or to the end of the line above when moving back past it.
     public func textView(_ textView: NSTextView, willChangeSelectionFromCharacterRange old: NSRange,
                          toCharacterRange new: NSRange) -> NSRange {
+        if let r = entryCaret(from: old, to: new) { return r }
         guard new.length == 0, new.location < textStorage.length else { return new }
         var r = NSRange()
         guard textStorage.attribute(.nbIndent, at: new.location, longestEffectiveRange: &r,
@@ -625,6 +652,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.updateReveal()
+            self.entryFocusChanged()
         }
         onFocusChange?(focused)
     }
@@ -831,8 +859,11 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
             rebuildStyle()
             return
         }
-        if new.body != markdown {
+        // A new entry nothing was typed in yet is not in the host's body: keep it.
+        if new.body != markdown, new.body != provisionalBase {
+            provisionalBase = nil
             replaceMarkdown(new.body, selection: nil, undoable: false)
+            beginEntryIfBlank()
         }
         if new.color != old.color { rebuildStyle() }
         if new.hidesCompletedItems != old.hidesCompletedItems || new.foldOverrides != old.foldOverrides { updateCompletedCollapse() }
@@ -858,6 +889,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         set {
             guard newValue == textView.isEditable else { return }
             textView.isEditable = !newValue
+            if usesEntries { restyle(dirty: nil); layoutDidChange() }
         }
     }
 

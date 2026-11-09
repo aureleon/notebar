@@ -8,6 +8,10 @@ final class MarkdownStyler {
     /// Storage locations of the checklist lines that get an "N completed" row above them, and its height.
     var completedHeads: Set<Int> = []
     var completedRowSpacing: CGFloat = 0
+    /// Scratch entries, by line index (empty: no entries): how strongly the line's text shows (1 = as
+    /// usual, less = an older entry), and whether its entry is marked done.
+    var entryFade: [CGFloat] = []
+    var entryDone: [Bool] = []
 
     init(style: EditorStyle) { self.style = style }
 
@@ -39,7 +43,10 @@ final class MarkdownStyler {
             let subHead = ListEditing.subLineOwner(in: lines, line: i).map { listHead(lines[$0], s) }
             let done = ListEditing.hasCheckedAncestor(in: lines, line: i)
             let foldable = style.mode == .standard && line.kind.isList && ListEditing.isFoldable(in: lines, item: i, string: s)
-            for (r, attrs) in runs(for: line, in: storage, string: s, subHead: subHead, underChecked: done, foldable: foldable) {
+            let fade = i < entryFade.count ? entryFade[i] : 1
+            let entryDone = i < entryDone.count && entryDone[i]
+            for (r, attrs) in runs(for: line, in: storage, string: s, subHead: subHead, underChecked: done, foldable: foldable,
+                                   fade: fade, entryDone: entryDone) {
                 setIfChanged(storage, attrs, r)
             }
         }
@@ -76,10 +83,13 @@ final class MarkdownStyler {
     /// `subHead`: the line is a sub-line of a list item whose text starts there (`listHead`).
     /// `underChecked`: a list item above it is checked (its text is struck through too).
     /// `foldable`: a list item with children; its lines leave room for the fold chevron (`NoteTextContainer`).
+    /// `fade`, `entryDone`: see `entryFade` / `entryDone`.
     func runs(for line: MarkdownLine, in storage: NSAttributedString, string s: NSString,
-              subHead: CGFloat? = nil, underChecked: Bool = false, foldable: Bool = false) -> [(NSRange, [NSAttributedString.Key: Any])] {
+              subHead: CGFloat? = nil, underChecked: Bool = false, foldable: Bool = false,
+              fade: CGFloat = 1, entryDone: Bool = false) -> [(NSRange, [NSAttributedString.Key: Any])] {
         let st = style
         let full = line.fullRange
+        if line.kind == .entry { return entryRuns(line, in: storage) }
         let n = full.length
         let base0 = full.location
         var flags = [Flags](repeating: [], count: n)
@@ -165,6 +175,8 @@ final class MarkdownStyler {
                     if line.tableRow == 0 { bold = true }
                     for p in TableSyntax.row(s, line.range).pipes { mark(NSRange(location: p, length: 1), .marker) }
                 }
+            case .entry:
+                break
             case .blank, .paragraph:
                 if let h = subHead {
                     para.head = h; para.first = h
@@ -224,6 +236,7 @@ final class MarkdownStyler {
             }
         }
 
+        if entryDone { mark(line.contentRange, [.dim, .strike]) }
         let pstyle = st.paragraphStyle(para)
 
         // Group characters into runs.
@@ -240,6 +253,7 @@ final class MarkdownStyler {
             else if f.contains(.codeColor) { fg = st.inlineCode }
             else if colorAt[k] >= 0 { fg = colors[colorAt[k]] }
             else if f.contains(.dim) || f.contains(.listMarker) { fg = st.secondary }
+            if fade < 1 { fg = fg.withAlphaComponent(fg.alphaComponent * fade) }
             a[.foregroundColor] = fg
             a[.paragraphStyle] = pstyle
             if f.contains(.strike) { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
@@ -279,6 +293,25 @@ final class MarkdownStyler {
                 out[i].1[.nbMarker] = nil
             }
         }
+        return out
+    }
+
+    /// The marker line of a Scratch entry: its attachment character (the cell draws the hairline and
+    /// the time) on a low line with some room above and below. The first line of a note has none above.
+    private func entryRuns(_ line: MarkdownLine, in storage: NSAttributedString) -> [(NSRange, [NSAttributedString.Key: Any])] {
+        let st = style
+        var para = EditorStyle.ParagraphKey(tab: st.tabInterval, lineSpacing: 0)
+        para.spacingBefore = line.range.location == 0 ? 0 : 5
+        para.spacingAfter = 4
+        var attrs: [NSAttributedString.Key: Any] = [
+            .font: st.font(size: st.captionSize), .foregroundColor: st.secondary, .paragraphStyle: st.paragraphStyle(para),
+        ]
+        var out: [(NSRange, [NSAttributedString.Key: Any])] = []
+        if line.fullRange.length > line.range.length {
+            out.append((NSRange(location: line.range.end, length: line.fullRange.length - line.range.length), attrs))
+        }
+        if let att = storage.attribute(.attachment, at: line.range.location, effectiveRange: nil) { attrs[.attachment] = att }
+        out.insert((line.range, attrs), at: 0)
         return out
     }
 

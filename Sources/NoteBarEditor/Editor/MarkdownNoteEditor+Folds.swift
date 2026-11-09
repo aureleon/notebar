@@ -159,6 +159,7 @@ extension MarkdownNoteEditor {
         textStorage.enumerateAttribute(.attachment, in: chars, options: []) { value, range, _ in
             guard let a = value as? EmbedAttachment else { return }
             if case .attachment(_, true, _, _) = a.token { return }   // images: I-beam (a click selects them)
+            if a.token.isEntry { return }
             for ci in range.location..<range.end {
                 if lm.collapsedFold(at: ci) != nil { continue }
                 let g = lm.glyphIndexForCharacter(at: ci)

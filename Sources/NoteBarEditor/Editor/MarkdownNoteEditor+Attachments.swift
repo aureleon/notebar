@@ -35,6 +35,7 @@ extension MarkdownNoteEditor {
     func clickableAttachment(at viewPoint: NSPoint) -> Bool {
         guard let hit = attachmentHit(at: viewPoint) else { return false }
         if case .attachment(_, true, _, _) = hit.attachment.token { return false }
+        if hit.attachment.token.isEntry { return false }
         return true
     }
 
@@ -61,6 +62,9 @@ extension MarkdownNoteEditor {
                 openAttachment(id, inPreview: false)
             }
             return true
+        case .entry:
+            // A click on the line goes to the text view, and the caret then moves off it (`entryCaret`).
+            return false
         }
     }
 
@@ -178,11 +182,18 @@ extension MarkdownNoteEditor {
             add("Remove") { [weak self] in self?.removeAttachment(at: hit.index) }
             return menu
         }
-        guard let base, mode == .standard else { return base }
-        let format = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
-        format.submenu = formatMenu()
-        base.insertItem(format, at: 0)
-        base.insertItem(.separator(), at: 1)
+        guard let base else { return nil }
+        if mode == .standard {
+            let format = NSMenuItem(title: "Format", action: nil, keyEquivalent: "")
+            format.submenu = formatMenu()
+            base.insertItem(format, at: 0)
+            base.insertItem(.separator(), at: 1)
+        }
+        let entry = entryMenu(at: p)
+        if !entry.isEmpty {
+            for (i, item) in entry.enumerated() { base.insertItem(item, at: i) }
+            base.insertItem(.separator(), at: entry.count)
+        }
         return base
     }
 

@@ -7,13 +7,18 @@ public enum EmbedToken: Hashable, Sendable {
     case checkbox(checked: Bool, source: String)
     /// `![name](attachment:ID)` (image) or `[name](attachment:ID)` (file shortcut).
     case attachment(id: AttachmentID, isImage: Bool, name: String, source: String)
+    /// The marker line of a Scratch entry (`ScratchEntries.Marker`, without the line break).
+    case entry(ScratchEntries.Marker)
 
     public var source: String {
         switch self {
         case .checkbox(_, let s): s
         case .attachment(_, _, _, let s): s
+        case .entry(let m): m.line
         }
     }
+
+    public var isEntry: Bool { if case .entry = self { true } else { false } }
 
     public var isCheckbox: Bool { if case .checkbox = self { true } else { false } }
 
@@ -30,7 +35,11 @@ public enum EmbedToken: Hashable, Sendable {
 public struct CodecOptions: Hashable, Sendable {
     public var checkboxes: Bool
     public var attachments: Bool
-    public init(checkboxes: Bool, attachments: Bool) { self.checkboxes = checkboxes; self.attachments = attachments }
+    /// Scratch notes: entry marker lines (`ScratchEntries`).
+    public var entries: Bool
+    public init(checkboxes: Bool, attachments: Bool, entries: Bool = false) {
+        self.checkboxes = checkboxes; self.attachments = attachments; self.entries = entries
+    }
 
     public static let standard = CodecOptions(checkboxes: true, attachments: true)
     /// Plain text / code notes: checklists stay raw text, attachments still render.
@@ -77,6 +86,12 @@ public enum MarkdownCodec {
                 if out.contains(where: { NSIntersectionRange($0.range, line.markerRange).length > 0 }) { continue }
                 out.append(TokenMatch(range: line.markerRange,
                                       token: .checkbox(checked: checked, source: ns.substring(with: line.markerRange))))
+            }
+        }
+        if options.entries {
+            for f in ScratchEntries.markers(in: markdown) {
+                if let r = range, !(f.range.location >= r.location && f.range.end <= r.end) { continue }
+                out.append(TokenMatch(range: f.range, token: .entry(f.marker)))
             }
         }
         out.sort { $0.range.location < $1.range.location }

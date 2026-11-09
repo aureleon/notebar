@@ -279,6 +279,10 @@ final class NoteCardView: NSView {
             guard let self else { return }
             self.delegate?.card(self, editorEvent: event)
         }
+        e.entryMenuItems = { [weak self] text in
+            guard let self, let actions = self.delegate?.actions else { return [] }
+            return [MenuBuilder.saveEntryAsNoteItem(text: text, noteID: self.note.id, actions: actions)]
+        }
         e.translatesAutoresizingMaskIntoConstraints = true
         e.isHidden = isFolded
         addSubview(e, positioned: .below, relativeTo: pinButton)
@@ -323,6 +327,12 @@ final class NoteCardView: NSView {
         if ensureEditor() { delegate?.cardNeedsLayout(self) }
         layoutSubtreeIfNeeded()
         editor?.focus(atEnd: atEnd, insertMode: insert)
+    }
+
+    /// Today's Scratch card: a new entry at the end, the caret in it (`NoteEditing.beginEntry`).
+    func beginEntry(at date: Date) {
+        guard scratchRole == .today, !isFolded else { return }
+        editor?.beginEntry(at: date)
     }
 
     private func editorLayoutChanged() {

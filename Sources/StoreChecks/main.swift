@@ -1169,6 +1169,40 @@ do {
     NotificationCenter.default.removeObserver(o)
 }
 
+// ScratchService and entries: when opening starts a new entry, markers alone are no text, and an
+// expired day leaves Scratch without markers.
+do {
+    let store = InMemoryNoteStore()
+    let settings = makeSettings()
+    settings.scratchKeepDays = 1
+    settings.scratchRolloverHour = 4
+    let cal = Calendar(identifier: .gregorian)
+    var clock = Date()
+    let svc = ScratchService(store: store, settings: settings, calendar: cal)
+    svc.now = { clock }
+    svc.refresh()
+    let d1 = svc.todayNote(create: true)!
+    Check.expect(svc.startsNewEntry(in: d1), "entries: an empty note starts an entry at once")
+    store.updateNoteBody(id: d1.id, body: "--- 09:14 ---\ncall Sam\n--- 09:20 ---\nping Raj")
+    let edited = store.note(id: d1.id)!
+    Check.expect(!svc.startsNewEntry(in: edited), "entries: just edited, opening continues the last entry")
+    clock = edited.updatedAt.addingTimeInterval(ScratchEntries.mergeWindow - 1)
+    Check.expect(!svc.startsNewEntry(in: edited), "entries: still inside the merge window")
+    clock = edited.updatedAt.addingTimeInterval(ScratchEntries.mergeWindow)
+    Check.expect(svc.startsNewEntry(in: edited), "entries: after the merge window opening starts a new entry")
+
+    clock = cal.date(byAdding: .day, value: 1, to: clock)!
+    svc.refresh()
+    let d2 = svc.todayNote(create: true)!
+    store.updateNoteBody(id: d2.id, body: "--- 10:00 ---\n\n")
+    clock = cal.date(byAdding: .day, value: 1, to: clock)!
+    svc.refresh()
+    Check.equal(store.note(id: d2.id), nil, "entries: a day with only a marker is empty and is deleted")
+    let ex = store.trashedNotes().first { $0.id == d1.id }
+    Check.expect(ex != nil && ScratchEntries.markers(in: ex?.body ?? "").isEmpty, "entries: an expired day has no markers")
+    Check.expect(ex?.body.hasSuffix("\ncall Sam\n---\nping Raj") == true, "entries: rules stand in for them (\(ex?.body ?? ""))")
+}
+
 // v1 database (before the trash): migrates, keeps the data, nothing is trashed.
 do {
     let dir = freshDir("migrate-v1")

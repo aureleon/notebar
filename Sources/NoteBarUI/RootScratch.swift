@@ -2,6 +2,8 @@ import AppKit
 import NoteBarCore
 
 /// The Scratch screen: one day's Scratch note under a "Scratch · Today" header with a ◀ ▶ day stepper.
+/// The note is a log of entries (`ScratchEntries`): opening it to type (hotkey, header button, menu
+/// bar, URL) starts a new entry at the end. A click into the text edits in place.
 /// Today's note is editable; earlier days are read-only (Save as Note keeps a copy). The screen follows
 /// the day when a new one starts, except while the user is typing in it.
 extension NotesRootViewController {
@@ -17,7 +19,10 @@ extension NotesRootViewController {
         _ = view
         guard env.settings.scratchEnabled, let note = env.scratch.todayNote(create: true) else { return }
         if edit {
+            scratchEntryPending = true
             revealNote(note.id, edit: true, insert: true)
+            // Still set only while the reveal waits for the window (`pendingFocus`).
+            if pendingFocus == nil { scratchEntryPending = false }
         } else {
             showScratchDay(env.scratch.todayKey)
         }
@@ -36,7 +41,14 @@ extension NotesRootViewController {
             focusedNoteID = nil
             screen = .scratch(day)
             reloadNotes(animated: false)
-            notesList.scrollToTop()
+            // Today is a log: the newest entry is at the end, so it opens there. An earlier day reads
+            // from its start.
+            if day == s.todayKey {
+                rootView.layoutSubtreeIfNeeded()
+                notesList.scrollToBottom()
+            } else {
+                notesList.scrollToTop()
+            }
             if hadFocus { focusRoot() }
         } else {
             reloadNotes(animated: false)

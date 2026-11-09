@@ -107,6 +107,9 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 - One Scratch note per day (`Note.scratchDay`, "yyyy-MM-dd") in a hidden folder (`Folder.isScratch`). `folders()`, `folder(id:)`, search and the archive never show it.
 - `ScratchService` (`env.scratch`) owns today (`scratchRolloverHour`), the rollover timer and the sweep: empty earlier days are deleted; days older than `scratchKeepDays` become normal trashed notes (`expireScratchNote`).
 - Today's card is editable; earlier days are read-only (`NoteEditing.isReadOnly`). Save as Note copies; it never moves.
+- The note is a log of entries (`ScratchEntries`, newest at the end). A marker line in the body (`--- 14:32 ---`, done: `--- 14:32 x ---`) starts an entry; only Scratch notes parse it (`CodecOptions.entries`). In the editor it is one attachment character on its own line (`EntryCell`: hairline, time after a 30 min gap); the caret never rests on that line (`MarkdownNoteEditor+Entries`).
+- `showScratch(edit: true)` starts a new entry (`NoteEditing.beginEntry`) unless the last edit is under 2 min old (`ScratchService.startsNewEntry`). The store gets the entry with the first text typed; an entry left empty is pruned on blur. A click into the text edits in place.
+- Text that leaves Scratch (Save as Note, expiry, Copy Text) goes through `ScratchEntries.exported` (markers become `---` rules and times).
 
 ### Settings & State Management
 - `AppSettings.shared`: Persisted in `UserDefaults`.

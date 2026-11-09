@@ -52,6 +52,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var focusedNoteID: NoteID?
     /// Focus requested before the view was in a window.
     var pendingFocus: (id: NoteID, edit: Bool, insert: Bool)?
+    /// Set by `showScratch(edit: true)`: the reveal that follows starts a new Scratch entry.
+    var scratchEntryPending = false
     /// Vim: ⌃W was pressed on the root view at this time (the next j / k picks a card).
     var vimWindowArmedAt: Date?
     /// First key of a two-key vim command on the lists (g, d, c, z) and when it was typed.
@@ -495,6 +497,15 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if edit {
             card.focusEditor(atEnd: true, insert: insert || note.body.isEmpty)
             notesList.selectedNoteID = noteId
+            if scratchEntryPending {
+                scratchEntryPending = false
+                if note.scratchDay == env.scratch.todayKey {
+                    if env.scratch.startsNewEntry(in: note) { card.beginEntry(at: env.scratch.now()) }
+                    // The caret is at the end of the day: show the end, with the card's bottom row.
+                    rootView.layoutSubtreeIfNeeded()
+                    notesList.scrollToBottom()
+                }
+            }
         } else {
             select(noteId)
         }

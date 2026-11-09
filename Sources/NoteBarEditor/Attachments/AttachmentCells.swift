@@ -47,6 +47,8 @@ final class EditorContext {
         case .attachment(let id, let isImage, let name, _):
             isImage ? ImageAttachmentCell(id: id, name: name, context: self)
                     : FileAttachmentCell(id: id, name: name, context: self)
+        case .entry(let m):
+            EntryCell(marker: m, context: self)
         }
     }
 }
@@ -127,6 +129,54 @@ final class CheckboxCell: EmbedCell {
             circle.lineWidth = 1.2
             circle.stroke()
         }
+    }
+}
+
+// MARK: - Scratch entry
+
+/// The marker line of a Scratch entry: a hairline across the text width, with the entry's time on it
+/// when `showsTime` (the editor sets it: `ScratchEntries.showsTime`).
+final class EntryCell: EmbedCell {
+    let marker: ScratchEntries.Marker
+    var showsTime = true
+
+    static let height: CGFloat = 14
+    /// The hairline left of the time.
+    static let stub: CGFloat = 12
+    static let gap: CGFloat = 6
+
+    init(marker: ScratchEntries.Marker, context: EditorContext) {
+        self.marker = marker
+        super.init(context: context)
+    }
+
+    required init(coder: NSCoder) { fatalError("not supported") }
+
+    var labelFont: NSFont { .systemFont(ofSize: style.captionSize, weight: .medium) }
+
+    override func cellFrame(for textContainer: NSTextContainer, proposedLineFragment lineFrag: NSRect,
+                            glyphPosition position: NSPoint, characterIndex charIndex: Int) -> NSRect {
+        let available = lineFrag.width - position.x - textContainer.lineFragmentPadding * 2 - 1
+        return NSRect(x: 0, y: -4, width: max(20, floor(available)), height: Self.height)
+    }
+
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {
+        let st = style
+        let y = cellFrame.midY.rounded() - 0.5
+        st.ruleColor.setFill()
+        guard showsTime else {
+            NSRect(x: cellFrame.minX, y: y, width: cellFrame.width, height: 1).fill()
+            return
+        }
+        let text = ScratchEntries.timeText(minutes: marker.minutes) as NSString
+        let attrs: [NSAttributedString.Key: Any] = [.font: labelFont, .foregroundColor: st.secondary]
+        let size = text.size(withAttributes: attrs)
+        let x = cellFrame.minX + Self.stub + Self.gap
+        NSRect(x: cellFrame.minX, y: y, width: Self.stub, height: 1).fill()
+        text.draw(at: NSPoint(x: x, y: (cellFrame.midY - size.height / 2).rounded()), withAttributes: attrs)
+        let after = x + ceil(size.width) + Self.gap
+        st.ruleColor.setFill()   // drawing the text set its color
+        if after < cellFrame.maxX { NSRect(x: after, y: y, width: cellFrame.maxX - after, height: 1).fill() }
     }
 }
 

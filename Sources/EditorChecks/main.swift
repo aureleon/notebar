@@ -27,11 +27,13 @@ MainActor.assumeIsolated {
     TableChecks.run()
     ChecklistChecks.run()
     SubLineChecks.run()
+    EntryChecks.run()
     PerfChecks.run(verbose: arguments.contains("--perf"))
 
     if let i = arguments.firstIndex(of: "--snapshot") {
         let dir = i + 1 < arguments.count ? arguments[i + 1] : "/tmp/nb-editor"
         Snapshots.run(outputDirectory: URL(fileURLWithPath: dir, isDirectory: true))
+        EntryChecks.snapshots(outputDirectory: URL(fileURLWithPath: dir, isDirectory: true))
     }
 }
 Check.finish()

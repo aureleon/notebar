@@ -75,6 +75,8 @@ public extension Notification.Name {
 /// The daily Scratch note: which day it is, today's note, the earlier days still kept, and the sweep
 /// that drops the rest.
 ///
+/// Today's note is a log of entries (`ScratchEntries`): opening Scratch starts a new one at the end.
+///
 /// Sweep (at launch, at every rollover, on wake, and when the Scratch settings change):
 /// - An empty note of an earlier day is deleted (nothing to keep).
 /// - A note older than `scratchKeepDays` days before today leaves Scratch: it becomes a normal note
@@ -182,6 +184,12 @@ public final class ScratchService {
         return out
     }
 
+    /// Opening today's note now starts a new entry: the note is empty, or the last edit is
+    /// `ScratchEntries.mergeWindow` or longer ago (sooner than that continues the last entry).
+    public func startsNewEntry(in note: Note) -> Bool {
+        ScratchEntries.isBlank(note.body) || now().timeIntervalSince(note.updatedAt) >= ScratchEntries.mergeWindow
+    }
+
     public func title(for day: String) -> String { ScratchDay.title(for: day, today: todayKey, calendar: calendar) }
 
     // MARK: Sweep
@@ -194,7 +202,8 @@ public final class ScratchService {
                 store.deleteNote(id: n.id)
             } else if d < oldest {
                 let heading = "# Scratch · \(ScratchDay.longTitle(for: d, calendar: calendar))"
-                store.expireScratchNote(id: n.id, toFolder: expiryFolder(), body: heading + "\n" + n.body)
+                store.expireScratchNote(id: n.id, toFolder: expiryFolder(),
+                                        body: heading + "\n" + ScratchEntries.exported(n.body))
             }
         }
     }
@@ -205,7 +214,7 @@ public final class ScratchService {
     }
 
     private func isBlank(_ n: Note) -> Bool {
-        n.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.attachments(for: n.id).isEmpty
+        ScratchEntries.isBlank(n.body) && store.attachments(for: n.id).isEmpty
     }
 
     public static let keepDaysRange = 1...30

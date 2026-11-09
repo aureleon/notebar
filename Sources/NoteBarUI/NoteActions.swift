@@ -259,10 +259,11 @@ final class NoteActions {
         registerUndo(name) { $0.setBody(old, id: id, name: name) }
     }
 
-    /// A copy of the note (with copies of its images and files) at the top of `folderId`.
-    func saveScratchAsNote(_ id: NoteID, toFolder folderId: FolderID) {
+    /// A copy of the note (with copies of its images and files) at the top of `folderId`. Its entry
+    /// markers become rules and times (`ScratchEntries.exported`). `entryText`: only that text (one entry).
+    func saveScratchAsNote(_ id: NoteID, toFolder folderId: FolderID, entryText: String? = nil) {
         guard let src = store.note(id: id), store.folder(id: folderId) != nil else { NSSound.beep(); return }
-        var body = src.body
+        var body = entryText ?? ScratchEntries.exported(src.body, leadingTime: false)
         let note = store.createNote(in: folderId, body: "", mode: src.mode, position: .top)
         for m in AttachmentLink.matches(in: body).reversed() {
             guard let a = store.attachment(id: m.attachmentID), let url = store.url(for: a),
@@ -293,7 +294,7 @@ final class NoteActions {
 
     /// Body with attachment tokens replaced by file names/paths (readable outside NoteBar).
     static func plainText(for note: Note, store: NoteStore) -> String {
-        var text = note.body
+        var text = note.isScratch ? ScratchEntries.exported(note.body) : note.body
         for m in AttachmentLink.matches(in: text).reversed() {
             let att = store.attachment(id: m.attachmentID)
             let url = att.flatMap { store.url(for: $0) }

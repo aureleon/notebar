@@ -87,12 +87,18 @@ final class NotePreviewView: NSView {
         let para = NSMutableParagraphStyle()
         para.lineBreakMode = .byWordWrapping
         let out = NSMutableAttributedString()
-        var sawTitle = false
+        // Scratch notes have no title, and their entry markers show as a short rule with the time.
+        var sawTitle = note.isScratch
+        let secondary = env.themes.color(\.secondaryText, appearance: appearance)
         let lines = note.body.components(separatedBy: "\n")
         for (i, raw) in lines.enumerated() {
             var line = raw
             var attrs: [NSAttributedString.Key: Any] = [.font: bodyFont, .foregroundColor: textColor, .paragraphStyle: para]
-            if !code {
+            if note.isScratch, let m = ScratchEntries.Marker(line: raw) {
+                line = "──  " + ScratchEntries.timeText(minutes: m.minutes)
+                attrs[.font] = NSFont.systemFont(ofSize: round(size * 0.75), weight: .medium)
+                attrs[.foregroundColor] = secondary
+            } else if !code {
                 for (prefix, repl) in [("- [ ] ", "○ "), ("- [x] ", "◉ "), ("- [X] ", "◉ "), ("* [ ] ", "○ "), ("* [x] ", "◉ ")]
                 where line.hasPrefix(prefix) {
                     line = repl + line.dropFirst(prefix.count)

@@ -171,6 +171,7 @@ public final class NotesUIProbe {
 
     /// Scroll offset of the notes list (clip view bounds origin y).
     public var listScrollOffset: CGFloat { list.scrollView.contentView.bounds.origin.y }
+    public var listIsScrolledToEnd: Bool { list.isScrolledToEnd }
 
     public func dropOnBackground(text: String) { root.createNote(from: .text(text)) }
     public func dropFiles(_ urls: [URL], onCard id: NoteID) -> Bool {

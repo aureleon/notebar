@@ -711,6 +711,7 @@ MainActor.assumeIsolated {
     // MARK: Vim keys
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
     vimScrollChecks(spin: spin)
+    written += scratchEntryChecks(out: out, spin: spin)
 
     // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
     renderHook = { render($0) }
@@ -822,6 +823,121 @@ MainActor.assumeIsolated {
 
     print("Wrote \(written.count) snapshots to \(out.path): \(written.joined(separator: ", "))")
     Check.finish()
+}
+
+/// Scratch entries in the panel: opening Scratch to type starts an entry, Save as Note, a long day.
+/// Uses the real markdown editor (the main checks use plain editors, which have no entries).
+@MainActor
+func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
+    let suite = "NoteBarUISnapshotEntries"
+    UserDefaults().removePersistentDomain(forName: suite)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
+    let store = InMemoryNoteStore(seed: false)
+    _ = store.createFolder(name: "Notes")
+    _ = store.createFolder(name: "Work")
+    let env = AppEnvironment(store: store, backups: nil, settings: settings,
+                             themes: ThemeManager(settings: settings, store: store), editorFactory: MarkdownEditorFactory())
+    let vc = NotesRootViewController(env: env)
+    vc.stateDefaults = UserDefaults(suiteName: suite)!
+    env.presenter = vc
+    let probe = vc.probe
+    let backdrop = Backdrop(frame: NSRect(x: 0, y: 0, width: 450, height: 740))
+    vc.view.frame = NSRect(x: 15, y: 10, width: 420, height: 720)
+    backdrop.addSubview(vc.view)
+    let window = NSWindow(contentRect: backdrop.frame, styleMask: [.borderless], backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = backdrop
+    window.appearance = NSAppearance(named: .aqua)
+    defer { window.contentView = nil; UserDefaults().removePersistentDomain(forName: suite) }
+    var written: [String] = []
+    func render(_ name: String) {
+        spin(); probe.layoutNow(); spin(); probe.layoutNow()
+        backdrop.layoutSubtreeIfNeeded()
+        guard let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds) else { return }
+        backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: out.appendingPathComponent(name + ".png"))
+            written.append(name)
+        }
+    }
+    // The clock is two hours ahead of the notes' edit times: the merge window has always passed.
+    let scratch = env.scratch
+    scratch.now = { Date().addingTimeInterval(7200) }
+    scratch.refresh()
+
+    // Entries: opening Scratch to type starts a new entry at the end. The store hears of it with the
+    // first text.
+    vc.showFolderList()
+    let e = scratch.todayNote(create: true)!
+    probe.showScratch(edit: true)
+    probe.layoutNow(); spin()
+    if let ed = probe.editor(of: e.id) as? MarkdownNoteEditor {
+        Check.equal(ScratchEntries.markers(in: ed.markdown).count, 1, "entries: opening Scratch starts an entry")
+        Check.equal(store.note(id: e.id)?.body, "", "entries: the store has no empty entry")
+        let tv = ed.textViewForTesting
+        tv.insertText("first thought", replacementRange: tv.selectedRange())
+        spin()
+        let first = store.note(id: e.id)?.body ?? ""
+        Check.expect(first.hasSuffix("---\nfirst thought") && ScratchEntries.markers(in: first).count == 1,
+                     "entries: the first text saves its entry (\(first.debugDescription))")
+        vc.showFolderList()
+        probe.showScratch(edit: true)
+        probe.layoutNow(); spin()
+        let again = probe.editor(of: e.id) as? MarkdownNoteEditor
+        Check.equal(ScratchEntries.markers(in: again?.markdown ?? "").count, 2, "entries: opening again starts the next entry")
+        Check.equal(again?.selectedRangeForTesting.location, again?.textViewForTesting.string.utf16.count,
+                    "entries: the caret is in the new entry")
+        Check.equal(store.note(id: e.id)?.body, first, "entries: not saved before text is typed")
+        render("30-scratch-entries-light")
+        // Leaving without typing drops it.
+        vc.showFolderList()
+        spin()
+        Check.equal(store.note(id: e.id)?.body, first, "entries: an entry left empty is not kept")
+        // Showing Scratch without the caret (the day stepper, reveal) starts nothing.
+        probe.showScratch(edit: false)
+        probe.layoutNow(); spin()
+        Check.equal(ScratchEntries.markers(in: (probe.editor(of: e.id) as? MarkdownNoteEditor)?.markdown ?? first).count, 1,
+                    "entries: showing Scratch without typing starts no entry")
+
+        // Save as Note: the copy has no markers. Save Entry as Note: one entry's text.
+        let target = store.folders()[0]
+        probe.saveScratchAsNote(e.id, toFolder: target.id)
+        let saved = store.notes(in: target.id).first { !$0.isPinned }
+        Check.equal(saved?.body, "first thought", "entries: Save as Note leaves the markers out")
+        if let saved { store.deleteNote(id: saved.id) }
+        probe.dismissToast()
+        probe.ensureEditor(of: e.id)
+        let items = probe.editor(of: e.id)?.entryMenuItems?("one entry") ?? []
+        Check.equal(items.map(\.title), ["Save Entry as Note"], "entries: the card adds Save Entry as Note")
+        let folders = items.first?.submenu?.items.filter { !$0.isSectionHeader } ?? []
+        Check.equal(folders.map(\.title), store.folders().map(\.name), "entries: with the folders to save in")
+        if let item = folders.first, let action = item.action { NSApp.sendAction(action, to: item.target, from: item) }
+        let copy = store.notes(in: target.id).first { !$0.isPinned }
+        Check.equal(copy?.body, "one entry", "entries: Save Entry as Note copies that entry")
+        if let copy { store.deleteNote(id: copy.id) }
+        probe.dismissToast()
+
+        // A long day opens at its end, where the newest entry is.
+        let long = (0..<40).map { "--- \(String(format: "%02d", 8 + $0 / 4)):\(String(format: "%02d", ($0 % 4) * 15)) ---\nentry \($0)\nmore text" }
+            .joined(separator: "\n")
+        store.updateNoteBody(id: e.id, body: long)
+        vc.showFolderList()
+        probe.showScratch(edit: false)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        Check.expect(probe.listScrollOffset > 100 && probe.listIsScrolledToEnd,
+                     "entries: a long day opens scrolled to its end (\(probe.listScrollOffset))")
+        // To type: the caret is in a new entry at the end, and the end shows.
+        vc.showFolderList()
+        probe.showScratch(edit: true)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        Check.expect(probe.listIsScrolledToEnd, "entries: opening a long day to type shows its end")
+        render("32-scratch-entries-long-typing-light")
+        render("31-scratch-entries-long-light")
+    } else {
+        Check.expect(false, "entries: today's editor")
+    }
+
+    return written
 }
 
 /// ⌃D / ⌃U in a long note scroll the notes list.

@@ -99,11 +99,20 @@ public protocol NoteEditing: NSView {
     func revealFirstSearchMatch()
     /// Text can be selected and copied but not changed (earlier Scratch days). Default false.
     var isReadOnly: Bool { get set }
+    /// Scratch notes: puts a new, empty entry (`ScratchEntries`) that starts at `date` at the end and
+    /// the caret in it. The host's body gets the entry with the first text typed. An entry left empty
+    /// goes away when the editor loses the focus.
+    func beginEntry(at date: Date)
+    /// Scratch notes: the host's items for the menu of the entry under the pointer (it gets the
+    /// entry's text). The editor adds its own (Copy, Mark Done, Delete).
+    var entryMenuItems: ((String) -> [NSMenuItem])? { get set }
 }
 
 public extension NoteEditing {
     func focus(atEnd: Bool, insertMode: Bool) { focus(atEnd: atEnd) }
     var vimMode: VimMode? { nil }
+    func beginEntry(at date: Date) {}
+    var entryMenuItems: ((String) -> [NSMenuItem])? { get { nil } set {} }
 }
 
 @MainActor

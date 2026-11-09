@@ -28,10 +28,17 @@ enum BehaviorChecks {
         var events: [EditorEvent] = []
         var layoutChanges = 0
 
-        init(_ body: String, mode: NoteMode = .standard, hideMarkup: Bool = false) {
+        /// `scratch`: the note is a Scratch note (it has entries, `ScratchEntries`).
+        init(_ body: String, mode: NoteMode = .standard, hideMarkup: Bool = false, scratch: Bool = false) {
             env = BehaviorChecks.makeEnv(hideMarkup: hideMarkup)
             let folder = env.store.folders()[0]
-            note = env.store.createNote(in: folder.id, body: body, mode: mode, position: .top)
+            if scratch {
+                let n = env.store.createScratchNote(day: "2026-05-11", mode: mode)
+                env.store.updateNoteBody(id: n.id, body: body)
+                note = env.store.note(id: n.id) ?? n
+            } else {
+                note = env.store.createNote(in: folder.id, body: body, mode: mode, position: .top)
+            }
             editor = MarkdownNoteEditor(note: note, env: env)
             window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 300, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)

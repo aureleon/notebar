@@ -23,6 +23,8 @@ public struct MarkdownLine: Equatable, Sendable {
         case rule
         /// A row of a GFM pipe table (header, delimiter, or body; see `tableRow`).
         case table
+        /// The marker of a Scratch entry: a line that holds only its attachment character.
+        case entry
 
         public var isList: Bool {
             switch self {
@@ -65,7 +67,10 @@ public struct MarkdownLine: Equatable, Sendable {
 /// storage string (where checkboxes are attachment characters; `checkbox` reports their state).
 public enum BlockScanner {
     /// `tables`: find GFM pipe tables (Standard notes; Code and Plain notes have none).
-    public static func scan(_ s: NSString, checkbox: (Int) -> Bool? = { _ in nil }, tables: Bool = true) -> [MarkdownLine] {
+    /// `entry`: true for the attachment character of a Scratch entry marker. `titles` false: no line
+    /// is the title (Scratch notes).
+    public static func scan(_ s: NSString, checkbox: (Int) -> Bool? = { _ in nil }, tables: Bool = true,
+                            entry: (Int) -> Bool = { _ in false }, titles: Bool = true) -> [MarkdownLine] {
         var lines: [MarkdownLine] = []
         let len = s.length
         var pos = 0
@@ -73,7 +78,7 @@ public enum BlockScanner {
         var fenceChar: unichar = 0
         var fenceLen = 0
         var block = -1
-        var titleFound = false
+        var titleFound = !titles
         var lastHadTerminator = true
 
         func add(_ range: NSRange, _ full: NSRange) {
@@ -94,10 +99,12 @@ public enum BlockScanner {
                 fenceLen = f.count
                 line = MarkdownLine(range: range, fullRange: full, kind: .fence, indent: 0, markerRange: range)
                 line.codeBlock = block
+            } else if range.length == 1, s.character(at: range.location) == UC.attachment, entry(range.location) {
+                line = MarkdownLine(range: range, fullRange: full, kind: .entry, indent: 0, markerRange: range)
             } else {
                 line = classify(s, range: range, fullRange: full, checkbox: checkbox)
             }
-            if !titleFound, line.kind != .blank {
+            if !titleFound, line.kind != .blank, line.kind != .entry {
                 titleFound = true
                 if !line.isCode && line.kind != .rule { line.isTitle = true }
             }

@@ -356,6 +356,18 @@ final class NotesListView: NSView, NoteCardDelegate {
     // MARK: Scrolling
 
     func scrollToTop() { scrollClip(to: -topInset) }
+    /// The end of the last card. Its editor is made first: a preview is only about as high.
+    func scrollToBottom() {
+        updateLiveEditors()
+        if let last = cards.last, !last.isFolded, last.ensureEditor() { layoutCards(animated: false) }
+        layoutSubtreeIfNeeded()
+        scrollClip(to: .greatestFiniteMagnitude)
+    }
+    /// For checks: the list cannot scroll further down.
+    var isScrolledToEnd: Bool {
+        let clip = scrollView.contentView
+        return clip.bounds.maxY >= doc.frame.height - 1
+    }
 
     /// Scrolls the minimum amount so the card is fully visible (or its top, if it is taller than the view).
     func scrollToCard(_ card: NoteCardView, animated: Bool = false) {
