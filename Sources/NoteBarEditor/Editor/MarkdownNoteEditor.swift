@@ -852,6 +852,15 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         return window.firstResponder === textView
     }
 
+    /// Selectable but not editable: every edit path asks `shouldChangeText`, which refuses then.
+    public var isReadOnly: Bool {
+        get { !textView.isEditable }
+        set {
+            guard newValue == textView.isEditable else { return }
+            textView.isEditable = !newValue
+        }
+    }
+
     public func insertAttachments(_ attachments: [Attachment]) {
         guard !attachments.isEmpty else { return }
         let md = markdown

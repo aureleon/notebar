@@ -720,6 +720,9 @@ MainActor.assumeIsolated {
     archiveChecks(vc: vc, probe: probe, store: store, spin: spin)
     folderArchiveChecks(vc: vc, probe: probe, store: store, spin: spin)
 
+    // MARK: Scratch
+    scratchChecks(vc: vc, probe: probe, store: store, env: env, spin: spin, render: { render($0, dark: $1) })
+
     // MARK: Cursor over card buttons: arrow, not the text I-beam
     vc.showFolder(folders.notes.id)
     probe.layoutNow(); spin(); probe.layoutNow()
@@ -1492,4 +1495,163 @@ func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store
     store.deleteFolder(id: shelf.id)
     vc.showFolderList()
     Check.equal(probe.archiveRowCount, nil, "folder archive: clean at the end")
+}
+
+
+@MainActor
+func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemoryNoteStore, env: AppEnvironment,
+                   spin: () -> Void, render: (String, Bool) -> Void) {
+    let settings = env.settings
+    let scratch = env.scratch
+    let start = Date()
+    var clock = start
+    scratch.now = { clock }
+    scratch.refresh()
+    func advance(days: Int) {
+        clock = Calendar.current.date(byAdding: .day, value: days, to: clock)!
+        scratch.refresh()
+        probe.layoutNow(); spin()
+    }
+    let foldersBefore = store.folders().map(\.id)
+
+    // Header button at the top level only.
+    vc.showFolderList()
+    Check.expect(probe.isScratchButtonVisible, "scratch: header button on the folder list")
+    settings.scratchEnabled = false
+    Check.expect(!probe.isScratchButtonVisible, "scratch: off hides the header button")
+    probe.showScratch(edit: false)
+    Check.equal(probe.scratchDay, nil, "scratch: off, nothing opens")
+    settings.scratchEnabled = true
+    Check.expect(probe.isScratchButtonVisible, "scratch: on shows the button again")
+
+    // Today.
+    probe.clickScratchButton()
+    probe.layoutNow(); spin(); probe.layoutNow()
+    let today = scratch.todayKey
+    Check.equal(probe.scratchDay, today, "scratch: the button opens today")
+    Check.equal(probe.headerTitle, "Scratch · Today", "scratch: header title")
+    Check.expect(probe.isDayStepperVisible, "scratch: day stepper shown")
+    Check.expect(!probe.isPlusButtonVisible, "scratch: no + button")
+    Check.expect(!probe.canStepToEarlierDay && !probe.canStepToLaterDay, "scratch: nothing to step to yet")
+    guard let todayNote = scratch.todayNote(create: false) else { Check.expect(false, "scratch: today's note"); return }
+    Check.equal(probe.displayedNoteIDs, [todayNote.id], "scratch: one card, today's note")
+    Check.equal(probe.focusedNoteID, todayNote.id, "scratch: the button focuses the note")
+    Check.equal(probe.isCardReadOnly(todayNote.id), false, "scratch: today is editable")
+    Check.equal(probe.isEditorReadOnly(todayNote.id), false, "scratch: today's editor is editable")
+    Check.equal(store.folders().map(\.id), foldersBefore, "scratch: its folder is not in the folder list")
+    store.updateNoteBody(id: todayNote.id, body: "zebra scratch line\n- call back re: build")
+    Check.equal(store.search("zebra", in: nil, includeArchived: true).map(\.id), [], "scratch: search skips Scratch")
+    probe.setHovered(todayNote.id, true)
+    probe.layoutNow()
+    Check.equal(probe.isPinButtonHidden(todayNote.id), true, "scratch: no pin button")
+    Check.equal(probe.trashButtonToolTip(todayNote.id), "Clear Scratch", "scratch: the trash button clears today")
+    render("27-scratch-today-light", false)
+    probe.setHovered(todayNote.id, false)
+    let menu = probe.cardMenuTitles(todayNote.id)
+    Check.expect(menu.contains("Save as Note") && menu.contains("Clear Scratch") && !menu.contains("Pin")
+                 && !menu.contains("Move"), "scratch: today's card menu")
+
+    // Clear (the delete action on today's note) with undo.
+    probe.deleteNoteAction(todayNote.id)
+    Check.equal(store.note(id: todayNote.id)?.body, "", "scratch: delete on today clears it")
+    Check.equal(probe.toastMessage, "Scratch cleared", "scratch: clear toast")
+    probe.tapToastAction()
+    Check.equal(store.note(id: todayNote.id)?.body, "zebra scratch line\n- call back re: build", "scratch: toast Undo brings the text back")
+    probe.dismissToast()
+
+    // Pin / archive / fold never apply.
+    probe.select(todayNote.id)
+    probe.press(keyCode: 0, characters: "a", modifiers: [.command, .option])
+    Check.expect(store.note(id: todayNote.id)?.isArchived == false, "scratch: ⌥⌘A does not archive")
+
+    // Save as Note: a copy at the top of the folder, Scratch keeps its text.
+    let target = store.folders()[0]
+    probe.saveScratchAsNote(todayNote.id, toFolder: target.id)
+    let saved = store.notes(in: target.id).first { !$0.isPinned }
+    Check.equal(saved?.body, "zebra scratch line\n- call back re: build", "scratch: Save as Note copies the text")
+    Check.expect(saved?.isScratch == false && saved?.id != todayNote.id, "scratch: the copy is a normal note")
+    Check.equal(store.note(id: todayNote.id)?.body, "zebra scratch line\n- call back re: build", "scratch: today keeps its text")
+    Check.equal(probe.scratchDay, today, "scratch: still on Scratch after saving")
+    if let saved { store.deleteNote(id: saved.id) }
+    probe.dismissToast()
+
+    // A new day: the screen moves on to an empty today; yesterday is read-only.
+    probe.select(nil)
+    probe.focusList()
+    advance(days: 1)
+    let day2 = scratch.todayKey
+    Check.expect(day2 > today, "scratch: the day changed")
+    Check.equal(probe.scratchDay, day2, "scratch: the screen follows the new day")
+    Check.equal(probe.headerTitle, "Scratch · Today", "scratch: title of the new day")
+    let day2Note = scratch.todayNote(create: false)
+    Check.equal(day2Note?.body, "", "scratch: the new day starts empty")
+    Check.expect(probe.canStepToEarlierDay && !probe.canStepToLaterDay, "scratch: ◀ enabled, ▶ disabled on today")
+    probe.press(keyCode: 33, characters: "{", modifiers: [.command, .shift])
+    probe.layoutNow(); spin()
+    Check.equal(probe.scratchDay, today, "scratch: ⇧⌘[ steps to yesterday")
+    Check.equal(probe.headerTitle, "Scratch · Yesterday", "scratch: yesterday's title")
+    Check.equal(probe.displayedNoteIDs, [todayNote.id], "scratch: yesterday's note")
+    Check.equal(probe.isCardReadOnly(todayNote.id), true, "scratch: yesterday is read-only")
+    probe.ensureEditor(of: todayNote.id)
+    Check.equal(probe.isEditorReadOnly(todayNote.id), true, "scratch: yesterday's editor is read-only")
+    Check.expect(!probe.canStepToEarlierDay && probe.canStepToLaterDay, "scratch: ◀ disabled, ▶ enabled on the oldest day")
+    let pastMenu = probe.cardMenuTitles(todayNote.id)
+    Check.expect(pastMenu.contains("Save as Note") && pastMenu.contains("Delete This Day") && !pastMenu.contains("Color"),
+                 "scratch: an earlier day's card menu")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.mouseMoved()   // earlier checks used the keyboard (it hides the hover)
+    probe.setHovered(todayNote.id, true)
+    Check.expect(probe.cardShowsHover(todayNote.id), "scratch: an earlier day's card shows its tray on hover")
+    render("28-scratch-yesterday-light", false)
+    render("29-scratch-yesterday-dark", true)
+    probe.setHovered(todayNote.id, false)
+    probe.stepScratchDay(1)
+    Check.equal(probe.scratchDay, day2, "scratch: ▶ goes back to today")
+
+    // An empty earlier day is dropped; days beyond the window go to the trash as normal notes.
+    settings.scratchKeepDays = 2
+    advance(days: 1)
+    Check.expect(store.note(id: day2Note?.id ?? 0) == nil && store.trashedNotes().allSatisfy { $0.id != day2Note?.id },
+                 "scratch: an empty day is deleted at rollover")
+    Check.equal(scratch.days().count, 2, "scratch: today and the kept earlier day")
+    advance(days: 2)
+    Check.equal(store.note(id: todayNote.id), nil, "scratch: a day beyond the window leaves Scratch")
+    let expired = store.trashedNotes().first { $0.id == todayNote.id }
+    Check.expect(expired != nil && expired?.isScratch == false, "scratch: it is in the trash as a normal note")
+    Check.expect(expired?.body.hasPrefix("# Scratch · ") == true, "scratch: headed with its date")
+    Check.expect(expired?.body.hasSuffix("zebra scratch line\n- call back re: build") == true, "scratch: with its text")
+    Check.equal(expired?.folderId, settings.lastFolderId ?? store.folders()[0].id, "scratch: in the last folder")
+    store.restoreNote(id: todayNote.id)
+    Check.expect(store.note(id: todayNote.id)?.isScratch == false
+                 && store.notes(in: expired?.folderId ?? 0).contains { $0.id == todayNote.id },
+                 "scratch: restored, it is a normal note in that folder")
+    store.deleteNote(id: todayNote.id)
+
+    // Delete an earlier day (alert, then the trash).
+    let t = scratch.todayNote(create: true)!
+    store.updateNoteBody(id: t.id, body: "old day")
+    advance(days: 1)
+    probe.stepScratchDay(-1)
+    Check.equal(probe.displayedNoteIDs, [t.id], "scratch: on the earlier day")
+    probe.confirmDestructiveAlerts(true)
+    probe.deleteNoteAction(t.id)
+    probe.confirmDestructiveAlerts(nil)
+    Check.expect(store.note(id: t.id) == nil && store.trashedNotes().contains { $0.id == t.id }, "scratch: Delete This Day trashes it")
+    Check.equal(probe.scratchDay, scratch.todayKey, "scratch: the screen moves to today")
+    probe.panelUndo()
+    Check.equal(store.note(id: t.id)?.isScratch, true, "scratch: ⌘Z brings the day back to Scratch")
+    probe.commitDelete()
+
+    // reveal(noteId:) of a Scratch note opens its day.
+    vc.showFolderList()
+    vc.reveal(noteId: t.id, edit: false)
+    Check.equal(probe.scratchDay, t.scratchDay, "scratch: reveal opens the note's day")
+
+    // Turning Scratch off while it shows: back to the folder list.
+    settings.scratchEnabled = false
+    Check.expect(probe.folderRowsVisible && probe.scratchDay == nil, "scratch: off goes back to the folder list")
+    settings.scratchEnabled = true
+    settings.scratchKeepDays = 7
+    for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }
+    probe.dismissToast()
 }

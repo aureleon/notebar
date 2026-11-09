@@ -14,6 +14,7 @@ import Foundation
 ///     notebar://open?folder=<name>    (show a folder)
 ///     notebar://open                  (same as show)
 ///     notebar://settings
+///     notebar://scratch               (today's Scratch note, ready to type)
 ///
 /// x-callback-url: `x-success` / `x-error` are honored by the URL handler.
 public enum NoteBarURLCommand: Equatable, Sendable {
@@ -26,6 +27,7 @@ public enum NoteBarURLCommand: Equatable, Sendable {
     case openNote(id: Int64)
     case openFolder(name: String)
     case settings
+    case scratch
 }
 
 public struct NewNoteRequest: Equatable, Sendable {
@@ -54,7 +56,7 @@ public enum NoteBarURLError: Error, Equatable, Sendable, CustomStringConvertible
     public var description: String {
         switch self {
         case .notNoteBarURL: "Not a notebar:// URL."
-        case .unknownAction(let a): a.isEmpty ? "Missing action (use notebar://new, show, hide, toggle, search, open, settings)." : "Unknown action \"\(a)\"."
+        case .unknownAction(let a): a.isEmpty ? "Missing action (use notebar://new, show, hide, toggle, search, open, settings, scratch)." : "Unknown action \"\(a)\"."
         case .missingParameter(let p): "Missing parameter \"\(p)\"."
         case .invalidParameter(let n, let v): "Invalid value \"\(v)\" for parameter \"\(n)\"."
         }
@@ -130,6 +132,8 @@ public enum NoteBarURLParser {
             return .failure(.missingParameter("note"))
         case "settings", "preferences", "prefs":
             return done(.settings)
+        case "scratch", "today", "daily":
+            return done(.scratch)
         default:
             return .failure(.unknownAction(action))
         }

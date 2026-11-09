@@ -36,7 +36,7 @@ public final class HotkeyCenter {
         let nc = NotificationCenter.default
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: .main) { [weak self] n in
             let key = n.userInfo?["key"] as? String
-            guard key == nil || key == "hotkeys" else { return }
+            guard key == nil || key == "hotkeys" || key == "scratchEnabled" else { return }
             MainActor.assumeIsolated { self?.reload() }
         })
         observers.append(nc.addObserver(forName: NoteBarPanelNotification.hotkeyRecording, object: nil, queue: .main) { [weak self] n in
@@ -57,6 +57,8 @@ public final class HotkeyCenter {
         // Stable order so a duplicate combo always fails for the same (later) action.
         for action in HotkeyAction.allCases {
             guard let combo = settings.hotkeys[action] else { continue }
+            // Scratch off: its shortcut stays free for other apps.
+            if action == .scratch, !settings.scratchEnabled { continue }
             if used.contains(combo) { failed.insert(action); continue }
             if let ref = register(combo, id: Self.id(for: action)) {
                 registrations[action] = (ref, combo)

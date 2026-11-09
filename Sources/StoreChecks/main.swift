@@ -1052,6 +1052,123 @@ do {
     try! store.close()
 }
 
+// MARK: Scratch (hidden folder, one note per day, expiry)
+@MainActor func scratchChecks(_ store: NoteStore, _ label: String) {
+    let visible = store.folders().map(\.id)
+    let a = store.createScratchNote(day: "2026-05-11", mode: .standard)
+    Check.equal(a.scratchDay, "2026-05-11", "\(label): scratch note has its day")
+    Check.equal(store.createScratchNote(day: "2026-05-11", mode: .code).id, a.id, "\(label): one live note per day")
+    Check.equal(store.folders().map(\.id), visible, "\(label): the Scratch folder is hidden")
+    Check.equal(store.folder(id: a.folderId), nil, "\(label): folder(id:) hides it too")
+    store.updateNoteBody(id: a.id, body: "quokka scratch")
+    Check.equal(store.note(id: a.id)?.body, "quokka scratch", "\(label): note(id:) and body edits work")
+    Check.equal(store.search("quokka", in: nil, includeArchived: true).count, 0, "\(label): search skips Scratch")
+    store.archiveNote(id: a.id)
+    Check.expect(store.note(id: a.id)?.isArchived == false, "\(label): Scratch notes are never archived")
+    var meta = store.note(id: a.id)!
+    meta.color = .green
+    meta.scratchDay = nil
+    store.updateNote(meta)
+    Check.equal(store.note(id: a.id)?.scratchDay, "2026-05-11", "\(label): updateNote keeps the day")
+    Check.equal(store.note(id: a.id)?.color, .green, "\(label): and changes the metadata")
+    let b = store.createScratchNote(day: "2026-05-12", mode: .standard)
+    Check.equal(b.folderId, a.folderId, "\(label): one Scratch folder")
+    Check.equal(store.scratchNotes(includingTrashed: false).map(\.id), [b.id, a.id], "\(label): newest day first")
+    store.trashNote(id: b.id)
+    Check.equal(store.scratchNotes(includingTrashed: false).map(\.id), [a.id], "\(label): trashed day hidden")
+    Check.equal(store.scratchNotes(includingTrashed: true).map(\.id), [b.id, a.id], "\(label): includingTrashed")
+    Check.expect(store.trashedNotes().contains { $0.id == b.id }, "\(label): a trashed day is in the trash")
+    store.restoreNote(id: b.id)
+    Check.equal(store.note(id: b.id)?.scratchDay, "2026-05-12", "\(label): restored, it is a Scratch note again")
+
+    // Expire: a normal note at the top of the folder, in the trash.
+    let target = store.folders()[0]
+    store.expireScratchNote(id: a.id, toFolder: target.id, body: "# Scratch · Monday\nquokka scratch")
+    let e = store.trashedNotes().first { $0.id == a.id }
+    Check.expect(e != nil && e?.isScratch == false && e?.folderId == target.id, "\(label): expired → trashed normal note")
+    Check.equal(e?.body, "# Scratch · Monday\nquokka scratch", "\(label): with the given body")
+    Check.equal(store.scratchNotes(includingTrashed: true).map(\.id), [b.id], "\(label): no longer a Scratch note")
+    store.restoreNote(id: a.id)
+    Check.equal(store.notes(in: target.id).first(where: { !$0.isPinned })?.id, a.id, "\(label): restored at the top of the folder")
+    store.deleteNote(id: a.id)
+    // Expire a trashed one: it stays in the trash.
+    store.trashNote(id: b.id)
+    store.expireScratchNote(id: b.id, toFolder: target.id, body: "old")
+    Check.expect(store.trashedNotes().contains { $0.id == b.id && !$0.isScratch }, "\(label): a trashed day stays trashed")
+    store.deleteNote(id: b.id)
+    // Moving a Scratch note out makes it a normal note.
+    let c = store.createScratchNote(day: "2026-05-13", mode: .standard)
+    store.moveNote(id: c.id, toFolder: target.id, position: .top)
+    Check.expect(store.note(id: c.id)?.isScratch == false && store.note(id: c.id)?.folderId == target.id,
+                 "\(label): moved out of Scratch, a normal note")
+    store.deleteNote(id: c.id)
+    Check.equal(store.folders().map(\.id), visible, "\(label): folders unchanged at the end")
+}
+
+scratchChecks(InMemoryNoteStore(), "memory")
+do {
+    let dir = freshDir("scratch")
+    let store = try! GRDBNoteStore(directory: dir)
+    scratchChecks(store, "grdb")
+    let n = store.createScratchNote(day: "2026-06-01", mode: .code)
+    store.updateNoteBody(id: n.id, body: "persisted scratch")
+    try! store.reopen()
+    let back = store.scratchNotes(includingTrashed: false)
+    Check.equal(back.map(\.id), [n.id], "grdb: scratch note persisted")
+    Check.equal(back.first?.scratchDay, "2026-06-01", "grdb: with its day")
+    Check.equal(back.first?.body, "persisted scratch", "grdb: and its body")
+    Check.equal(back.first?.mode, .code, "grdb: and its mode")
+    Check.expect(!store.folders().contains { $0.id == n.folderId }, "grdb: the Scratch folder stays hidden after reopen")
+    Check.equal(store.createScratchNote(day: "2026-06-02", mode: .standard).folderId, n.folderId, "grdb: the folder is reused after reopen")
+    try! store.close()
+}
+
+// ScratchService against a store: today, days, the sweep.
+do {
+    let store = InMemoryNoteStore()
+    let settings = makeSettings()
+    settings.scratchKeepDays = 2
+    settings.scratchRolloverHour = 4
+    let cal = Calendar(identifier: .gregorian)
+    var clock = cal.date(from: DateComponents(year: 2026, month: 5, day: 11, hour: 10))!
+    let svc = ScratchService(store: store, settings: settings, calendar: cal)
+    svc.now = { clock }
+    svc.refresh()
+    Check.equal(svc.todayKey, "2026-05-11", "service: today")
+    Check.equal(svc.todayNote(create: false), nil, "service: no note until asked")
+    let d1 = svc.todayNote(create: true)!
+    store.updateNoteBody(id: d1.id, body: "day one")
+    var posted = 0
+    let o = NotificationCenter.default.addObserver(forName: .scratchDayDidChange, object: nil, queue: nil) { _ in posted += 1 }
+    clock = cal.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 3))!
+    svc.refresh()
+    Check.equal(svc.todayKey, "2026-05-11", "service: 3 AM still counts as the day before (rollover 4)")
+    Check.equal(posted, 0, "service: no day change before the rollover")
+    clock = cal.date(from: DateComponents(year: 2026, month: 5, day: 12, hour: 5))!
+    svc.refresh()
+    Check.equal(svc.todayKey, "2026-05-12", "service: new day after the rollover")
+    Check.equal(posted, 1, "service: the day change is posted")
+    let d2 = svc.todayNote(create: true)!
+    Check.equal(svc.days(), ["2026-05-12", "2026-05-11"], "service: days newest first")
+    Check.equal(svc.title(for: "2026-05-11"), "Yesterday", "service: yesterday's title")
+    clock = cal.date(from: DateComponents(year: 2026, month: 5, day: 13, hour: 9))!
+    svc.refresh()
+    Check.equal(store.note(id: d2.id), nil, "service: an empty earlier day is deleted")
+    Check.expect(!store.trashedNotes().contains { $0.id == d2.id }, "service: not via the trash")
+    Check.equal(svc.days(), ["2026-05-11"], "service: the kept day")
+    clock = cal.date(from: DateComponents(year: 2026, month: 5, day: 14, hour: 9))!
+    svc.refresh()
+    Check.equal(svc.days(), [], "service: 2026-05-11 is out of a 2-day window")
+    let ex = store.trashedNotes().first { $0.id == d1.id }
+    Check.expect(ex?.isScratch == false && ex?.folderId == store.folders()[0].id, "service: expired into the first folder's trash")
+    Check.expect(ex?.body.hasPrefix("# Scratch · ") == true && ex?.body.hasSuffix("\nday one") == true, "service: headed with its date")
+    Check.equal(ScratchDay.nextRollover(after: clock, rolloverHour: 4, calendar: cal),
+                cal.date(from: DateComponents(year: 2026, month: 5, day: 15, hour: 4))!, "service: next rollover")
+    Check.equal(ScratchDay.key("2026-03-01", addingDays: -1, calendar: cal), "2026-02-28", "day math across months")
+    Check.equal(ScratchDay.key("2026-01-01", addingDays: -1, calendar: cal), "2025-12-31", "day math across years")
+    NotificationCenter.default.removeObserver(o)
+}
+
 // v1 database (before the trash): migrates, keeps the data, nothing is trashed.
 do {
     let dir = freshDir("migrate-v1")
@@ -1078,6 +1195,8 @@ do {
     Check.equal(store.trashedNotes().count, 1, "v1 → v2: trash works after the migration")
     Check.expect(store.archivedNotes().isEmpty, "v1 → v3: nothing is archived after the migration")
     Check.expect(store.archivedFolders().isEmpty, "v1 → v6: no folder is archived after the migration")
+    Check.expect(store.scratchNotes(includingTrashed: true).isEmpty, "v1 → v7: no Scratch notes after the migration")
+    Check.expect(store.notes(in: store.folders()[0].id).allSatisfy { !$0.isScratch }, "v1 → v7: old notes are not Scratch")
     try! store.close()
 }
 }

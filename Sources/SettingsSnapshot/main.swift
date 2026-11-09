@@ -278,6 +278,20 @@ MainActor.assumeIsolated {
     renderAll(models, outDir: outDir, tall: tall, suffix: "-vim", tabs: [.shortcuts])
     settings.vimKeybinds = false
 
+    // Scratch: on by default, 7 earlier days, new day at 4 AM, ⌃⌥⌘S.
+    Check.expect(settings.scratchEnabled, "Scratch is on by default")
+    Check.equal(settings.scratchKeepDays, 7, "Scratch keeps 7 earlier days by default")
+    Check.equal(settings.scratchRolloverHour, 4, "a Scratch day starts at 4 AM by default")
+    Check.equal(HotkeyAction.defaults[.scratch]?.displayString, "⌃⌥⌘S", "Scratch Note defaults to ⌃⌥⌘S")
+    settings.scratchKeepDays = 12
+    settings.scratchRolloverHour = 0
+    let reread = AppSettings(defaults: defaults)
+    Check.expect(reread.scratchKeepDays == 12 && reread.scratchRolloverHour == 0, "Scratch settings are persisted")
+    Check.equal(ScratchService.clampKeepDays(99), 30, "keep days clamp to 30")
+    renderAll(models, outDir: outDir, tall: true, suffix: "-scratch", tabs: [.general])
+    settings.scratchKeepDays = 7
+    settings.scratchRolloverHour = 4
+
     // No backup service.
     let envNoBackups = AppEnvironment(store: store, backups: nil, settings: settings, themes: themes,
                                       editorFactory: PlainNoteEditorFactory())

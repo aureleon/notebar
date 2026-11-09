@@ -90,6 +90,8 @@ func runChecks() {
     Check.equal(parse("notebar://open?note=-3"), .openNote(id: -3), "negative id")
     Check.equal(parseError("notebar://open?note=0"), .invalidParameter(name: "note", value: "0"), "zero id")
     Check.equal(parse("notebar://settings"), .settings, "settings")
+    Check.equal(parse("notebar://scratch"), .scratch, "scratch")
+    Check.equal(parse("notebar:today"), .scratch, "scratch alias")
     Check.equal(parseError("notebar://frobnicate"), .unknownAction("frobnicate"), "unknown action")
     Check.equal(parseError("notebar://"), .unknownAction(""), "missing action")
     Check.equal(parseError("https://example.com"), .notNoteBarURL, "other scheme")

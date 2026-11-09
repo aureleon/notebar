@@ -13,7 +13,8 @@ import NoteBarCore
 public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// `archive`: the archived notes of every folder (the Archive row of the folder list).
     /// `archivedFolder`: the notes of an archived folder (Open in the Archive menu).
-    enum Screen: Equatable { case folders, folder(FolderID), archive, archivedFolder(FolderID) }
+    /// `scratch`: the Scratch note of one day (`ScratchDay` key); today's is editable.
+    enum Screen: Equatable { case folders, folder(FolderID), archive, archivedFolder(FolderID), scratch(String) }
 
     struct SearchState {
         var query: String
@@ -35,7 +36,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }()
     var store: NoteStore { env.store }
 
-    private(set) var screen: Screen = .folders
+    var screen: Screen = .folders
     var search: SearchState?
     enum TrashItem: Equatable { case note(NoteID), folder(FolderID) }
     /// The item the "deleted" toast can bring back (it is in the store's trash).
@@ -66,6 +67,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// sharp between the glass elements. Only in glass mode (`CardGlass`).
     private let backdrop = StackBackdropView()
     private var clickMonitor: Any?
+    /// The Scratch screen shows today and follows the day when it changes (rollover, wake).
+    var scratchFollowsToday = false
 
     /// Where the UI keeps its own state (the screen to restore at launch).
     /// `env.settings.lastFolderId` always means "last opened folder"; it stays set while the
@@ -127,6 +130,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         header.onSettings = { [weak self] in self?.env.controller?.openSettings() }
         header.onSearch = { [weak self] in self?.beginSearch() }
         header.onPlus = { [weak self] in self?.plusPressed() }
+        header.onScratch = { [weak self] in self?.showScratch(edit: true) }
+        header.onStepDay = { [weak self] delta in self?.stepScratchDay(delta) }
         header.onQueryChange = { [weak self] q in self?.searchQueryChanged(q) }
         header.onSearchEscape = { [weak self] in self?.searchFieldEscape() }
         header.onCloseSearch = { [weak self] in self?.endSearch(restore: true, focusRoot: true) }
@@ -188,9 +193,16 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: nil) { [weak self] n in
             let key = n.userInfo?["key"] as? String
             if key == "deletedItemsRetention" { MainActor.assumeIsolated { self?.reloadFolderList() }; return }
+            if key == "scratchEnabled" || key == "scratchKeepDays" || key == "hotkeys" {
+                MainActor.assumeIsolated { self?.scratchSettingsChanged() }
+                return
+            }
             guard key == "colorStyle" || key == "blurBackdrop" else { return }
             MainActor.assumeIsolated { self?.updateBackdrop() }
             MainActor.assumeIsolated { self?.restyleAll() }
+        })
+        observers.append(nc.addObserver(forName: .scratchDayDidChange, object: nil, queue: nil) { [weak self] _ in
+            MainActor.assumeIsolated { self?.scratchDayChanged() }
         })
         observers.append(nc.addObserver(forName: .notesChangedExternally, object: nil, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.panelUndo.removeAllActions() }
@@ -215,7 +227,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             }
             reloadFolderList()
             updateHeader()
-            if search?.allFolders == true || search?.origin == .archive { runSearch(animated: false) }
+            if search?.allFolders == true || search?.origin == .archive || isScratchOrigin { runSearch(animated: false) }
             if search == nil, screen == .archive { reloadNotes(animated: true) }
         case .notes(let fid):
             if search != nil {
@@ -224,6 +236,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
                 reloadNotes(animated: true)
             } else if screen == .archive || screen == .archivedFolder(fid) {
                 reloadNotes(animated: true)
+            } else if isScratchScreen {
+                reloadNotes(animated: false)
             }
             if screen == .folders { reloadFolderList() }
         case .note(let id):
@@ -239,6 +253,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             var gone = false
             if case .folder(let id) = screen, store.folder(id: id) == nil { gone = true }
             if case .archivedFolder(let id) = screen, store.archivedFolder(id: id) == nil { gone = true }
+            if case .scratch = screen, !env.settings.scratchEnabled { gone = true }
             if gone {
                 search = nil
                 header.setSearching(false)
@@ -317,6 +332,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             }
             return
         }
+        if case .scratch(let day) = screen {
+            reloadScratch(day: day, animated: animated)
+            return
+        }
         guard case .folder(let id) = screen else { return }
         displayedFolder = id
         let notes = displayedNotes(in: id)
@@ -332,7 +351,15 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func updateHeader() {
         switch screen {
         case .folders:
-            header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder")
+            header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder",
+                            showsScratch: env.settings.scratchEnabled, scratchToolTip: scratchToolTip)
+        case .scratch(let day):
+            let s = env.scratch
+            let days = s.days()
+            let canBack = days.contains { $0 < day }
+            let canForward = day < s.todayKey
+            header.setTitle("Scratch · \(s.title(for: day))", accent: true, showsBack: true, showsSettings: false,
+                            plusToolTip: "", stepper: (canBack, canForward))
         case .folder(let id):
             header.setTitle(store.folder(id: id)?.name ?? "Notes", accent: true, showsBack: true, showsSettings: false, plusToolTip: "New Note (⌘N)")
         case .archive:
@@ -353,7 +380,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     public var currentFolderId: FolderID? {
         switch search?.origin ?? screen {
-        case .folders, .archive, .archivedFolder: return nil
+        case .folders, .archive, .archivedFolder, .scratch: return nil
         case .folder(let id): return id
         }
     }
@@ -447,7 +474,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if pendingDeletion == noteId, store.note(id: noteId) == nil { undoDeletion() }
         guard var note = store.note(id: noteId) else { return }
         if search != nil { endSearch(restore: false, focusRoot: false) }
-        if store.archivedFolder(id: note.folderId) != nil {
+        if let day = note.scratchDay {
+            guard env.settings.scratchEnabled else { return }
+            showScratchDay(day)
+        } else if store.archivedFolder(id: note.folderId) != nil {
             showArchivedFolder(note.folderId)
         } else if note.isArchived {
             showArchive()
@@ -531,6 +561,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         }
         // Dates and counts may be stale if the store changed while hidden.
         if screen == .folders && search == nil { reloadFolderList() }
+        followTodayIfNeeded()
     }
 
     public func panelFocusChanged(_ focused: Bool) {
@@ -707,7 +738,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if restore {
             switch s.origin {
             case .folders: reloadFolderList()
-            case .folder, .archive, .archivedFolder: reloadNotes(animated: false)
+            case .folder, .archive, .archivedFolder, .scratch: reloadNotes(animated: false)
             }
         }
         updateHeader()
@@ -910,7 +941,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func noteRestored(_ id: NoteID) {
         if pendingDeletion == id { dismissTrashToast() }
         guard let note = store.note(id: id) else { return }
-        let shown = store.archivedFolder(id: note.folderId) != nil ? screen == .archivedFolder(note.folderId)
+        let shown = note.scratchDay.map { screen == .scratch($0) } ?? false ? true
+            : store.archivedFolder(id: note.folderId) != nil ? screen == .archivedFolder(note.folderId)
             : note.isArchived ? screen == .archive : screen == .folder(note.folderId)
         if search == nil, shown {
             rootView.layoutSubtreeIfNeeded()

@@ -97,6 +97,8 @@ public protocol NoteEditing: NSView {
     func highlightSearch(_ query: String)
     /// Scrolls to the first marked match and shows the find indicator. Call only on the first result.
     func revealFirstSearchMatch()
+    /// Text can be selected and copied but not changed (earlier Scratch days). Default false.
+    var isReadOnly: Bool { get set }
 }
 
 public extension NoteEditing {
@@ -125,11 +127,14 @@ public protocol AppController: AnyObject {
     func showSearch(query: String)
     func toggleFloatPanel()
     func openSettings()
+    /// Shows the panel on today's Scratch note, ready to type (no-op while Scratch is off).
+    func showScratch()
 }
 
 public extension AppController {
     func showSearch(query: String) { showSearch() }
     func toggleFloatPanel() {}
+    func showScratch() {}
 }
 
 /// Implemented by the notes UI (NoteBarUI.NotesRootViewController).
@@ -146,6 +151,8 @@ public protocol NotesPresenting: AnyObject {
     func beginSearch()
     /// Starts search with `query` already typed into the search field (blank = like `beginSearch()`).
     func beginSearch(query: String)
+    /// Shows today's Scratch note; `edit` focuses its editor.
+    func showScratch(edit: Bool)
     /// Called by the panel right after it slides in / before it slides out.
     func panelDidShow()
     func panelDidShow(focused: Bool)
@@ -156,6 +163,7 @@ public protocol NotesPresenting: AnyObject {
 public extension NotesPresenting {
     var contentHeight: CGFloat { 0 }
     func beginSearch(query: String) { beginSearch() }
+    func showScratch(edit: Bool) {}
     func panelDidShow(focused: Bool) { panelDidShow() }
     func panelFocusChanged(_ focused: Bool) {}
 }
@@ -170,6 +178,8 @@ public final class AppEnvironment {
     public let editorFactory: NoteEditorFactory
     public weak var controller: AppController?
     public weak var presenter: NotesPresenting?
+    /// The daily Scratch note. The app delegate calls `start()` (rollover timer, sweeps).
+    public private(set) lazy var scratch = ScratchService(store: store, settings: settings)
 
     public init(store: NoteStore, backups: BackupService?, settings: AppSettings,
                 themes: ThemeManager, editorFactory: NoteEditorFactory) {
@@ -264,6 +274,11 @@ public final class PlainNoteEditor: NSView, NoteEditing, NSTextViewDelegate {
     }
 
     public var isEditingFocused: Bool { window?.firstResponder === textView }
+
+    public var isReadOnly: Bool {
+        get { !textView.isEditable }
+        set { textView.isEditable = !newValue }
+    }
 
     public func perform(_ action: FormatAction) {
         if action == .copy { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(textView.string, forType: .string) }

@@ -81,12 +81,12 @@ final class NoteActions {
     }
 
     func toggleFold(_ id: NoteID) {
-        guard let n = store.note(id: id) else { return }
+        guard let n = store.note(id: id), !n.isScratch else { return }
         setFolded(!n.isFolded, id: id)
     }
 
     func setFolded(_ folded: Bool, id: NoteID) {
-        guard var n = store.note(id: id), n.isFolded != folded else { return }
+        guard var n = store.note(id: id), !n.isScratch, n.isFolded != folded else { return }
         if folded, root?.notesList.expandedNoteID == id {
             root?.notesList.setExpandedNoteID(nil, animated: false)
         }
@@ -103,7 +103,7 @@ final class NoteActions {
 
     /// Archives / unarchives with undo. UI entry points use `toggleArchive` (it also shows a toast).
     func setArchived(_ archived: Bool, id: NoteID) {
-        guard let n = store.note(id: id), n.isArchived != archived else { return }
+        guard let n = store.note(id: id), !n.isScratch, n.isArchived != archived else { return }
         if archived { store.archiveNote(id: id) } else { store.unarchiveNote(id: id) }
         registerUndo(archived ? "Archive" : "Unarchive") { $0.setArchived(!archived, id: id) }
     }
@@ -111,6 +111,7 @@ final class NoteActions {
     /// Card button, ⌥⌘A, `ga`, menus.
     func toggleArchive(_ id: NoteID) {
         guard let n = store.note(id: id) else { return }
+        guard !n.isScratch else { NSSound.beep(); return }
         if let root { root.setArchived(!n.isArchived, id: id) } else { setArchived(!n.isArchived, id: id) }
     }
 
@@ -134,7 +135,7 @@ final class NoteActions {
     }
 
     func togglePin(_ id: NoteID) {
-        guard var n = store.note(id: id) else { return }
+        guard var n = store.note(id: id), !n.isScratch else { return }
         n.isPinned.toggle()
         store.updateNote(n)
         registerUndo(n.isPinned ? "Pin" : "Unpin") { $0.togglePin(id) }
@@ -152,7 +153,7 @@ final class NoteActions {
     }
 
     func move(_ id: NoteID, _ target: MoveTarget) {
-        guard let note = store.note(id: id) else { return }
+        guard let note = store.note(id: id), !note.isScratch else { NSSound.beep(); return }
         let list = store.notes(in: note.folderId)
         guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
         let z = zone(for: note, in: list)
@@ -194,6 +195,8 @@ final class NoteActions {
     }
 
     func move(_ id: NoteID, toFolder folderId: FolderID) {
+        // Scratch notes are saved as a copy instead (Save as Note).
+        if store.note(id: id)?.isScratch == true { saveScratchAsNote(id, toFolder: folderId); return }
         guard let note = store.note(id: id), note.folderId != folderId, store.folder(id: folderId) != nil,
               let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         store.moveNote(id: id, toFolder: folderId, position: .top)
@@ -206,7 +209,7 @@ final class NoteActions {
 
     /// Creates a folder, moves the note there and starts renaming the new folder.
     func moveToNewFolder(_ id: NoteID) {
-        guard let note = store.note(id: id), !store.isInArchive(note),
+        guard let note = store.note(id: id), !store.isInArchive(note), !note.isScratch,
               let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
         let folder = store.createFolder(name: uniqueFolderName("New Folder", in: store))
         store.moveNote(id: id, toFolder: folder.id, position: .top)
@@ -222,6 +225,8 @@ final class NoteActions {
     /// Every delete asks first (keys, card button, menus); the note goes to the trash with undo.
     func delete(_ id: NoteID) {
         guard let note = store.note(id: id) else { return }
+        // Today's Scratch note is cleared, never deleted (the view always has today's note).
+        if note.isScratch, note.scratchDay == env.scratch.todayKey { clearScratch(id); return }
         let alert = NSAlert()
         let title = note.title.isEmpty ? "this note" : "“\(note.title.prefix(60))”"
         alert.messageText = "Delete \(title)?"
@@ -230,6 +235,49 @@ final class NoteActions {
         alert.addButton(withTitle: "Cancel")
         guard confirmDestructiveAlert?(alert) ?? (ModalSupport.run(alert) == .alertFirstButtonReturn) else { return }
         root?.softDelete(id)
+    }
+
+    // MARK: Scratch
+
+    /// Empties today's Scratch note (undo brings the text back).
+    func clearScratch(_ id: NoteID) {
+        guard var n = store.note(id: id), n.isScratch, !n.body.isEmpty else { return }
+        let old = n.body
+        n.body = ""
+        store.updateNote(n)
+        registerUndo("Clear Scratch") { $0.setBody(old, id: id, name: "Clear Scratch") }
+        root?.showToast("Scratch cleared", actionTitle: "Undo", action: { [weak self] in
+            self?.setBody(old, id: id, name: "Clear Scratch")
+        })
+    }
+
+    private func setBody(_ body: String, id: NoteID, name: String) {
+        guard var n = store.note(id: id), n.body != body else { return }
+        let old = n.body
+        n.body = body
+        store.updateNote(n)
+        registerUndo(name) { $0.setBody(old, id: id, name: name) }
+    }
+
+    /// A copy of the note (with copies of its images and files) at the top of `folderId`.
+    func saveScratchAsNote(_ id: NoteID, toFolder folderId: FolderID) {
+        guard let src = store.note(id: id), store.folder(id: folderId) != nil else { NSSound.beep(); return }
+        var body = src.body
+        let note = store.createNote(in: folderId, body: "", mode: src.mode, position: .top)
+        for m in AttachmentLink.matches(in: body).reversed() {
+            guard let a = store.attachment(id: m.attachmentID), let url = store.url(for: a),
+                  let copy = try? store.addAttachment(to: note.id, fileURL: url) else { continue }
+            body.replaceSubrange(m.range, with: AttachmentLink.markdown(for: copy))
+        }
+        var n = store.note(id: note.id) ?? note
+        n.body = body
+        n.color = src.color
+        store.updateNote(n)
+        noteCreated(note.id, name: "Save as Note")
+        let name = store.folder(id: folderId)?.name ?? "folder"
+        root?.showToast("Saved to “\(name)”", actionTitle: "Show", action: { [weak self] in
+            self?.root?.reveal(noteId: note.id, edit: false)
+        })
     }
 
     // MARK: Copy

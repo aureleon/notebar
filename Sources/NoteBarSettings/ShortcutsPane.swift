@@ -64,6 +64,7 @@ struct ShortcutsPane: View {
         ("Move Note Up", "⌥⇧⌘↑"),
         ("Move Note Down", "⌥⇧⌘↓"),
         ("Search All Folders", "⌘/"),
+        ("Earlier / Later Scratch Day", "⇧⌘[ · ⇧⌘]"),
         ("Stop Editing", "Esc"),
     ]
     /// Only the NoteBar-specific keys. Standard vim keys (modes, motions, edits, search, ⌃W J / K, :q) work as usual.
@@ -89,7 +90,8 @@ struct ShortcutsPane: View {
         let failed = registration.failed
         Form {
             Section {
-                ForEach(HotkeyAction.allCases, id: \.self) { action in
+                // Scratch off: no Scratch shortcut (it is not registered).
+                ForEach(HotkeyAction.allCases.filter { $0 != .scratch || settings.scratchEnabled }, id: \.self) { action in
                     let warning = HotkeyConflicts.warning(for: action, in: hotkeys, failed: failed)
                     LabeledContent {
                         HStack(spacing: 8) {

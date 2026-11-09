@@ -95,13 +95,14 @@ final class IconButton: NSView {
         }
         if let restingFill { restingFill.setFill(); path.fill() }
         if isEnabled && (pressed || hovering) { (pressed ? pressedFill : hoverFill).setFill(); path.fill() }
-        let color = (isOn ? (onTint ?? tint) : tint).withAlphaComponent(isEnabled ? 1 : 0.35)
+        let base = isOn ? (onTint ?? tint) : tint
+        let color = base.withAlphaComponent(isEnabled ? 1 : 0.35)
         if let text {
             let attrs: [NSAttributedString.Key: Any] = [.font: textFont, .foregroundColor: color]
             let s = (text as NSString).size(withAttributes: attrs)
             (text as NSString).draw(at: NSPoint(x: bounds.midX - s.width / 2, y: bounds.midY - s.height / 2), withAttributes: attrs)
         } else if let image {
-            Symbols.draw(image, in: bounds, color: color)
+            Symbols.draw(image, in: bounds, color: isEnabled ? color : base, fraction: isEnabled ? 1 : 0.35)
         }
     }
 

@@ -167,6 +167,10 @@ extension NotesRootViewController {
             default: return false
             }
         case [.command, .shift]:
+            // ⇧⌘[ / ⇧⌘]: earlier / later Scratch day.
+            if code == Key.leftBracket || code == 30, isScratchScreen, search == nil {
+                stepScratchDay(code == Key.leftBracket ? -1 : 1); return true
+            }
             if key == "e" || code == 14 {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 toggleExpand(id); return true
@@ -238,6 +242,10 @@ extension NotesRootViewController {
     /// Archived notes (also those of an archived folder) cannot be moved (unarchive first): no menu.
     func showMoveMenu(for id: NoteID) {
         guard let note = store.note(id: id), !store.isInArchive(note) else { NSSound.beep(); return }
+        if note.isScratch {
+            popUpCardMenu(MenuBuilder.saveAsNoteMenu(for: id, actions: actions), for: id)
+            return
+        }
         popUpCardMenu(MenuBuilder.moveMenu(for: note, actions: actions), for: id)
     }
 }

@@ -182,8 +182,8 @@ public final class GRDBNoteStore: NoteStore {
     func isLive(_ f: Folder) -> Bool { f.deletedAt == nil }
     func isLive(_ n: Note) -> Bool { n.deletedAt == nil && folderMap[n.folderId].map(isLive) == true }
     func liveFolder(_ id: FolderID) -> Folder? { folderMap[id].flatMap { isLive($0) ? $0 : nil } }
-    /// Live and not archived (listed by `folders()`).
-    func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived }
+    /// Live, not archived and not the Scratch folder (listed by `folders()`).
+    func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived && !f.isScratch }
     func visibleFolder(_ id: FolderID) -> Folder? { folderMap[id].flatMap { isVisible($0) ? $0 : nil } }
     func liveNote(_ id: NoteID) -> Note? { noteMap[id].flatMap { isLive($0) ? $0 : nil } }
 
@@ -223,6 +223,7 @@ public final class GRDBNoteStore: NoteStore {
         f.createdAt = old.createdAt
         f.deletedAt = old.deletedAt
         f.archivedAt = old.archivedAt
+        f.isScratch = old.isScratch
         folderMap[f.id] = f
         pendingFolderIDs.insert(f.id)
         flush()
@@ -350,6 +351,7 @@ public final class GRDBNoteStore: NoteStore {
         var n = note
         n.deletedAt = old.deletedAt
         n.archivedAt = old.archivedAt
+        n.scratchDay = old.scratchDay
         if visibleFolder(n.folderId) == nil { n.folderId = old.folderId }
         n.createdAt = n.createdAt.storeNormalized
         n.updatedAt = .storeNow
@@ -411,6 +413,8 @@ public final class GRDBNoteStore: NoteStore {
         let old = n.folderId
         let list = notes(in: folderId).filter { !$0.isPinned && $0.id != id }
         n.folderId = folderId
+        // Out of the Scratch folder: a normal note from now on.
+        n.scratchDay = nil
         n.sortIndex = position == .top ? SortIndex.between(nil, list.first?.sortIndex)
                                        : SortIndex.between(list.last?.sortIndex, nil)
         noteMap[id] = n
@@ -428,7 +432,7 @@ public final class GRDBNoteStore: NoteStore {
     public func unarchiveNote(id: NoteID) { setArchived(id, nil) }
 
     private func setArchived(_ id: NoteID, _ date: Date?) {
-        guard var n = liveNote(id), n.isArchived != (date != nil) else { return }
+        guard var n = liveNote(id), !n.isScratch, n.isArchived != (date != nil) else { return }
         n.archivedAt = date
         noteMap[id] = n
         pendingNoteIDs.insert(id)
@@ -538,6 +542,76 @@ public final class GRDBNoteStore: NoteStore {
         let folders = folderMap.values.filter { $0.deletedAt.map { $0 < date } ?? false }.map(\.id)
         for id in notes.sorted() { deleteNote(id: id) }
         for id in folders.sorted() { deleteFolder(id: id) }
+    }
+
+    // MARK: - Scratch
+
+    public func scratchNotes(includingTrashed: Bool) -> [Note] {
+        noteMap.values.filter { n in
+            guard n.scratchDay != nil, folderMap[n.folderId]?.isScratch == true else { return false }
+            return includingTrashed || isLive(n)
+        }.sorted { ($0.scratchDay!, $0.id) > ($1.scratchDay!, $1.id) }
+    }
+
+    @discardableResult
+    public func createScratchNote(day: String, mode: NoteMode) -> Note {
+        if let n = scratchNotes(includingTrashed: false).first(where: { $0.scratchDay == day }) { return n }
+        let fid = scratchFolderID()
+        let now = Date.storeNow
+        var n = Note(id: 0, folderId: fid, body: "", sortIndex: 0, mode: mode, createdAt: now, updatedAt: now, scratchDay: day)
+        if pendingFolderIDs.contains(fid) { flush() }
+        let id = write("create scratch note") { db -> Int64 in
+            try db.execute(sql: SQL.insertNote, arguments: SQL.noteInsertArgs(n))
+            return db.lastInsertedRowID
+        }
+        if let id { n.id = id } else { n.id = nextTransientID(); pendingNoteIDs.insert(n.id) }
+        noteMap[n.id] = n
+        invalidateNotes(in: fid)
+        postStoreChange(.notes(folderId: fid), sender: self)
+        return n
+    }
+
+    public func expireScratchNote(id: NoteID, toFolder folderId: FolderID, body: String) {
+        guard var n = noteMap[id], n.isScratch else { return }
+        let old = n.folderId
+        let fid = visibleFolder(folderId) != nil ? folderId : folders()[0].id
+        let list = notes(in: fid).filter { !$0.isPinned }
+        n.folderId = fid
+        n.scratchDay = nil
+        n.body = body
+        n.isPinned = false
+        n.sortIndex = SortIndex.between(nil, list.first?.sortIndex)
+        if n.deletedAt == nil { n.deletedAt = .storeNow }
+        noteMap[id] = n
+        pendingNoteIDs.insert(id)
+        invalidateNotes(in: old); invalidateNotes(in: fid)
+        flush()
+        postStoreChange(.notes(folderId: old), sender: self)
+        postStoreChange(.notes(folderId: fid), sender: self)
+        postStoreChange(.folders, sender: self)
+    }
+
+    /// The Scratch folder, created on first use.
+    private func scratchFolderID() -> FolderID {
+        if let f = folderMap.values.filter({ $0.isScratch }).min(by: { $0.id < $1.id }) {
+            if f.deletedAt != nil || f.archivedAt != nil {
+                var live = f
+                live.deletedAt = nil
+                live.archivedAt = nil
+                folderMap[f.id] = live
+                pendingFolderIDs.insert(f.id)
+                invalidateAll()
+            }
+            return f.id
+        }
+        var f = Folder(id: 0, name: "Scratch", sortIndex: 0, createdAt: .storeNow, isScratch: true)
+        let id = write("create scratch folder") { db -> Int64 in
+            try db.execute(sql: SQL.insertFolder, arguments: SQL.folderInsertArgs(f))
+            return db.lastInsertedRowID
+        }
+        if let id { f.id = id } else { f.id = nextTransientID(); pendingFolderIDs.insert(f.id) }
+        folderMap[f.id] = f
+        return f.id
     }
 
     private func replaceInSortedCache(_ n: Note) {

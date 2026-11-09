@@ -17,6 +17,9 @@ protocol NoteCardDelegate: AnyObject {
     func cardFoldClicked(_ card: NoteCardView)
 }
 
+/// A card that shows a Scratch note: today's (editable) or an earlier day's (read-only).
+enum ScratchRole: Equatable { case today, past }
+
 /// One note card: rounded background with a soft shadow, the hosted editor (or a preview), a pin
 /// button, the footer, and the folded title row. The view is `Metrics.cardShadowPad` larger than the
 /// card on every side so the drawn shadow is not clipped; `cardRect` is the visible card.
@@ -61,6 +64,10 @@ final class NoteCardView: NSView {
     private var glass: NSGlassEffectView?
     private var chrome: CardChromeView?
 
+    /// Scratch card: no pin, fold or archive; the tray has Save as Note and Clear (today) / Delete
+    /// (earlier days, which are read-only).
+    var scratchRole: ScratchRole? { didSet { if oldValue != scratchRole { scratchRoleChanged() } } }
+    var isReadOnly: Bool { scratchRole == .past }
     /// Search results are always shown expanded.
     var forceUnfolded = false { didSet { if oldValue != forceUnfolded { foldStateChanged() } } }
     var isExpanded = false { didSet { if oldValue != isExpanded { expandStateChanged() } } }
@@ -262,9 +269,10 @@ final class NoteCardView: NSView {
         guard editor == nil else { return false }
         let e = env.editorFactory.makeEditor(for: note, env: env)
         e.onBodyChange = { [weak self] body in
-            guard let self else { return }
+            guard let self, !self.isReadOnly else { return }
             self.env.store.updateNoteBody(id: self.note.id, body: body)
         }
+        e.isReadOnly = isReadOnly
         e.onLayoutChange = { [weak self] in self?.editorLayoutChanged() }
         e.onFocusChange = { [weak self] focused in self?.editorFocusChanged(focused) }
         e.onEvent = { [weak self] event in
@@ -511,9 +519,9 @@ final class NoteCardView: NSView {
             let fb = CardActionsView.buttonSize
             let rowH = CardActionsView.minHeight
             let rowY = cr.maxY - Metrics.actionColumnInsetBottom - rowH
-            modeButton.isHidden = false
+            modeButton.isHidden = isReadOnly
             modeButton.frame = NSRect(x: cr.minX + px - 4, y: rowY + (rowH - fb) / 2, width: fb, height: fb)
-            formatButton.isHidden = note.mode != .standard
+            formatButton.isHidden = note.mode != .standard || isReadOnly
             formatButton.frame = NSRect(x: modeButton.frame.maxX + 2, y: modeButton.frame.minY, width: fb, height: fb)
             let trayRight = pf.maxX + CardActionsView.padding
             let trayLeft = (formatButton.isHidden ? modeButton.frame.maxX : formatButton.frame.maxX) + 8
@@ -636,7 +644,7 @@ final class NoteCardView: NSView {
         let target: CGFloat = show ? 1 : 0
         let footer: CardActionsView
         if let existing = self.footer { footer = existing } else if show { footer = makeFooter() } else {
-            pinButton.isHidden = !(hovering || note.isPinned || menuOpen)
+            pinButton.isHidden = !(hovering || note.isPinned || menuOpen) || scratchRole != nil
             expandButton.isHidden = !(hovering || isExpanded || menuOpen)
             badge.isHidden = !isFolded || note.linesAfterTitle == 0
             return
@@ -665,7 +673,7 @@ final class NoteCardView: NSView {
             dateLabel?.isHidden = !show
         }
         let pinWasHidden = pinButton.isHidden
-        pinButton.isHidden = !(footerVisible || note.isPinned)
+        pinButton.isHidden = !(footerVisible || note.isPinned) || scratchRole != nil
         expandButton.isHidden = !(footerVisible || isExpanded)
         badge.isHidden = !isFolded || note.linesAfterTitle == 0
         if pinWasHidden != pinButton.isHidden, isFolded { needsLayout = true }
@@ -673,12 +681,13 @@ final class NoteCardView: NSView {
     }
 
     private func updateFoldButton() {
-        foldButton.isHidden = !(foldFits && !isFolded && footerVisible)
+        foldButton.isHidden = !(foldFits && !isFolded && footerVisible) || scratchRole != nil
     }
 
     /// Forces the hover chrome on/off (snapshots).
     func setHoveredForSnapshot(_ on: Bool) { mouseInside = on }
     var isShowingHoverForTesting: Bool { hovering }
+    var pinButtonHiddenForChecks: Bool { pinButton.isHidden }
     /// Folded row frames (badge, date, expand button), for checks. The date is nil until first shown.
     var foldedRowFramesForTesting: (badge: NSRect?, date: NSRect?, expand: NSRect) {
         layoutSubtreeIfNeeded()
@@ -861,9 +870,13 @@ final class NoteCardView: NSView {
             guard let self, let actions = self.delegate?.actions else { return }
             actions.copyText(self.note.id)
         }
-        footer.archiveButton.onClick = { [weak self] _ in
+        footer.archiveButton.onClick = { [weak self] b in
             guard let self, let actions = self.delegate?.actions else { return }
-            actions.toggleArchive(self.note.id)
+            if self.scratchRole != nil {
+                self.popUp(MenuBuilder.saveAsNoteMenu(for: self.note.id, actions: actions), from: b)
+            } else {
+                actions.toggleArchive(self.note.id)
+            }
         }
         updateArchiveButton()
         footer.trashButton.onClick = { [weak self] _ in
@@ -872,9 +885,29 @@ final class NoteCardView: NSView {
         }
     }
 
-    /// Archive, or Unarchive on an archived note.
+    private func scratchRoleChanged() {
+        editor?.isReadOnly = isReadOnly
+        updateArchiveButton()
+        updateChrome(animated: false)
+        needsLayout = true
+    }
+
+    /// Archive, or Unarchive on an archived note. On a Scratch card: Save as Note, and the trash
+    /// button clears today's note.
     func updateArchiveButton() {
+        if let t = footer?.trashButton {
+            let clears = scratchRole == .today
+            t.symbolName = clears ? "eraser" : "trash"
+            t.toolTip = clears ? "Clear Scratch" : scratchRole == .past ? "Delete This Day" : "Delete Note"
+            t.setAccessibilityLabel(t.toolTip ?? "")
+        }
         guard let b = footer?.archiveButton else { return }
+        if scratchRole != nil {
+            b.symbolName = "doc.badge.plus"
+            b.toolTip = "Save as Note"
+            b.setAccessibilityLabel("Save as note")
+            return
+        }
         let archived = note.isArchived
         b.symbolName = archived ? "tray.and.arrow.up" : "archivebox"
         b.toolTip = archived ? "Unarchive (⌥⌘A)" : "Archive (⌥⌘A)"
@@ -892,6 +925,13 @@ final class NoteCardView: NSView {
                     guard let self else { return }
                     self.delegate?.actions.copyText(self.note.id)
                 })
+            case .archive where scratchRole != nil:
+                if let actions = delegate?.actions {
+                    let item = NSMenuItem(title: "Save as Note", action: nil, keyEquivalent: "")
+                    item.image = Symbols.image("doc.badge.plus", size: 13)
+                    item.submenu = MenuBuilder.saveAsNoteMenu(for: note.id, actions: actions)
+                    m.addItem(item)
+                }
             case .archive:
                 let archived = note.isArchived
                 m.addItem(ClosureMenuItem(archived ? "Unarchive" : "Archive", key: "", symbol: archived ? "tray.and.arrow.up" : "archivebox") { [weak self] in
@@ -900,7 +940,9 @@ final class NoteCardView: NSView {
                 })
             case .delete:
                 m.addItem(.separator())
-                m.addItem(ClosureMenuItem("Delete Note", key: "", symbol: "trash") { [weak self] in
+                let clears = scratchRole == .today
+                let title = clears ? "Clear Scratch" : scratchRole == .past ? "Delete This Day" : "Delete Note"
+                m.addItem(ClosureMenuItem(title, key: "", symbol: clears ? "eraser" : "trash") { [weak self] in
                     guard let self else { return }
                     self.delegate?.actions.delete(self.note.id)
                 })
@@ -948,7 +990,7 @@ final class NoteCardView: NSView {
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         let pb = sender.draggingPasteboard
-        guard !PasteboardImport.hasInternalNote(pb), !PasteboardImport.hasInternalFolder(pb),
+        guard !isReadOnly, !PasteboardImport.hasInternalNote(pb), !PasteboardImport.hasInternalFolder(pb),
               PasteboardImport.canImport(pb) else { isDropTarget = false; return [] }
         isDropTarget = true
         return .copy

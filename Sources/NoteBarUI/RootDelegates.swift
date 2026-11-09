@@ -12,6 +12,10 @@ extension NotesRootViewController: NotesListDelegate {
         } else if focusedNoteID == id {
             focusedNoteID = nil
         }
+        // Typing ended: a Scratch screen left on yesterday moves on to today.
+        if !focused, isScratchScreen {
+            DispatchQueue.main.async { [weak self] in self?.followTodayIfNeeded() }
+        }
     }
 
     func notesList(_ list: NotesListView, card: NoteCardView, editorEvent event: EditorEvent) {
@@ -47,7 +51,8 @@ extension NotesRootViewController: NotesListDelegate {
     }
 
     func notesList(_ list: NotesListView, menuFor card: NoteCardView) -> NSMenu? {
-        MenuBuilder.cardContextMenu(for: card.currentNote, actions: actions, inSearch: search != nil)
+        if let role = card.scratchRole { return MenuBuilder.scratchContextMenu(for: card.currentNote, actions: actions, role: role) }
+        return MenuBuilder.cardContextMenu(for: card.currentNote, actions: actions, inSearch: search != nil)
     }
 
     func notesList(_ list: NotesListView, clicked card: NoteCardView, event: NSEvent) {
@@ -67,6 +72,7 @@ extension NotesRootViewController: NotesListDelegate {
     }
 
     func notesListBackgroundMenu(_ list: NotesListView) -> NSMenu? {
+        if isScratchScreen { return nil }
         let m = NSMenu()
         m.autoenablesItems = false
         m.addItem(ClosureMenuItem("New Note", key: "n", symbol: "square.and.pencil") { [weak self] in self?.createNewNote() })
@@ -78,6 +84,11 @@ extension NotesRootViewController: NotesListDelegate {
     }
 
     func notesList(_ list: NotesListView, dropOnBackground payload: ImportPayload) {
+        // Scratch: a drop below the card goes into today's note.
+        if isScratchScreen, let card = list.cards.first {
+            if !card.isReadOnly { _ = notesList(list, drop: payload, on: card) } else { NSSound.beep() }
+            return
+        }
         createNote(from: payload)
     }
 

@@ -31,6 +31,27 @@ public final class NotesUIProbe {
     public var pendingDeletion: NoteID? { root.pendingDeletion }
     public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
     public var isSettingsButtonVisible: Bool { !root.header.settingsButton.isHidden }
+    // Scratch
+    public var isScratchButtonVisible: Bool { !root.header.scratchButton.isHidden }
+    public var isDayStepperVisible: Bool { !root.header.previousDayButton.isHidden }
+    public var canStepToEarlierDay: Bool { root.header.previousDayButton.isEnabled }
+    public var canStepToLaterDay: Bool { root.header.nextDayButton.isEnabled }
+    /// The day the Scratch screen shows (nil: another screen).
+    public var scratchDay: String? { if case .scratch(let d) = root.screen { return d }; return nil }
+    public func showScratch(edit: Bool) { root.showScratch(edit: edit) }
+    public func stepScratchDay(_ delta: Int) { root.stepScratchDay(delta) }
+    public func clickScratchButton() { root.header.scratchButton.onClick?(root.header.scratchButton) }
+    public func isCardReadOnly(_ id: NoteID) -> Bool? { list.card(for: id)?.isReadOnly }
+    public func isEditorReadOnly(_ id: NoteID) -> Bool? { list.card(for: id)?.editor?.isReadOnly }
+    public func isPinButtonHidden(_ id: NoteID) -> Bool? { list.card(for: id).map { $0.pinButtonHiddenForChecks } }
+    public func trashButtonToolTip(_ id: NoteID) -> String? { list.card(for: id)?.footer?.trashButton.toolTip }
+    public func cardMenuTitles(_ id: NoteID) -> [String] {
+        guard let card = list.card(for: id), let m = root.notesList(list, menuFor: card) else { return [] }
+        return m.items.filter { !$0.isSeparatorItem }.map(\.title)
+    }
+    public func saveScratchAsNote(_ id: NoteID, toFolder fid: FolderID) { root.actions.saveScratchAsNote(id, toFolder: fid) }
+    public func deleteNoteAction(_ id: NoteID) { root.actions.delete(id) }
+    public func panelUndo() { root.performPanelUndo(redo: false) }
     public var showsSelection: Bool { list.showsSelection }
     public func panelFocusChanged(_ focused: Bool) { root.panelFocusChanged(focused) }
 
@@ -367,6 +388,7 @@ extension NotesRootViewController {
         case .folder(let id): return store.folder(id: id)?.name ?? "Notes"
         case .archive: return "Archive"
         case .archivedFolder(let id): return store.archivedFolder(id: id)?.name ?? "Archive"
+        case .scratch(let day): return "Scratch · \(env.scratch.title(for: day))"
         }
     }
 }

@@ -24,8 +24,8 @@ public final class InMemoryNoteStore: NoteStore {
 
     /// Not trashed (a note: neither the note nor its folder).
     private func isLive(_ f: Folder) -> Bool { f.deletedAt == nil }
-    /// Live and not archived (listed by `folders()`).
-    private func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived }
+    /// Live, not archived and not the Scratch folder (listed by `folders()`).
+    private func isVisible(_ f: Folder) -> Bool { isLive(f) && !f.isArchived && !f.isScratch }
     private func isLive(_ n: Note) -> Bool { n.deletedAt == nil && folderMap[n.folderId].map(isLive) == true }
     private var liveNotes: [Note] { noteMap.values.filter(isLive) }
 
@@ -49,6 +49,7 @@ public final class InMemoryNoteStore: NoteStore {
         var f = folder
         f.deletedAt = old.deletedAt
         f.archivedAt = old.archivedAt
+        f.isScratch = old.isScratch
         folderMap[folder.id] = f
         postStoreChange(.folders, sender: self)
     }
@@ -114,6 +115,7 @@ public final class InMemoryNoteStore: NoteStore {
         var n = note; n.updatedAt = Date()
         n.deletedAt = old.deletedAt
         n.archivedAt = old.archivedAt
+        n.scratchDay = old.scratchDay
         if folder(id: n.folderId) == nil { n.folderId = old.folderId }
         noteMap[note.id] = n
         postStoreChange(.note(id: note.id), sender: self)
@@ -150,6 +152,7 @@ public final class InMemoryNoteStore: NoteStore {
         let old = n.folderId
         let list = notes(in: folderId).filter { !$0.isPinned }
         n.folderId = folderId
+        n.scratchDay = nil
         n.sortIndex = position == .top ? SortIndex.between(nil, list.first?.sortIndex) : SortIndex.between(list.last?.sortIndex, nil)
         noteMap[id] = n
         postStoreChange(.notes(folderId: old), sender: self)
@@ -159,7 +162,7 @@ public final class InMemoryNoteStore: NoteStore {
 
     // MARK: Archive
     public func archiveNote(id: NoteID) {
-        guard var n = note(id: id), !n.isArchived else { return }
+        guard var n = note(id: id), !n.isScratch, !n.isArchived else { return }
         n.archivedAt = Date()
         noteMap[id] = n
         postStoreChange(.note(id: id), sender: self)
@@ -264,6 +267,49 @@ public final class InMemoryNoteStore: NoteStore {
             for n in noteMap.values where n.folderId == f.id { removeNote(n.id) }
             folderMap[f.id] = nil
         }
+        postStoreChange(.folders, sender: self)
+    }
+
+    // MARK: Scratch
+    public func scratchNotes(includingTrashed: Bool) -> [Note] {
+        noteMap.values.filter { n in
+            guard n.scratchDay != nil, folderMap[n.folderId]?.isScratch == true else { return false }
+            return includingTrashed || isLive(n)
+        }.sorted { ($0.scratchDay!, $0.id) > ($1.scratchDay!, $1.id) }
+    }
+
+    @discardableResult public func createScratchNote(day: String, mode: NoteMode) -> Note {
+        if let n = scratchNotes(includingTrashed: false).first(where: { $0.scratchDay == day }) { return n }
+        let fid: FolderID
+        if var f = folderMap.values.filter(\.isScratch).min(by: { $0.id < $1.id }) {
+            f.deletedAt = nil; f.archivedAt = nil
+            folderMap[f.id] = f
+            fid = f.id
+        } else {
+            let f = Folder(id: newID(), name: "Scratch", sortIndex: 0, isScratch: true)
+            folderMap[f.id] = f
+            fid = f.id
+        }
+        let n = Note(id: newID(), folderId: fid, body: "", sortIndex: 0, mode: mode, scratchDay: day)
+        noteMap[n.id] = n
+        postStoreChange(.notes(folderId: fid), sender: self)
+        return n
+    }
+
+    public func expireScratchNote(id: NoteID, toFolder folderId: FolderID, body: String) {
+        guard var n = noteMap[id], n.isScratch else { return }
+        let old = n.folderId
+        let fid = folder(id: folderId) != nil ? folderId : folders()[0].id
+        let list = notes(in: fid).filter { !$0.isPinned }
+        n.folderId = fid
+        n.scratchDay = nil
+        n.body = body
+        n.isPinned = false
+        n.sortIndex = SortIndex.between(nil, list.first?.sortIndex)
+        if n.deletedAt == nil { n.deletedAt = Date() }
+        noteMap[id] = n
+        postStoreChange(.notes(folderId: old), sender: self)
+        postStoreChange(.notes(folderId: fid), sender: self)
         postStoreChange(.folders, sender: self)
     }
 

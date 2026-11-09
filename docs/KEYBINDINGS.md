@@ -19,6 +19,7 @@ Contexts:
 | ⌃⌥⌘V | New note from clipboard | ″ |
 | ⌃⌥⌘F | Search notes | ″ |
 | ⌥⇧⌘N | Float / stay open (also handled inside the panel) | ″, `NoteBarPanelWindow`, `RootKeyboard` |
+| ⌃⌥⌘S | Scratch note (today, ready to type). Not registered while Scratch is off | ″, `HotkeyCenter.reload` |
 
 ## 2. Panel-wide (key equivalents)
 
@@ -29,6 +30,7 @@ Contexts:
 | ⌘F | Panel | Search in the folder | ″ |
 | ⌘/ | Panel | Search all folders | ″ |
 | ⌘[ | Panel | Back (folder → folder list) | ″ |
+| ⇧⌘[ / ⇧⌘] | Scratch screen (also while editing) | Earlier / later Scratch day | ″ |
 | ⇧⌘E | Panel (also while editing) | Expand / collapse the active note | ″ |
 | ⇧⌘M | Panel | Move menu for the active note | ″ |
 | ⌥⌘M | Panel | Move the active note to a new folder | ″ |

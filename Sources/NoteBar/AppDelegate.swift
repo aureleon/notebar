@@ -73,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(target: self)
+        // Daily Scratch note: today's day, the rollover timer and the sweep of expired days.
+        env.scratch.start()
 
         root = NotesRootViewController(env: env)
         env.presenter = root
@@ -240,6 +242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
             if root.createNote(fromPasteboard: .general) == nil { NSSound.beep() }
         case .search: showSearch()
         case .toggleFloatPanel: toggleFloatPanel()
+        case .scratch: showScratch()
         }
     }
 
@@ -283,6 +286,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, AppController {
     }
 
     func openSettings() { settingsWindow?.show() }
+
+    func showScratch() {
+        guard env.settings.scratchEnabled, let panel, let root else { return }
+        panel.show()
+        root.showScratch(edit: true)
+    }
 
     func toggleFloatPanel() {
         env.settings.pinnedOpen.toggle()

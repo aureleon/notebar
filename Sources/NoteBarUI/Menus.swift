@@ -252,13 +252,64 @@ enum MenuBuilder {
         let names = Dictionary(uniqueKeysWithValues: (store.folders() + store.archivedFolders()).map { ($0.id, $0.name) })
         for n in notes {
             let title = n.title.isEmpty ? "Untitled" : String(n.title.prefix(60))
-            m.addItem(item(title, symbol: "doc.text", subtitle: (names[n.folderId].map { "In \($0) · " } ?? "") + when(n.deletedAt),
+            let place = n.scratchDay.map { "Scratch, \(actions.env.scratch.title(for: $0)) · " } ?? names[n.folderId].map { "In \($0) · " }
+            m.addItem(item(title, symbol: "doc.text", subtitle: (place ?? "") + when(n.deletedAt),
                            restore: { actions.restoreNoteUndoably(n.id, name: "Restore Note") },
                            delete: { actions.deleteForGood(note: n.id) }))
         }
         m.addItem(.separator())
         m.addItem(ClosureMenuItem("Empty Recently Deleted…", key: "", symbol: "trash.slash",
                                   enabled: !folders.isEmpty || !notes.isEmpty) { actions.emptyTrash() })
+        return m
+    }
+
+    /// Save as Note (Scratch cards): a copy of the note at the top of the picked folder.
+    static func saveAsNoteMenu(for id: NoteID, actions: NoteActions) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        m.addItem(.sectionHeader(title: "Save a Copy in"))
+        for f in actions.env.store.folders() {
+            m.addItem(ClosureMenuItem(f.name, key: "", symbol: "folder") { actions.saveScratchAsNote(id, toFolder: f.id) })
+        }
+        return m
+    }
+
+    /// Right click on a Scratch card.
+    static func scratchContextMenu(for note: Note, actions: NoteActions, role: ScratchRole) -> NSMenu {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        let env = actions.env
+        let save = NSMenuItem(title: "Save as Note", action: nil, keyEquivalent: "")
+        save.image = Symbols.image("doc.badge.plus", size: 13)
+        save.submenu = saveAsNoteMenu(for: note.id, actions: actions)
+        m.addItem(save)
+        m.addItem(ClosureMenuItem("Copy Text", key: "", symbol: "doc.on.doc") { actions.copyText(note.id) })
+        m.addItem(.separator())
+        let isExpanded = actions.root?.notesList.expandedNoteID == note.id
+        m.addItem(ClosureMenuItem(isExpanded ? "Collapse" : "Expand", key: "e", modifiers: [.command, .shift],
+                                  symbol: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right") {
+            actions.toggleExpand(note.id)
+        })
+        if role == .today {
+            let colorItem = NSMenuItem(title: "Color", action: nil, keyEquivalent: "")
+            colorItem.image = Symbols.image("paintpalette", size: 13)
+            colorItem.submenu = colorSubmenu(current: note.color, env: env) { actions.setColor($0, for: note.id) }
+            m.addItem(colorItem)
+            let modeItem = NSMenuItem(title: "Mode", action: nil, keyEquivalent: "")
+            modeItem.image = Symbols.image("textformat", size: 13)
+            let modes = NSMenu()
+            for item in modeItems(current: note.mode, onPick: { actions.setMode($0, for: note.id) }) { modes.addItem(item) }
+            modeItem.submenu = modes
+            m.addItem(modeItem)
+        }
+        m.addItem(.separator())
+        if role == .today {
+            m.addItem(ClosureMenuItem("Clear Scratch", key: "", symbol: "eraser", enabled: !note.body.isEmpty) {
+                actions.clearScratch(note.id)
+            })
+        } else {
+            m.addItem(ClosureMenuItem("Delete This Day", key: "", symbol: "trash") { actions.delete(note.id) })
+        }
         return m
     }
 

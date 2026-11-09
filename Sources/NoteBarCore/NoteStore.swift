@@ -136,6 +136,20 @@ public protocol NoteStore: AnyObject {
     /// Deletes for good every trashed item deleted before `date` (`.distantFuture` = everything).
     func purgeTrash(deletedBefore date: Date)
 
+    // MARK: Scratch
+    // Scratch notes (`Note.scratchDay`) live in a hidden folder (`Folder.isScratch`): `folders()`,
+    // `folder(id:)`, search and the archive never show them; `note(id:)`, `updateNoteBody`,
+    // `updateNote`, attachments and the trash work as for any note. `ScratchService` decides the days.
+
+    /// Scratch notes, newest day first (same day: newest first). `includingTrashed` adds trashed ones.
+    func scratchNotes(includingTrashed: Bool) -> [Note]
+    /// The live Scratch note of `day`, or a new empty one (creating the Scratch folder if needed).
+    /// Posts `.notes(folderId:)` of the Scratch folder.
+    @discardableResult func createScratchNote(day: String, mode: NoteMode) -> Note
+    /// Turns a Scratch note (also a trashed one) into a normal note at the top of `folderId` (a
+    /// visible folder, else the first) with `body`, and puts it in the trash.
+    func expireScratchNote(id: NoteID, toFolder folderId: FolderID, body: String)
+
     // MARK: Attachments
     func attachments(for noteId: NoteID) -> [Attachment]
     func attachment(id: AttachmentID) -> Attachment?

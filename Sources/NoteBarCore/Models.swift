@@ -52,12 +52,17 @@ public struct Folder: Identifiable, Hashable, Codable, Sendable {
     /// with it (`notes(in:)`, `note(id:)` still return them). Only `NoteStore.archiveFolder` /
     /// `unarchiveFolder` change it.
     public var archivedAt: Date?
+    /// The hidden folder that holds the Scratch notes (one per day). `folders()` / `folder(id:)` never
+    /// list it; the store creates it with the first Scratch note. At most one exists.
+    public var isScratch: Bool
 
     public init(id: FolderID, name: String, sortIndex: Double, isPinned: Bool = false,
-                color: NoteColor = .none, createdAt: Date = Date(), deletedAt: Date? = nil, archivedAt: Date? = nil) {
+                color: NoteColor = .none, createdAt: Date = Date(), deletedAt: Date? = nil, archivedAt: Date? = nil,
+                isScratch: Bool = false) {
         self.id = id; self.name = name; self.sortIndex = sortIndex
         self.isPinned = isPinned; self.color = color; self.createdAt = createdAt; self.deletedAt = deletedAt
         self.archivedAt = archivedAt
+        self.isScratch = isScratch
     }
 
     public var isArchived: Bool { archivedAt != nil }
@@ -87,20 +92,27 @@ public struct Note: Identifiable, Hashable, Codable, Sendable {
     /// List items whose fold differs from the default, by item text (`ListEditing.foldKey`). By
     /// default the children of a checked item are folded and those of an open item are not.
     public var foldOverrides: Set<String>
+    /// The day of a Scratch note (`ScratchDay` key, "yyyy-MM-dd"); nil for every other note. Scratch
+    /// notes live in the hidden Scratch folder. Only the store's Scratch calls set it; moving the note
+    /// to a normal folder clears it.
+    public var scratchDay: String?
 
     public init(id: NoteID, folderId: FolderID, body: String, color: NoteColor = .none,
                 sortIndex: Double, isPinned: Bool = false, isFolded: Bool = false,
                 mode: NoteMode = .standard, createdAt: Date = Date(), updatedAt: Date = Date(), deletedAt: Date? = nil,
-                archivedAt: Date? = nil, hidesCompletedItems: Bool = false, foldOverrides: Set<String> = []) {
+                archivedAt: Date? = nil, hidesCompletedItems: Bool = false, foldOverrides: Set<String> = [],
+                scratchDay: String? = nil) {
         self.id = id; self.folderId = folderId; self.body = body; self.color = color
         self.sortIndex = sortIndex; self.isPinned = isPinned; self.isFolded = isFolded
         self.mode = mode; self.createdAt = createdAt; self.updatedAt = updatedAt; self.deletedAt = deletedAt
         self.archivedAt = archivedAt
         self.hidesCompletedItems = hidesCompletedItems
         self.foldOverrides = foldOverrides
+        self.scratchDay = scratchDay
     }
 
     public var isArchived: Bool { archivedAt != nil }
+    public var isScratch: Bool { scratchDay != nil }
 
     /// Title = first non-empty line with leading markdown markers removed.
     public var title: String { NoteText.title(of: body) }

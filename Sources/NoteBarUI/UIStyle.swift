@@ -188,7 +188,9 @@ enum Symbols {
     }
 
     /// Draws a template symbol tinted with `color`, centered in `rect`.
-    static func draw(_ image: NSImage, in rect: NSRect, color: NSColor) {
+    /// `fraction` < 1 fades the whole symbol (disabled buttons). A low-alpha `color` does not: the tint is
+    /// composited onto the template, so a dark template stays dark.
+    static func draw(_ image: NSImage, in rect: NSRect, color: NSColor, fraction: CGFloat = 1) {
         let size = image.size
         let r = NSRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
             .integral
@@ -198,7 +200,7 @@ enum Symbols {
             b.fill(using: .sourceAtop)
             return true
         }
-        tinted.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        tinted.draw(in: r, from: .zero, operation: .sourceOver, fraction: fraction, respectFlipped: true, hints: nil)
     }
 }
 

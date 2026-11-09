@@ -16,6 +16,8 @@ continue your work.
 - **Keep things in order.** Put notes in folders, give them colors, pin the important ones, and fold
   long notes.
 - **Find anything.** Search one folder or all of them.
+- **Jot things down.** The Scratch note starts empty every day. Push ⌃⌥⌘S from any app to type in
+  it. You can still read the last few days.
 - **Make it yours.** Light and dark mode, themes, and Liquid Glass cards.
 - **Keep your data private.** Your notes stay on your Mac, with automatic backups. NoteBar has no
   account, no cloud and no sync.

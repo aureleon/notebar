@@ -83,7 +83,13 @@ enum StoreSchema {
             try db.alter(table: "folder") { t in t.add(column: "archivedAt", .double) }
         }
 
-        // Future migrations go here: m.registerMigration("v7-...") { db in ... }
+        // Scratch: the hidden folder of the daily Scratch notes, and each Scratch note's day ("yyyy-MM-dd").
+        m.registerMigration("v7-scratch") { db in
+            try db.alter(table: "folder") { t in t.add(column: "isScratch", .boolean).notNull().defaults(to: false) }
+            try db.alter(table: "note") { t in t.add(column: "scratchDay", .text) }
+        }
+
+        // Future migrations go here: m.registerMigration("v8-...") { db in ... }
         return m
     }
 
@@ -120,7 +126,8 @@ extension Folder {
                   color: NoteColor(rawValue: colorRaw) ?? .none,
                   createdAt: Date(timeIntervalSince1970: row["createdAt"]),
                   deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
-                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)))
+                  archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
+                  isScratch: (row["isScratch"] as Bool?) ?? false)
     }
 }
 
@@ -137,7 +144,8 @@ extension Note {
                   deletedAt: (row["deletedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
                   archivedAt: (row["archivedAt"] as Double?).map(Date.init(timeIntervalSince1970:)),
                   hidesCompletedItems: (row["hidesCompletedItems"] as Bool?) ?? false,
-                  foldOverrides: Note.decodeFoldOverrides(row["foldOverrides"]))
+                  foldOverrides: Note.decodeFoldOverrides(row["foldOverrides"]),
+                  scratchDay: row["scratchDay"] as String?)
     }
 
     /// `foldOverrides` column: item texts (single lines) joined by newlines.
@@ -160,11 +168,11 @@ extension Attachment {
 
 /// SQL used by the store. Kept in one place so column order stays consistent.
 enum SQL {
-    static let insertFolder = "INSERT INTO folder (name, sortIndex, isPinned, color, createdAt) VALUES (?, ?, ?, ?, ?)"
+    static let insertFolder = "INSERT INTO folder (name, sortIndex, isPinned, color, createdAt, isScratch) VALUES (?, ?, ?, ?, ?, ?)"
     static let insertNote = """
         INSERT INTO note (folderId, body, color, sortIndex, isPinned, isFolded, mode, createdAt, updatedAt, hidesCompletedItems,
-        foldOverrides)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        foldOverrides, scratchDay)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
     static let insertAttachment = """
         INSERT INTO attachment (noteId, kind, relativePath, bookmarkData, displayName, createdAt)
@@ -172,11 +180,12 @@ enum SQL {
         """
 
     static func folderInsertArgs(_ f: Folder) -> StatementArguments {
-        [f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970]
+        [f.name, f.sortIndex, f.isPinned, f.color.rawValue, f.createdAt.timeIntervalSince1970, f.isScratch]
     }
     static func noteInsertArgs(_ n: Note) -> StatementArguments {
         [n.folderId, n.body, n.color.rawValue, n.sortIndex, n.isPinned, n.isFolded, n.mode.rawValue,
-         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.hidesCompletedItems, n.encodedFoldOverrides]
+         n.createdAt.timeIntervalSince1970, n.updatedAt.timeIntervalSince1970, n.hidesCompletedItems, n.encodedFoldOverrides,
+         n.scratchDay]
     }
     static func attachmentInsertArgs(_ a: Attachment) -> StatementArguments {
         [a.noteId, a.kind.rawValue, a.relativePath, a.bookmarkData, a.displayName, a.createdAt.timeIntervalSince1970]

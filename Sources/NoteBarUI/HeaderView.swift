@@ -11,6 +11,9 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     var onSettings: (() -> Void)?
     var onSearch: (() -> Void)?
     var onPlus: (() -> Void)?
+    var onScratch: (() -> Void)?
+    /// Scratch day stepper: -1 = an earlier day, +1 = a later day.
+    var onStepDay: ((Int) -> Void)?
     var onQueryChange: ((String) -> Void)?
     /// Escape in the search field. Return true if handled.
     var onSearchEscape: (() -> Void)?
@@ -31,6 +34,9 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     let settingsButton = IconButton(symbol: "gearshape", size: 12.5, toolTip: "Settings (⌘,)")
     let searchButton = IconButton(symbol: "magnifyingglass", size: 12.5, toolTip: "Search (⌘F)")
     let plusButton = IconButton(symbol: "plus", size: 13, toolTip: "New Note (⌘N)")
+    let scratchButton = IconButton(symbol: "pencil.and.scribble", size: 12.5, toolTip: "Scratch")
+    let previousDayButton = IconButton(symbol: "arrowtriangle.backward.fill", size: 9.5, toolTip: "Earlier Day (⇧⌘[)")
+    let nextDayButton = IconButton(symbol: "arrowtriangle.forward.fill", size: 9.5, toolTip: "Later Day (⇧⌘])")
     private let closeSearchButton = IconButton(symbol: "xmark", size: 11, toolTip: "Close Search (Esc)")
     private let titleLabel = PassthroughLabel()
     let searchField = HeaderSearchField()
@@ -39,6 +45,9 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     private var showsBack = false
     private var showsSettings = false
     private var showsPlus = true
+    private var showsScratch = false
+    /// Scratch screen: the day stepper replaces search and +. nil = no stepper.
+    private var stepper: (canGoBack: Bool, canGoForward: Bool)?
     private var title = "NoteBar"
     private var titleIsAccent = false
     private var springTimer: Timer?
@@ -57,7 +66,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         }
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         titleLabel.lineBreakMode = .byTruncatingTail
-        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton] {
+        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton, scratchButton,
+                  previousDayButton, nextDayButton] {
             b.symbolWeight = .semibold
             content.addSubview(b)
         }
@@ -77,6 +87,12 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         settingsButton.onClick = { [weak self] _ in self?.onSettings?() }
         searchButton.onClick = { [weak self] _ in self?.onSearch?() }
         plusButton.onClick = { [weak self] _ in self?.onPlus?() }
+        scratchButton.onClick = { [weak self] _ in self?.onScratch?() }
+        scratchButton.setAccessibilityLabel("Scratch note")
+        previousDayButton.onClick = { [weak self] _ in self?.onStepDay?(-1) }
+        previousDayButton.setAccessibilityLabel("Earlier day")
+        nextDayButton.onClick = { [weak self] _ in self?.onStepDay?(1) }
+        nextDayButton.setAccessibilityLabel("Later day")
         closeSearchButton.onClick = { [weak self] _ in self?.onCloseSearch?() }
         registerForDraggedTypes([.noteBarNoteID])
         setAccessibilityRole(.toolbar)
@@ -93,12 +109,18 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     // MARK: State
 
     func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, showsPlus: Bool = true,
-                  plusToolTip: String) {
+                  plusToolTip: String, showsScratch: Bool = false, scratchToolTip: String = "Scratch",
+                  stepper: (canGoBack: Bool, canGoForward: Bool)? = nil) {
         self.title = title
         self.titleIsAccent = accent
         self.showsBack = showsBack
         self.showsSettings = showsSettings
-        self.showsPlus = showsPlus
+        self.showsPlus = showsPlus && stepper == nil
+        self.showsScratch = showsScratch && stepper == nil
+        self.stepper = stepper
+        scratchButton.toolTip = scratchToolTip
+        previousDayButton.isEnabled = stepper?.canGoBack ?? false
+        nextDayButton.isEnabled = stepper?.canGoForward ?? false
         plusButton.toolTip = plusToolTip
         plusButton.setAccessibilityLabel(plusToolTip)
         update()
@@ -135,8 +157,11 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         titleLabel.isHidden = isSearching
         backButton.isHidden = isSearching || !showsBack
         settingsButton.isHidden = isSearching || !showsSettings
-        searchButton.isHidden = isSearching
+        searchButton.isHidden = isSearching || stepper != nil
         plusButton.isHidden = isSearching || !showsPlus
+        scratchButton.isHidden = isSearching || !showsScratch
+        previousDayButton.isHidden = isSearching || stepper == nil
+        nextDayButton.isHidden = isSearching || stepper == nil
         searchField.isHidden = !isSearching
         closeSearchButton.isHidden = !isSearching
         restyle()
@@ -148,7 +173,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         searchField.font = UIFonts.headerSearch(env.themes.fontSize)
         titleLabel.textColor = titleIsAccent ? c.accent : c.text
-        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton] {
+        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton, scratchButton,
+                  previousDayButton, nextDayButton] {
             b.onTint = c.accent
             b.tint = c.text.withAlphaComponent(0.85)
             b.restingFill = c.headerButtonFill
@@ -177,10 +203,17 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         plusButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         // Without the + button (archive), search takes its place at the right end.
         searchButton.frame = NSRect(x: showsPlus ? plusButton.frame.minX - 6 - s : w - 8 - s, y: y, width: s, height: s)
-        settingsButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
+        // Top level: settings · Scratch · search · +.
+        scratchButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
+        let beforeScratch = showsScratch ? scratchButton.frame.minX : searchButton.frame.minX
+        settingsButton.frame = NSRect(x: beforeScratch - 6 - s, y: y, width: s, height: s)
+        // Scratch: ◀ ▶ at the right end.
+        nextDayButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
+        previousDayButton.frame = NSRect(x: nextDayButton.frame.minX - 6 - s, y: y, width: s, height: s)
         let titleX: CGFloat = showsBack ? backButton.frame.maxX + 8 : 16
         let th = ceil(titleLabel.intrinsicContentSize.height)
-        let rightLimit = (!settingsButton.isHidden) ? settingsButton.frame.minX : searchButton.frame.minX
+        let rightLimit = stepper != nil ? previousDayButton.frame.minX
+            : !settingsButton.isHidden ? settingsButton.frame.minX : beforeScratch
         titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, rightLimit - 8 - titleX), height: th)
         closeSearchButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         let fh: CGFloat = min(28, h - 12)

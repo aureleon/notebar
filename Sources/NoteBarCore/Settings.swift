@@ -138,6 +138,9 @@ public final class AppSettings: ObservableObject {
         deletedItemsRetention = getEnum("deletedItemsRetention", .oneHour)
         deletedItemsRetentionChangedAt = defaults.object(forKey: "deletedItemsRetentionChangedAt") as? Date
         lastFolderId = (defaults.object(forKey: "lastFolderId") as? NSNumber)?.int64Value
+        scratchEnabled = get("scratchEnabled", true)
+        scratchKeepDays = get("scratchKeepDays", 7)
+        scratchRolloverHour = get("scratchRolloverHour", 4)
         if let data = defaults.data(forKey: "hotkeys"), let h = try? JSONDecoder().decode([String: KeyCombo].self, from: data) {
             var decoded = Dictionary(uniqueKeysWithValues: h.compactMap { k, v in HotkeyAction(rawValue: k).map { ($0, v) } })
             for (action, defaultCombo) in HotkeyAction.defaults {
@@ -208,6 +211,15 @@ public final class AppSettings: ObservableObject {
     /// Folder shown when the panel opens (nil = folder list).
     @Published public var lastFolderId: FolderID? { didSet { save("lastFolderId", lastFolderId.map { NSNumber(value: $0) }) } }
 
+    // MARK: Scratch
+    /// The daily Scratch note (header button, hotkey, menu bar, `notebar://scratch`). Off hides all of
+    /// it; the notes stay until they expire.
+    @Published public var scratchEnabled: Bool { didSet { save("scratchEnabled", scratchEnabled) } }
+    /// Earlier days kept besides today (`ScratchService.keepDaysRange`). Older days go to the trash.
+    @Published public var scratchKeepDays: Int { didSet { save("scratchKeepDays", scratchKeepDays) } }
+    /// Hour (0–23, local time) at which a new Scratch day starts.
+    @Published public var scratchRolloverHour: Int { didSet { save("scratchRolloverHour", scratchRolloverHour) } }
+
     // MARK: Hotkeys
     /// Missing key = no shortcut for that action.
     @Published public var hotkeys: [HotkeyAction: KeyCombo] {
@@ -221,7 +233,8 @@ public final class AppSettings: ObservableObject {
 // MARK: - Hotkeys
 
 public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
-    case togglePanel, newNote, newNoteFromClipboard, search, toggleFloatPanel
+    // New cases go at the end: `HotkeyCenter` derives hotkey ids from the order.
+    case togglePanel, newNote, newNoteFromClipboard, search, toggleFloatPanel, scratch
 
     public var displayName: String {
         switch self {
@@ -230,16 +243,18 @@ public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
         case .newNoteFromClipboard: "New Note from Clipboard"
         case .search: "Search Notes"
         case .toggleFloatPanel: "Float / Stay Open"
+        case .scratch: "Scratch Note"
         }
     }
 
-    /// ⌥⌘N toggle; ⌃⌥⌘N new; ⌃⌥⌘V clipboard; ⌃⌥⌘F search; ⌥⇧⌘N float panel.
+    /// ⌥⌘N toggle; ⌃⌥⌘N new; ⌃⌥⌘V clipboard; ⌃⌥⌘F search; ⌥⇧⌘N float panel; ⌃⌥⌘S Scratch.
     public static let defaults: [HotkeyAction: KeyCombo] = [
         .togglePanel: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option),
         .newNote: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
         .newNoteFromClipboard: KeyCombo(keyCode: 0x09, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
         .search: KeyCombo(keyCode: 0x03, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
         .toggleFloatPanel: KeyCombo(keyCode: 0x2D, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.shift),
+        .scratch: KeyCombo(keyCode: 0x01, carbonModifiers: KeyCombo.cmd | KeyCombo.option | KeyCombo.control),
     ]
 }
 

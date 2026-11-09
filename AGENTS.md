@@ -64,7 +64,7 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 
 | Module | Location | Purpose | Key Types |
 |---|---|---|---|
-| `NoteBarCore` | `Sources/NoteBarCore/` | Domain models, persistence & editing contracts, settings, themes. | `Note`, `Folder`, `NoteStore`, `NotesPresenting`, `AppSettings`, `HotSideArea` |
+| `NoteBarCore` | `Sources/NoteBarCore/` | Domain models, persistence & editing contracts, settings, themes, daily Scratch. | `Note`, `Folder`, `NoteStore`, `NotesPresenting`, `AppSettings`, `HotSideArea`, `ScratchService`, `ScratchDay` |
 | `NoteBarStore` | `Sources/NoteBarStore/` | SQLite database via GRDB (WAL mode), migrations, zip backups. | `GRDBNoteStore`, `FileBackupService`, `MarkdownExporter` |
 | `NoteBarPanel` | `Sources/NoteBarPanel/` | Floating panel window, edge trigger (Hot Side), auto-hide, hotkeys. | `PanelController`, `NoteBarPanelWindow`, `HotSideController`, `PassiveOpenTracker`, `AutoHideMonitor`, `HotkeyCenter` |
 | `NoteBarEditor` | `Sources/NoteBarEditor/` | Markdown editor with hidden markup, attachments, formatting toolbar. | `MarkdownNoteEditor`, `MarkdownCodec`, `MarkdownStyler`, `FormattingToolbar` |
@@ -99,8 +99,14 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
   - `.dynamic`: Follows NoteBar's content height (`hi - contentHeight ... hi`).
 
 ### Header Pill Controls (`HeaderView`)
-- Top-level (folder list): Displays **`settings - search - new`** (`[⚙] [🔍] [+]`).
+- Top-level (folder list): Displays **`settings - scratch - search - new`** (`[⚙] [✎] [🔍] [+]`). Scratch only while `settings.scratchEnabled`.
 - Inside a folder: Settings icon is hidden; displays **`[<] Folder Title`** and **`[🔍] [+]`**.
+- Scratch screen: **`[<] Scratch · Today`** and the day stepper **`[◀] [▶]`** (no search, no +).
+
+### Daily Scratch
+- One Scratch note per day (`Note.scratchDay`, "yyyy-MM-dd") in a hidden folder (`Folder.isScratch`). `folders()`, `folder(id:)`, search and the archive never show it.
+- `ScratchService` (`env.scratch`) owns today (`scratchRolloverHour`), the rollover timer and the sweep: empty earlier days are deleted; days older than `scratchKeepDays` become normal trashed notes (`expireScratchNote`).
+- Today's card is editable; earlier days are read-only (`NoteEditing.isReadOnly`). Save as Note copies; it never moves.
 
 ### Settings & State Management
 - `AppSettings.shared`: Persisted in `UserDefaults`.

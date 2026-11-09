@@ -30,6 +30,8 @@ Settings › General.
 | New note | `+`, ⌘N, or ⌃⌥⌘N from any app |
 | New note from the clipboard | ⌃⌥⌘V from any app |
 | Search | ⌘F (⌘/ searches all folders), or ⌃⌥⌘F from any app |
+| Scratch note | ⌃⌥⌘S from any app, or the Scratch button on the folder list |
+| Earlier or later Scratch day | ⇧⌘[ and ⇧⌘], or ◀ and ▶ in the header |
 | Go through the search results | Tab and ⇧Tab (from the search field, through the results, back to the field) |
 | Leave a note, then hide the panel | Esc |
 | Go back to the folder list | ⌘[ or the back button |
@@ -126,6 +128,28 @@ The bottom-left corner of an unfolded card always shows two buttons:
   name now, the folder gets a number ("Work 2"). Notes that you archived on their own stay archived.
 - Search finds the notes of archived folders only with the **Archive** chip, or in the Archive.
 - A deleted archived folder goes to Recently Deleted. If you restore it, it goes back to the archive.
+
+## Scratch
+
+The Scratch note is a throwaway note for the day: quick notes, a phone number, a to-do for this
+afternoon. Every day it starts empty. To keep something, save it as a note.
+
+- To open it, push ⌃⌥⌘S from any app, click the Scratch button (the pencil) on the folder list, or
+  choose **Scratch Note** in the menu bar icon's menu. NoteBar opens today's note, ready to type.
+- ◀ and ▶ in the header (⇧⌘[ and ⇧⌘]) go to the earlier days that still have text. You can read and
+  copy earlier days, but you cannot change them.
+- **Save as Note** (the button on the card, or right-click) puts a copy in a folder you choose.
+  The Scratch note keeps its text.
+- On today's card, the eraser button clears the note (Undo brings the text back). On an earlier day,
+  the trash button deletes that day.
+- Search, the archive, pins and folds do not apply to Scratch notes.
+- Settings › General › Scratch:
+  - **Daily Scratch note** turns the feature on (the default) or off. When it is off, the button, the
+    menu item and the shortcut go away. The notes stay until they expire.
+  - **Keep earlier days** (1 to 30, 7 by default): older days go to Recently Deleted as normal notes
+    in your last folder, with their date as the first line. Settings › Data › Keep deleted items sets
+    how long they stay there. If you restore one, it is a normal note. Empty days are not kept.
+  - **New day starts at** (4 AM by default): until this hour, you still write in the day before.
 
 ## Look
 

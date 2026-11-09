@@ -168,6 +168,15 @@ extension NotesRootViewController {
 
     func handleVimCommand(_ cmd: VimCardCommand, card: NoteCardView) {
         let id = card.note.id
+        if card.scratchRole != nil {
+            switch cmd {
+            case .togglePin, .toggleFold, .setFolded, .toggleArchive, .setArchived:
+                showToast("Not available in Scratch"); return
+            case .showColorMenu, .setColor, .setMode, .showFormatMenu where card.isReadOnly:
+                showToast("Earlier days are read-only"); return
+            default: break
+            }
+        }
         switch cmd {
         case .togglePin:
             actions.togglePin(id)
@@ -229,8 +238,8 @@ extension NotesRootViewController {
             ?? folders.first { $0.name.lowercased().contains(name) }
         guard let folder = match else { showToast("No folder “\(raw)”"); return }
         guard folder.id != note.folderId else { showToast("Already in “\(folder.name)”"); return }
-        // The card leaves this list: end editing first (as for deletes).
-        if let card = notesList.card(for: id), card.isEditorFocused { focusRoot() }
+        // The card leaves this list: end editing first (as for deletes). Scratch keeps its note (a copy is saved).
+        if !note.isScratch, let card = notesList.card(for: id), card.isEditorFocused { focusRoot() }
         actions.move(id, toFolder: folder.id)
     }
 

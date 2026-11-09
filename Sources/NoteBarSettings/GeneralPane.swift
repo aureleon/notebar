@@ -34,6 +34,23 @@ struct GeneralPane: View {
                 })
     }
 
+    private var keepDaysBinding: Binding<Int> {
+        Binding(get: { ScratchService.clampKeepDays(settings.scratchKeepDays) },
+                set: { v in
+                    let d = ScratchService.clampKeepDays(v)
+                    if d != settings.scratchKeepDays { settings.scratchKeepDays = d }
+                })
+    }
+
+    /// "Midnight", "1 AM" … in the user's clock style.
+    static func hourName(_ h: Int) -> String {
+        if h == 0 { return "Midnight" }
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("j")
+        let d = Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date()) ?? Date()
+        return f.string(from: d)
+    }
+
     var body: some View {
         Form {
             Section {
@@ -115,6 +132,33 @@ struct GeneralPane: View {
                     }
                 }
                 .disabled(!settings.hotSideEnabled)
+            }
+
+            Section {
+                Toggle(isOn: $settings.scratchEnabled) {
+                    Text("Daily Scratch note")
+                    Text("A throwaway note that starts empty every day. Earlier days stay readable for a while; "
+                         + "save what you want to keep as a note.")
+                }
+
+                LabeledContent("Keep earlier days") {
+                    Stepper(value: keepDaysBinding, in: ScratchService.keepDaysRange) {
+                        Text(keepDaysBinding.wrappedValue == 1 ? "1 day" : "\(keepDaysBinding.wrappedValue) days")
+                            .monospacedDigit()
+                    }
+                    .fixedSize()
+                }
+                .disabled(!settings.scratchEnabled)
+
+                Picker("New day starts at", selection: $settings.scratchRolloverHour) {
+                    ForEach(0..<24, id: \.self) { h in Text(Self.hourName(h)).tag(h) }
+                }
+                .disabled(!settings.scratchEnabled)
+            } header: {
+                Text("Scratch")
+            } footer: {
+                FootnoteText("Older days go to Recently Deleted as normal notes, headed with their date "
+                             + "(Data › Keep deleted items sets how long they stay there).")
             }
         }
         .formStyle(.grouped)

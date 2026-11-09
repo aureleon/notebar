@@ -198,6 +198,9 @@ public final class IntegrationActions {
         case .openNote(let id): try revealNote(id: id)
         case .openFolder(let name): try showFolder(named: name)
         case .settings: openSettings()
+        case .scratch:
+            guard env.settings.scratchEnabled else { throw IntegrationError.general("Scratch is turned off in Settings.") }
+            env.controller?.showScratch()
         }
         return []
     }

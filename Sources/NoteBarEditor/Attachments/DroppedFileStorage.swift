@@ -83,8 +83,9 @@ public enum DroppedFileStorage {
                                                         options: [.skipsHiddenFiles]), !folders.isEmpty else { return 0 }
         var used = Set<String>()
         let rootPath = root.path + "/"
-        // Archived notes and the notes of archived folders keep their files too.
+        // Archived notes, the notes of archived folders and Scratch notes keep their files too.
         let notes = (store.folders() + store.archivedFolders()).flatMap { store.notes(in: $0.id) } + store.archivedNotes()
+            + store.scratchNotes(includingTrashed: false)
         for note in notes {
             for a in store.attachments(for: note.id) where a.kind == .fileBookmark {
                 guard let url = store.url(for: a)?.standardizedFileURL.resolvingSymlinksInPath() else { continue }

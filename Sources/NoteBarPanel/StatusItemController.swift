@@ -96,6 +96,12 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
         fromClip.nbShowHotkey(s.hotkeys[.newNoteFromClipboard])
         menu.addItem(fromClip)
 
+        if s.scratchEnabled {
+            let scratch = ClosureMenuItem("Scratch Note") { c?.showScratch() }
+            scratch.nbShowHotkey(s.hotkeys[.scratch])
+            menu.addItem(scratch)
+        }
+
         let search = ClosureMenuItem("Search Notes") { c?.showSearch() }
         search.nbShowHotkey(s.hotkeys[.search])
         menu.addItem(search)

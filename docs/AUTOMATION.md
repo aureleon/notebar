@@ -10,6 +10,7 @@ notebar://show    notebar://hide    notebar://toggle
 notebar://search?q=…
 notebar://open?note=<id>
 notebar://open?folder=<name>
+notebar://scratch    (today's Scratch note, ready to type; also notebar://today)
 ```
 
 Example, from Terminal:
