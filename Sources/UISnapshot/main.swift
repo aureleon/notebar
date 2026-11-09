@@ -1180,6 +1180,27 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     height = 640
     resize()
 
+    // The looks of the rail, side by side (prototype): 14 folders, one short note, then five folders.
+    for style in ["spine", "pill", "floating", "joined"] {
+        probe.setFolderTabStyle(style)
+        vc.showFolder(work.id)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        render("60-style-\(style)-14-folders-light")
+        render("61-style-\(style)-14-folders-dark", dark: true)
+        vc.showFolder(ideas.id)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        render("62-style-\(style)-short-note-light")
+    }
+    for f in many { store.deleteFolder(id: f.id) }
+    for style in ["spine", "pill", "floating", "joined"] {
+        probe.setFolderTabStyle(style)
+        vc.showFolder(work.id)
+        probe.layoutNow(); spin(); probe.layoutNow()
+        render("63-style-\(style)-5-folders-light")
+        render("64-style-\(style)-5-folders-dark", dark: true)
+    }
+    probe.setFolderTabStyle("spine")
+
     // Off again: everything as before.
     settings.folderTabsEnabled = false
     resize()

@@ -59,6 +59,13 @@ public final class NotesUIProbe {
         guard let t = tab(key), let sv = t.superview else { return false }
         return sv.bounds.insetBy(dx: 0, dy: -0.5).contains(t.frame)
     }
+    /// Prototype: the look of the rail ("spine", "pill", "floating", "joined").
+    public func setFolderTabStyle(_ name: String) {
+        FolderTabRailView.style = FolderTabRailView.Style(rawValue: name) ?? .spine
+        root.folderTabs.restyle()
+        root.folderTabs.layoutTabs()
+        for t in root.folderTabs.allTabs { t.needsDisplay = true }
+    }
     private func tab(_ key: String) -> FolderTabView? {
         root.folderTabs.allTabs.first { Self.tabKey($0.kind) == key }
     }

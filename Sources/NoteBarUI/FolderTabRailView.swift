@@ -8,6 +8,17 @@ import NoteBarCore
 final class FolderTabRailView: FlippedView {
     enum Kind: Hashable { case scratch, folder(FolderID), allFolders }
 
+    /// How the rail looks (prototype switch, to compare the looks side by side).
+    /// - spine: tabs hang on a strip along the cards, the open one runs through it.
+    /// - pill: one capsule in the header's material with a round button per tab.
+    /// - floating: rounded tabs a gap away from the cards, nothing behind them.
+    /// - joined: like floating, but the open tab reaches the cards, in its folder's card color.
+    enum Style: String, CaseIterable { case spine, pill, floating, joined }
+    static var style: Style = .spine
+    /// Pill style: width of the capsule and diameter of its buttons.
+    static let pillWidth: CGFloat = 28
+    static let pillButton: CGFloat = 22
+
     static let tabHeight: CGFloat = 34
     static let minTabHeight: CGFloat = 22
     static let tabGap: CGFloat = 4
@@ -111,10 +122,24 @@ final class FolderTabRailView: FlippedView {
                 t.ink = Self.isLight(strong) ? NSColor.black.withAlphaComponent(0.8) : .white
                 t.dimInk = Self.isLight(dim) ? NSColor.black.withAlphaComponent(0.8) : .white
             }
+            switch Self.style {
+            case .joined:
+                // The open tab is a piece of the folder's cards.
+                t.fill = env.themes.cardBackground(t.noteColor, appearance: appearance)
+                t.ink = ui.text
+            case .pill where t.noteColor == .none:
+                // On the capsule (the header's material) a plain button is a shade of the text color.
+                t.fill = ui.text.withAlphaComponent(0.85)
+                t.ink = ui.headerBackground.withAlphaComponent(1)
+                t.dimFill = ui.text.withAlphaComponent(0.10)
+            default: break
+            }
             t.stroke = ui.isDark ? NSColor.white.withAlphaComponent(0.14) : NSColor.black.withAlphaComponent(0.10)
             t.fontSize = env.themes.fontSize
         }
         spineFill = ui.headerBackground.withAlphaComponent(ui.headerBackground.alphaComponent * 0.6)
+        pillFill = ui.headerBackground
+        pillStroke = ui.isDark ? NSColor.white.withAlphaComponent(0.10) : NSColor.black.withAlphaComponent(0.06)
         needsDisplay = true
     }
 
@@ -138,9 +163,28 @@ final class FolderTabRailView: FlippedView {
         NSRect(x: railOnLeft ? bounds.width - Self.tuck : 0, y: 0, width: Self.tuck, height: bounds.height)
     }
 
+    private var pillFill: NSColor = .clear
+    private var pillStroke: NSColor = .clear
+    var pillRect: NSRect {
+        NSRect(x: railOnLeft ? 0 : bounds.width - Self.pillWidth, y: 0, width: Self.pillWidth, height: bounds.height)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        spineFill.setFill()
-        NSBezierPath(roundedRect: spineRect, xRadius: 3, yRadius: 3).fill()
+        switch Self.style {
+        case .spine:
+            spineFill.setFill()
+            NSBezierPath(roundedRect: spineRect, xRadius: 3, yRadius: 3).fill()
+        case .pill:
+            let r = min(Self.pillWidth, bounds.height) / 2
+            let path = NSBezierPath(roundedRect: pillRect.insetBy(dx: 0.5, dy: 0.5), xRadius: r, yRadius: r)
+            pillFill.setFill()
+            path.fill()
+            pillStroke.setStroke()
+            path.lineWidth = 1
+            path.stroke()
+        case .floating, .joined:
+            break
+        }
     }
 
     // MARK: Layout
@@ -234,7 +278,8 @@ final class FolderTabRailView: FlippedView {
 
     /// Only the open tab crosses the spine.
     private func updateTucks() {
-        for t in allTabs { t.tuck = t.isActive ? Self.tuck : 0 }
+        let joins = Self.style == .spine || Self.style == .joined
+        for t in allTabs { t.tuck = joins && t.isActive ? Self.tuck : 0 }
     }
 
     func scroll(by dy: CGFloat) {
@@ -322,25 +367,42 @@ final class FolderTabView: NSView {
         return dimFill.withAlphaComponent(dimFill.alphaComponent * (pressed || hovering ? 1 : 0.85))
     }
 
+    /// Pill style: the round button, centered in the capsule.
+    var buttonRect: NSRect {
+        let d = min(FolderTabRailView.pillButton, bounds.height - 2) + (isActive || hovering ? 2 : 0)
+        let cx = railOnLeft ? FolderTabRailView.pillWidth / 2 : bounds.width - FolderTabRailView.pillWidth / 2
+        return NSRect(x: cx - d / 2, y: bounds.midY - d / 2, width: d, height: d)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        let style = FolderTabRailView.style
         let body = bodyRect
         let r = min(9, body.height / 2)
-        // Round the outer corners only: the rounded rect runs past the inner end, which is clipped.
-        var shape = body.insetBy(dx: 0, dy: 0.5)
-        shape.size.width += r
-        if !railOnLeft { shape.origin.x -= r }
-        shape = shape.insetBy(dx: 0.5, dy: 0)
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(rect: body).addClip()
-        let path = NSBezierPath(roundedRect: shape, xRadius: r, yRadius: r)
-        drawnFill.setFill()
-        path.fill()
-        stroke.setStroke()
-        path.lineWidth = 1
-        path.stroke()
-        NSGraphicsContext.restoreGraphicsState()
-
-        let face = faceRect
+        var face = faceRect
+        if style == .pill {
+            face = buttonRect
+            drawnFill.setFill()
+            NSBezierPath(ovalIn: face).fill()
+        } else {
+            // Spine, and the open tab of joined: round the outer corners only (the rounded rect runs
+            // past the inner end, which is clipped). Floating tabs round all four.
+            let flatInner = style == .spine || (style == .joined && isActive)
+            var shape = body.insetBy(dx: 0, dy: 0.5)
+            if flatInner {
+                shape.size.width += r
+                if !railOnLeft { shape.origin.x -= r }
+            }
+            shape = shape.insetBy(dx: 0.5, dy: 0)
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(rect: body).addClip()
+            let path = NSBezierPath(roundedRect: shape, xRadius: r, yRadius: r)
+            drawnFill.setFill()
+            path.fill()
+            stroke.setStroke()
+            path.lineWidth = 1
+            path.stroke()
+            NSGraphicsContext.restoreGraphicsState()
+        }
         let inkColor = isActive ? ink : dimInk.withAlphaComponent(hovering ? 1 : 0.8)
         if let symbolName {
             if image == nil { image = Symbols.image(symbolName, size: isActive ? fontSize - 1.5 : fontSize - 3, weight: .semibold) }
