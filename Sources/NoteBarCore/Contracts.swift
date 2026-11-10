@@ -118,6 +118,10 @@ public protocol NoteEditing: NSView {
     /// Scratch notes: the host's items for the menu of the entry under the pointer (it gets the
     /// entry's text). The editor adds its own (Copy, Mark Done, Delete).
     var entryMenuItems: ((String) -> [NSMenuItem])? { get set }
+    /// Where the editor's command line (vim `:` and `/`) goes, in the editor's coordinates: the host
+    /// has room for it outside the text (the card's bottom row). nil, or a nil result: the editor
+    /// shows the line below its text and grows by it.
+    var commandLineFrame: (() -> NSRect?)? { get set }
 }
 
 public extension NoteEditing {
@@ -125,6 +129,7 @@ public extension NoteEditing {
     var vimMode: VimMode? { nil }
     func beginEntry(at date: Date) {}
     var entryMenuItems: ((String) -> [NSMenuItem])? { get { nil } set {} }
+    var commandLineFrame: (() -> NSRect?)? { get { nil } set {} }
 }
 
 @MainActor

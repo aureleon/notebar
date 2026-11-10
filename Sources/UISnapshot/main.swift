@@ -729,7 +729,7 @@ MainActor.assumeIsolated {
     // MARK: Vim keys
     renderHook = { render($0) }
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
-    vimScrollChecks(spin: spin)
+    vimScrollChecks(out: out, spin: spin)
     written += scratchEntryChecks(out: out, spin: spin)
     written += folderTabChecks(out: out, spin: spin)
 
@@ -1493,7 +1493,7 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
 /// ⌃D / ⌃U in a long note scroll the notes list.
 /// Uses the real markdown editor (the main checks use plain editors, which have no vim layer).
 @MainActor
-func vimScrollChecks(spin: () -> Void) {
+func vimScrollChecks(out: URL, spin: () -> Void) {
     let suite = "NoteBarUISnapshotVimScroll"
     UserDefaults().removePersistentDomain(forName: suite)
     let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
@@ -1541,6 +1541,37 @@ func vimScrollChecks(spin: () -> Void) {
     Check.expect(abs(probe.listScrollOffset - down) < 2, "⌃U scrolls back by the same distance (\(probe.listScrollOffset) vs \(down))")
     Check.equal(probe.editor(of: note.id)?.vimMode, .normal, "still in Normal mode")
     Check.equal(store.note(id: note.id)?.body, body, "⌃D / ⌃U do not edit")
+
+    // The : line of a note sits in the card's bottom row, between Aa and the tray. The card does not grow.
+    let short = store.createFolder(name: "Short")
+    let sn = store.createNote(in: short.id, body: "Meeting notes\nRemember the agenda.\nAsk about the release date.", mode: .standard, position: .top)
+    vc.showFolder(short.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.focusList()
+    probe.select(sn.id)
+    probe.press(keyCode: 37, characters: "l")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    let cardBefore = probe.cardFrame(of: sn.id)
+    for ch in [":", "f", "o", "l", "d", "e", "r", " ", "l", "o"] { key(ch, 0, ch == ":" ? [.shift] : []) }
+    spin(); probe.layoutNow()
+    if let ed = probe.editor(of: sn.id) as? MarkdownNoteEditor, let pf = ed.vimPromptFrameForTesting, let card = probe.cardFrame(of: sn.id) {
+        let inRoot = ed.convert(pf, to: vc.view)
+        Check.equal(ed.vimPromptTextForTesting, ":folder lo", "note command line: shows the typed command")
+        Check.equal(card.height, cardBefore?.height, "note command line: the card does not grow")
+        Check.expect(inRoot.maxY <= card.maxY && inRoot.minY > card.maxY - 50, "note command line: in the card's bottom row (\(inRoot) in \(card))")
+        Check.expect(pf.minY >= ed.bounds.maxY - 1, "note command line: below the text, not over it (\(pf))")
+        if let aa = probe.formatButtonFrame(of: sn.id) {
+            Check.expect(inRoot.minX >= aa.maxX, "note command line: right of Aa (\(inRoot.minX) vs \(aa.maxX))")
+        }
+        Check.expect(inRoot.maxX <= card.maxX - 60, "note command line: leaves room for the tray")
+        if let rep = vc.view.bitmapImageRepForCachingDisplay(in: vc.view.bounds) {
+            vc.view.cacheDisplay(in: vc.view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("51-note-command-line-light.png"))
+        }
+    } else {
+        Check.expect(false, "note command line: the prompt of the edited note")
+    }
+    key("\u{1b}", 53)
 }
 
 @MainActor

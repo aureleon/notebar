@@ -778,7 +778,23 @@ extension MarkdownNoteEditor {
 
     /// The `:` / `/` line looks like the command line of the notes list: the code font, in a rounded field.
     var promptFont: NSFont { style.font(size: style.fontSize - 1, mono: true) }
-    var promptHeight: CGFloat { vimPrompt == nil ? 0 : VimPromptView.height(font: promptFont) }
+    /// The room the host has for the line (`commandLineFrame`), if any.
+    var hostedPromptFrame: NSRect? { commandLineFrame?() }
+    /// Height the line adds to the editor: none when the host has room for it.
+    var promptHeight: CGFloat { vimPrompt == nil || hostedPromptFrame != nil ? 0 : VimPromptView.height(font: promptFont) }
+
+    /// In the host's room, else at the bottom of the editor (of the card when it is expanded).
+    func placeVimPrompt(measured: CGFloat, width w: CGFloat) {
+        guard let v = vimPrompt else { return }
+        if let f = hostedPromptFrame {
+            v.gapAbove = 0
+            v.frame = f
+        } else {
+            v.gapAbove = VimPromptView.gapAbove
+            let ph = VimPromptView.height(font: promptFont)
+            v.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+        }
+    }
 
     private func openPrompt(_ kind: VimState.PromptKind) {
         vim.resetPending()
@@ -1175,7 +1191,8 @@ final class VimPromptView: NSView {
     /// Room above the field, and the field: the text line with some padding.
     static let gapAbove: CGFloat = 8
     static func height(font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) + 10 + gapAbove }
-    private var fieldRect: NSRect { NSRect(x: 0, y: Self.gapAbove, width: bounds.width, height: bounds.height - Self.gapAbove) }
+    var gapAbove: CGFloat = VimPromptView.gapAbove { didSet { if oldValue != gapAbove { needsLayout = true; needsDisplay = true } } }
+    private var fieldRect: NSRect { NSRect(x: 0, y: gapAbove, width: bounds.width, height: bounds.height - gapAbove) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
