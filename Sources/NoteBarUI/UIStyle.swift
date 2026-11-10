@@ -11,7 +11,7 @@ public enum NoteBarUIOptions {
     public static var animations = true
 }
 
-/// Glass cards (Settings › Appearance › "Glass cards", key `blurBackdrop`): cards, the folder group and
+/// Glass cards (Settings › Appearance › "Glass cards", key `blurBackdrop`): cards and
 /// the header use Liquid Glass (`NSGlassEffectView`), tinted with their theme color, like the widgets
 /// in Notification Center. Off: solid theme colors with a drawn shadow.
 @MainActor
@@ -57,16 +57,12 @@ enum Metrics {
     static let cardPaddingBottom: CGFloat = 18
     /// Height of the folded title row. Holds the title font (`UIFonts.title`) with its line height.
     static let cardTitleRowHeight: CGFloat = 22
-    static let folderNameRowHeight: CGFloat = 18
     /// Action drawer (bottom-right, on hover): gap to the card's bottom edge and to the pin above it.
     static let actionColumnInsetBottom: CGFloat = 6
     static let actionColumnGap: CGFloat = 4
     /// Height of the search bar row (result count and scope toggle).
     static let scopeBarHeight: CGFloat = 26
     static let leftBarWidth: CGFloat = 4
-    static let folderRowHeight: CGFloat = 34
-    static let folderListPadding: CGFloat = 6
-    static let folderGroupRadius: CGFloat = 14
     /// Room around each card for its drawn shadow (card views are this much larger than the card).
     static let cardShadowPad: CGFloat = 8
     static let pinButtonSize: CGFloat = 20
@@ -99,8 +95,6 @@ struct UIColors {
     var shadowOpacity: Float { isDark ? 0.45 : 0.16 }
     var hairline: NSColor { isDark ? NSColor.white.withAlphaComponent(0.07) : NSColor.black.withAlphaComponent(0.04) }
     var iconTint: NSColor { secondaryText }
-    /// Folder icons use the theme accent, the same as the header folder title.
-    var folderIcon: NSColor { accent }
 }
 
 /// Default panel width for the current screen (the panel window sets the real width). Uses the
@@ -151,8 +145,6 @@ enum UIFonts {
     static func footer(_ fs: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: fs - 2.5, weight: .medium) }
     static func footerButton(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2.5, weight: .semibold) }
     static func badge(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .semibold) }
-    static func folderName(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs, weight: .regular) }
-    static func folderCount(_ fs: CGFloat) -> NSFont { .monospacedDigitSystemFont(ofSize: fs - 2, weight: .regular) }
     static func small(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .medium) }
     static func scope(_ fs: CGFloat) -> NSFont { .systemFont(ofSize: fs - 2, weight: .semibold) }
     /// Secondary line / hint text (empty state, drop hint, toast).

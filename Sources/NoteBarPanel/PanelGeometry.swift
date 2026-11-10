@@ -53,21 +53,17 @@ struct PanelGeometry: Equatable {
     /// True if another display touches this screen on the panel side. The panel then must not slide
     /// across the edge (it would show up on the neighbor display) and only fades.
     var hasNeighborOnSide: Bool
-    /// Width of the folder tab rail on the inner side (`FolderTabs`). The window is wider by it.
-    var rail: CGFloat = 0
 
-    /// Width of the notes column for this screen. Also fits on small screens (the panel keeps the edge
-    /// inset on both sides).
+    /// Width for this screen. Also fits on small screens (the panel keeps the edge inset on both sides).
     var width: CGFloat {
         let w = PanelSizing.width(requested: requestedWidth, visibleWidth: visibleFrame.width)
-        let fit = visibleFrame.width - 2 * PanelMetrics.edgeInset - rail
+        let fit = visibleFrame.width - 2 * PanelMetrics.edgeInset
         return w > fit ? max(fit, 160) : w
     }
 
-    /// The window frame: the notes column plus the rail on the side that faces the screen centre.
     var shownFrame: CGRect {
         let inset = PanelMetrics.edgeInset
-        let w = width + rail
+        let w = width
         let h = max(visibleFrame.height - 2 * inset, 100)
         let x = side == .right ? visibleFrame.maxX - inset - w : visibleFrame.minX + inset
         return CGRect(x: round(x), y: round(visibleFrame.minY + inset), width: round(w), height: round(h))
@@ -164,12 +160,11 @@ extension NSScreen {
         return NSScreen.screens.first { $0.nbDisplayID == id }
     }
 
-    func nbGeometry(side: PanelSide, width: Double?, rail: CGFloat = 0) -> PanelGeometry {
+    func nbGeometry(side: PanelSide, width: Double?) -> PanelGeometry {
         let others = NSScreen.screens.filter { $0 != self }.map(\.frame)
         return PanelGeometry(screenFrame: frame, visibleFrame: visibleFrame, side: side,
                              requestedWidth: width,
-                             hasNeighborOnSide: PanelGeometry.hasNeighbor(screenFrame: frame, side: side, otherScreenFrames: others),
-                             rail: rail)
+                             hasNeighborOnSide: PanelGeometry.hasNeighbor(screenFrame: frame, side: side, otherScreenFrames: others))
     }
 }
 

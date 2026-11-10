@@ -128,7 +128,7 @@ final class NoteActions {
         registerUndo(archived ? "Archive Folder" : "Unarchive Folder") { $0.setFolderArchived(!archived, id: id) }
     }
 
-    /// Folder menu, ⌥⌘A and `ga` on the folder list, the Archive menu.
+    /// The folder chip's menu and the Archive menu.
     func toggleArchiveFolder(_ id: FolderID) {
         let archived = store.archivedFolder(id: id) == nil
         if let root { root.setFolderArchived(archived, id: id) } else { setFolderArchived(archived, id: id) }
@@ -207,7 +207,7 @@ final class NoteActions {
         })
     }
 
-    /// Creates a folder, moves the note there and starts renaming the new folder.
+    /// Creates a folder, moves the note there, opens the folder, and starts renaming it.
     func moveToNewFolder(_ id: NoteID) {
         guard let note = store.note(id: id), !store.isInArchive(note), !note.isScratch,
               let oldIndex = store.notes(in: note.folderId).firstIndex(where: { $0.id == id }) else { return }
@@ -216,7 +216,7 @@ final class NoteActions {
         // One undo step: the note goes back (runs first), then the new folder goes away.
         registerUndo("Move to New Folder") { $0.trashFolderUndoably(folder.id, name: "Move to New Folder") }
         registerUndo("Move to New Folder") { $0.place(id, inFolder: note.folderId, at: oldIndex) }
-        root?.showFolderList()
+        root?.showFolder(folder.id)
         root?.beginRenameFolder(folder.id)
     }
 
@@ -306,10 +306,11 @@ final class NoteActions {
 
     // MARK: Folders
 
+    /// The new folder opens, and its chip is ready for a name.
     func newFolder() {
         let f = store.createFolder(name: uniqueFolderName("New Folder", in: store))
         registerUndo("New Folder") { $0.trashFolderUndoably(f.id, name: "New Folder") }
-        root?.showFolderList()
+        root?.showFolder(f.id)
         root?.beginRenameFolder(f.id)
     }
 

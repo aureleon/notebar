@@ -98,7 +98,8 @@ enum ReadmeImages {
         }
         func panelPair(_ name: String) { save(name, light: capturePanel(dark: false), dark: capturePanel(dark: true)) }
 
-        root.showFolderList()
+        // Another folder open: its chip is the filled one.
+        root.showFolder(seeded.travel)
         panelPair("folders")
 
         root.showFolder(seeded.notes)
@@ -174,6 +175,7 @@ enum ReadmeImages {
 
     struct Seeded {
         var notes: FolderID
+        var travel: FolderID
         var hovered: NoteID
     }
 
@@ -225,6 +227,6 @@ enum ReadmeImages {
         add(recipes.id, "Pancakes\n2 eggs, 1 cup flour, 1 cup milk.", color: .yellow)
         add(ideas.id, "App ideas\nA notes bar that slides in from the edge.")
         store.flush()
-        return Seeded(notes: personal.id, hovered: weekend.id)
+        return Seeded(notes: personal.id, travel: travel.id, hovered: weekend.id)
     }
 }

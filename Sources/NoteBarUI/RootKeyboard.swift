@@ -11,17 +11,14 @@ extension NotesRootViewController {
         static let home: UInt16 = 115, end: UInt16 = 119
     }
 
-    var notesVisible: Bool { search != nil || screen != .folders }
-
     func rootFocusChanged(_ focused: Bool) {
-        let active = focused && isPanelFocused
-        notesList?.showsSelection = active
-        folderList?.showsSelection = active
+        notesList?.showsSelection = focused && isPanelFocused
     }
 
     // MARK: Plain keys (root view is first responder)
 
     func handleKeyDown(_ event: NSEvent) -> Bool {
+        if handleFolderTabKey(event) { return true }
         if handleVimRootKey(event) { return true }
         let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
         guard mods.isEmpty || mods == [.shift] else { return false }
@@ -38,23 +35,20 @@ extension NotesRootViewController {
             moveSelection(10_000); return true
         case Key.returnKey, Key.enter:
             activateSelection(); return true
-        case Key.right:
-            if !notesVisible { folderList.openSelected(); return true }
-            return false
         case Key.left:
-            if notesVisible && search == nil { goBack(); return true }
+            // Back from the archive. A folder has nothing above it.
+            if search == nil, isArchiveScreen { goBack(); return true }
             return false
         case Key.delete, Key.forwardDelete:
-            if mods.isEmpty, notesVisible, let id = notesList.selectedNoteID { actions.delete(id); return true }
+            if mods.isEmpty, let id = notesList.selectedNoteID { actions.delete(id); return true }
             return false
         case Key.tab:
             if search != nil { searchTab(backward: mods == [.shift]); return true }
             return false
         default:
-            // Typing while the folder list or the search results have focus: type into the search field.
+            // Typing while the search results have focus: type into the search field.
             if let ch = event.characters, ch.count == 1, let scalar = ch.unicodeScalars.first,
-               CharacterSet.alphanumerics.union(.punctuationCharacters).contains(scalar),
-               search != nil || screen == .folders {
+               CharacterSet.alphanumerics.union(.punctuationCharacters).contains(scalar), search != nil {
                 let text = (search?.query ?? "") + ch
                 beginSearch()
                 header.searchField.stringValue = text
@@ -67,11 +61,11 @@ extension NotesRootViewController {
         }
     }
 
-    /// Escape leaves the current thing, never the folder (use ⌘[ or the back button for that):
+    /// Escape leaves the current thing, never the screen:
     /// editing or a selected card → no card; search → closes; otherwise the panel hides.
     func handleEscape() {
         if header.isSearchFieldFocused { searchFieldEscape(); return }
-        if notesVisible, notesList.expandedNoteID != nil {
+        if notesList.expandedNoteID != nil {
             notesList.setExpandedNoteID(nil, animated: true)
             return
         }
@@ -81,7 +75,7 @@ extension NotesRootViewController {
             return
         }
         if search != nil { endSearch(restore: true, focusRoot: true); return }
-        if notesVisible, notesList.selectedNoteID != nil { leaveCard(); return }
+        if notesList.selectedNoteID != nil { leaveCard(); return }
         env.controller?.hidePanel()
     }
 
@@ -94,44 +88,48 @@ extension NotesRootViewController {
 
     func moveSelection(_ delta: Int) {
         setMouseHoverSuppressed(true)
-        if notesVisible {
-            let ids = notesList.noteIDs
-            guard !ids.isEmpty else { return }
-            var next: NoteID
-            if let sel = notesList.selectedNoteID, let i = ids.firstIndex(of: sel) {
-                next = ids[max(0, min(ids.count - 1, i + delta))]
-            } else {
-                next = delta >= 0 ? ids[0] : ids[ids.count - 1]
-            }
-            if delta == 10_000 { next = ids[ids.count - 1] } else if delta == -10_000 { next = ids[0] }
-            select(next)
+        let ids = notesList.noteIDs
+        guard !ids.isEmpty else { return }
+        var next: NoteID
+        if let sel = notesList.selectedNoteID, let i = ids.firstIndex(of: sel) {
+            next = ids[max(0, min(ids.count - 1, i + delta))]
         } else {
-            folderList.moveSelection(delta)
+            next = delta >= 0 ? ids[0] : ids[ids.count - 1]
         }
+        if delta == 10_000 { next = ids[ids.count - 1] } else if delta == -10_000 { next = ids[0] }
+        select(next)
     }
 
     func activateSelection() {
-        if notesVisible {
-            guard let id = notesList.selectedNoteID, let note = store.note(id: id) else {
-                if let first = notesList.cards.first { select(first.note.id) }
-                return
-            }
-            if note.isFolded && search == nil {
-                actions.setFolded(false, id: id)
-                rootView.layoutSubtreeIfNeeded()
-            }
-            guard let card = notesList.card(for: id) else { return }
-            notesList.scrollToCard(card)
-            card.focusEditor(atEnd: true)
-        } else {
-            if !folderList.hasSelection { folderList.moveSelection(1) } else { folderList.openSelected() }
+        guard let id = notesList.selectedNoteID, let note = store.note(id: id) else {
+            if let first = notesList.cards.first { select(first.note.id) }
+            return
         }
+        if note.isFolded && search == nil {
+            actions.setFolded(false, id: id)
+            rootView.layoutSubtreeIfNeeded()
+        }
+        guard let card = notesList.card(for: id) else { return }
+        notesList.scrollToCard(card)
+        card.focusEditor(atEnd: true)
+    }
+
+    // MARK: Next / previous folder
+
+    /// ⌃Tab: the next chip of the header, ⌃⇧Tab: the previous one. Also while a note is edited (the
+    /// editors have no ⌃Tab of their own).
+    func handleFolderTabKey(_ event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard event.keyCode == Key.tab, mods == [.control] || mods == [.control, .shift] else { return false }
+        stepFolderTab(mods.contains(.shift) ? -1 : 1)
+        return true
     }
 
     // MARK: Shortcuts with modifiers
 
     func handleKeyEquivalent(_ event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
+        if handleFolderTabKey(event) { return true }
         let mods = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         let code = event.keyCode
@@ -143,7 +141,7 @@ extension NotesRootViewController {
                 goBack(); return true
             case Key.delete:
                 // ⌘⌫ deletes the selected note; inside text it keeps its text meaning.
-                guard !isEditingText, notesVisible, let id = activeNoteID else { return false }
+                guard !isEditingText, let id = activeNoteID else { return false }
                 actions.delete(id); return true
             case Key.returnKey, Key.enter:
                 guard isEditingText, let id = focusedNoteID else { return false }
@@ -196,7 +194,7 @@ extension NotesRootViewController {
         case [.command, .option]:
             // ⌥⌘← folds and ⌥⌘→ unfolds the edited / selected note (also while typing in it).
             if code == Key.left || code == Key.right {
-                guard notesVisible, let id = activeNoteID else { return false }
+                guard let id = activeNoteID else { return false }
                 setFoldedKeepingSelection(code == Key.left, id: id)
                 return true
             }
@@ -204,14 +202,8 @@ extension NotesRootViewController {
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.moveToNewFolder(id); return true
             }
-            // ⌥⌘A archives / unarchives the edited or selected note (also while typing in it). On the
-            // folder list it archives the selected folder.
+            // ⌥⌘A archives / unarchives the edited or selected note (also while typing in it).
             if key == "a" || code == 0 {
-                if !notesVisible {
-                    guard folderList.renamingFolderID == nil else { return false }
-                    guard let id = folderList.selectedFolderID else { NSSound.beep(); return true }
-                    actions.toggleArchiveFolder(id); return true
-                }
                 guard let id = activeNoteID else { NSSound.beep(); return true }
                 actions.toggleArchive(id); return true
             }
@@ -234,7 +226,7 @@ extension NotesRootViewController {
         }
     }
 
-    /// ⌘N: a new note in the open folder (at the folder list: in the selected / last folder).
+    /// ⌘N: a new note in the open folder (from Scratch or the archive: in the last folder).
     func createNoteFromShortcut() {
         createNewNote()
     }

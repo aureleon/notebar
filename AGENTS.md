@@ -68,7 +68,7 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 | `NoteBarStore` | `Sources/NoteBarStore/` | SQLite database via GRDB (WAL mode), migrations, zip backups. | `GRDBNoteStore`, `FileBackupService`, `MarkdownExporter` |
 | `NoteBarPanel` | `Sources/NoteBarPanel/` | Floating panel window, edge trigger (Hot Side), auto-hide, hotkeys. | `PanelController`, `NoteBarPanelWindow`, `HotSideController`, `PassiveOpenTracker`, `AutoHideMonitor`, `HotkeyCenter` |
 | `NoteBarEditor` | `Sources/NoteBarEditor/` | Markdown editor with hidden markup, attachments, formatting toolbar. | `MarkdownNoteEditor`, `MarkdownCodec`, `MarkdownStyler`, `FormattingToolbar` |
-| `NoteBarUI` | `Sources/NoteBarUI/` | Notes list, folder view, header pill, card layout, glass cards. | `NotesRootViewController`, `HeaderView`, `NotesListView`, `NoteCardView`, `FolderListView` |
+| `NoteBarUI` | `Sources/NoteBarUI/` | Header pill with the folder chips, notes list, card layout, glass cards. | `NotesRootViewController`, `HeaderView`, `NotesListView`, `NoteCardView`, `FolderTabsView` |
 | `NoteBarSettings` | `Sources/NoteBarSettings/` | SwiftUI settings window (General, Appearance, Shortcuts, Data, About). | `SettingsWindowController`, `GeneralPane`, `AppearancePane`, `LaunchAtLogin` |
 | `NoteBarIntegrations` | `Sources/NoteBarIntegrations/` | URL scheme (`notebar://`), Services menu, AppleScript support. | `URLSchemeHandler`, `ServicesProvider`, `ScriptCommands` |
 | `NoteBar` | `Sources/NoteBar/` | Application entry point and lifecycle. | `AppDelegate`, `InstanceLock`, `SnapshotMode` |
@@ -79,7 +79,7 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 
 ### Coordinates & Flipped Views
 - **Global screen coordinates (AppKit)**: Origin is at the **bottom-left** of the screen (`y = 0` is bottom). Used in `PanelGeometry`, `HotSideController`, `PassiveOpenTracker`, `AutoHideMonitor`.
-- **Panel view coordinates (`isFlipped: true`)**: Origin is at the **top-left** (`y = 0` is top). Used in `NotesRootView`, `HeaderView`, `NotesListView`, `FolderListView`.
+- **Panel view coordinates (`isFlipped: true`)**: Origin is at the **top-left** (`y = 0` is top). Used in `NotesRootView`, `HeaderView`, `NotesListView`, `FolderTabsView`.
 
 ### Panel Lifecycle & Passive Opens
 - **Active Open** (`makeKey: true`): Triggered by hotkey (⌥⌘N), menu bar icon, or URL scheme. Takes keyboard focus.
@@ -99,14 +99,12 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
   - `.dynamic`: Follows NoteBar's content height (`hi - contentHeight ... hi`).
 
 ### Header Pill Controls (`HeaderView`)
-- Top-level (folder list): Displays **`settings - scratch - search - new`** (`[⚙] [✎] [🔍] [+]`). Scratch only while `settings.scratchEnabled`.
-- Inside a folder: Settings icon is hidden; displays **`[<] Folder Title`** and **`[🔍] [+]`**.
-- Scratch screen: **`[<] Scratch · Today`** and the day stepper **`[◀] [▶]`** (no search, no +).
-
-### Folder Tabs (experimental)
-- Opt-in (`settings.folderTabsEnabled = false`). `FolderTabRailView` draws binder tabs on the panel edge that faces the screen centre: Scratch, one tab per folder, and "all folders" (the folder list screen).
-- The panel window is wider by `FolderTabs.railWidth`, so the notes column keeps its width (`PanelGeometry.rail`, `NotesRootViewController.columnFrame`).
-- The rail can be taller than the content. `NotesPresenting.railHeight` counts like `contentHeight` for the click region (its own fill in `PanelContentView`), the passive hover zone, and the dynamic Hot Side.
+- There is no folder list screen. A folder, Scratch, or the archive always shows (`NotesRootViewController.Screen`). The panel starts on `settings.lastFolderId`, else the first folder (`showLastFolder()`), and goes there when the open folder or Scratch goes away.
+- Folder and Scratch screens: **`[✎] Notes (Work) Ideas … [⋯] [🔍] [+]`**. `FolderTabsView` (`header.tabs`) is the navigation: the Scratch button (only while `settings.scratchEnabled`), one chip per folder, and the "…" button (New Folder, Archive, Recently Deleted, Settings). Only the open folder's chip is filled. The chips scroll sideways and fade at an end that has more. The open chip is scrolled into view when it changes, and a scroll by hand stays.
+- Scratch open: its chip is filled and holds **`✎ ‹ Today ›`** (the day stepper). + starts a new entry.
+- Archive screens: **`[<] Title`** and **`[🔍]`**. Search mode: the search field and a close button. Only these two have a way back (`goBack`).
+- A folder chip: click opens, right click is the folder menu, drag sideways reorders (`moveFolder(_:toGap:)`), Rename and New Folder edit the name in a field on the chip (`beginRenameFolder`), and it takes drops (a note moves, files and text make a note). The tooltip has the note count.
+- ⌃Tab / ⌃⇧Tab (and `gt` / `gT` with vim keys on the list) step through the chips (`stepFolderTab`).
 
 ### Daily Scratch
 - One Scratch note per day (`Note.scratchDay`, "yyyy-MM-dd") in a hidden folder (`Folder.isScratch`). `folders()`, `folder(id:)`, search and the archive never show it.

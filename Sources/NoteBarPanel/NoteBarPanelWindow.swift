@@ -103,12 +103,6 @@ final class PanelContentView: NSView {
     /// Height of the rendered region, from the top (the presenter's `contentHeight`). nil = all of it.
     var solidHeight: CGFloat? { didSet { if solidHeight != oldValue { needsLayout = true } } }
     private let fillView = NSView()
-    /// Width of the folder tab rail on the inner side (0 = none). The content fill covers the notes
-    /// column only. The rail has its own fill, as tall as the rail (`railSolidHeight`).
-    var rail: CGFloat = 0 { didSet { if rail != oldValue { needsLayout = true } } }
-    var railSolidHeight: CGFloat = 0 { didSet { if railSolidHeight != oldValue { needsLayout = true } } }
-    private let railFillView = NSView()
-    var railSolidFrameForChecks: NSRect { railFillView.frame }
 
     private var effectiveSolidHeight: CGFloat {
         guard let h = solidHeight, h > 0 else { return bounds.height }
@@ -125,11 +119,7 @@ final class PanelContentView: NSView {
         fillView.wantsLayer = true
         fillView.layer?.backgroundColor = Self.hitTestFill.cgColor
         autoresizesSubviews = true
-        railFillView.wantsLayer = true
-        railFillView.layer?.backgroundColor = Self.hitTestFill.cgColor
-        railFillView.isHidden = true
         addSubview(fillView)
-        addSubview(railFillView)
         addSubview(resizeHandle)
     }
 
@@ -153,20 +143,13 @@ final class PanelContentView: NSView {
         hostedView?.frame = bounds
         // Not flipped: the rendered region is at the top.
         let solid = effectiveSolidHeight
-        let railW = min(max(rail, 0), bounds.width)
-        // The rail is on the side that faces the screen centre.
-        let columnX = side == .right ? railW : 0
-        fillView.frame = NSRect(x: columnX, y: bounds.height - solid, width: bounds.width - railW, height: solid)
-        let railH = min(max(railSolidHeight, 0), bounds.height)
-        railFillView.isHidden = railW <= 0 || railH <= 0
-        railFillView.frame = NSRect(x: side == .right ? 0 : bounds.width - railW, y: bounds.height - railH,
-                                    width: railW, height: railH)
+        fillView.frame = NSRect(x: 0, y: bounds.height - solid, width: bounds.width, height: solid)
         let w = PanelResizeHandle.thickness
         // The handle sits on the inner edge of the rendered region, below the header area so it does not
         // cover header buttons.
         let topReserve: CGFloat = 56
         let h = max(solid - topReserve - 16, 0)
-        let x = side == .right ? railW : bounds.width - railW - w
+        let x = side == .right ? 0 : bounds.width - w
         resizeHandle.frame = NSRect(x: x, y: bounds.height - solid + 16, width: w, height: h)
         resizeHandle.side = side
     }

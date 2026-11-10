@@ -1,131 +1,124 @@
 import AppKit
 import NoteBarCore
 
-/// Folder tabs (`settings.folderTabsEnabled`): the rail takes `FolderTabs.railWidth` on the inner side
-/// of the root view. The panel window is wider by the same amount, so the notes column keeps its width.
+/// The folder chips in the header (`FolderTabsView`) are the navigation: one click opens a folder
+/// or Scratch. What the folder list screen did lives here too: rename (in place on the chip), reorder
+/// (drag a chip), drops on a folder, and the "…" menu (New Folder, Archive, Recently Deleted, Settings).
 extension NotesRootViewController {
-    /// Width the rail takes from the root view (0 while the tabs are off).
-    var railInset: CGFloat { FolderTabs.railWidth(env.settings) }
-
-    /// True if the rail is on the left of the notes column (panel on the right side of the screen).
-    var railOnLeft: Bool { env.settings.panelSide == .right }
-
-    /// The notes column: the root view without the rail. Header, lists, backdrop, and toast live in it.
-    var columnFrame: NSRect {
-        guard let v = rootView else { return .zero }
-        let b = v.bounds
-        let r = min(railInset, b.width)
-        return NSRect(x: railOnLeft ? r : 0, y: 0, width: b.width - r, height: b.height)
+    func wireFolderTabs() {
+        let tabs = folderTabs
+        tabs.onSelect = { [weak self] kind in self?.folderTabPressed(kind) }
+        tabs.onStepDay = { [weak self] delta in self?.stepScratchDay(delta) }
+        tabs.onMore = { [weak self] view in self?.showMoreMenu(from: view) }
+        tabs.menuForFolder = { [weak self] id in
+            guard let self, let folder = self.store.folder(id: id) else { return nil }
+            return MenuBuilder.folderContextMenu(for: folder, actions: self.actions)
+        }
+        tabs.onRename = { [weak self] id, name in self?.actions.renameFolder(id, to: name) }
+        tabs.onRenameEnd = { [weak self] hadFocus in if hadFocus { self?.focusRoot() } }
+        tabs.onMoveFolder = { [weak self] id, gap in self?.moveFolder(id, toGap: gap) }
+        tabs.onDropNote = { [weak self] noteId, folderId in self?.actions.move(noteId, toFolder: folderId) }
+        tabs.onDropPayload = { [weak self] payload, folderId in self?.createNote(from: payload, in: folderId) }
     }
 
-    /// The tab that belongs to the screen. Search keeps the tab of the screen it started from.
-    var activeFolderTab: FolderTabRailView.Kind {
+    /// The chip that belongs to the screen. Search keeps the chip of the screen it started from.
+    var activeFolderTab: FolderTabsView.Kind? {
         switch search?.origin ?? screen {
         case .folder(let id): return .folder(id)
         case .scratch: return .scratch
-        case .folders, .archive, .archivedFolder: return .allFolders
+        case .archive, .archivedFolder: return nil
         }
     }
 
-    /// Rebuilds the tabs from the store and marks the one of the current screen.
+    /// Rebuilds the chips from the store and marks the one of the current screen.
     func updateFolderTabs() {
-        guard let folderTabs else { return }
-        var on = env.settings.folderTabsEnabled
-        // In the header: not while the search field or an archive title is there.
-        var hosted = false
-        if on, FolderTabRailView.style == .header {
-            switch screen {
-            // The folder list shows every folder itself.
-            case .archive, .archivedFolder, .folders: on = false
-            default: on = search == nil
-            }
-            hosted = on
-        }
-        header?.hostsTabs = hosted
-        folderTabs.isHidden = !on
-        guard on else { return }
+        guard header != nil else { return }
+        let tabs = folderTabs
         if case .scratch(let day) = screen {
             let s = env.scratch
-            folderTabs.scratchTitle = s.title(for: day)
-            folderTabs.scratchStepper = (s.days().contains { $0 < day }, day < s.todayKey)
+            tabs.scratchTitle = s.title(for: day)
+            tabs.scratchStepper = (s.days().contains { $0 < day }, day < s.todayKey)
         }
-        folderTabs.reload(folders: store.folders(), showsScratch: env.settings.scratchEnabled, active: activeFolderTab)
-        layoutFolderTabs()
+        tabs.scratchToolTip = scratchToolTip
+        tabs.reload(folders: store.folders(), counts: folderCounts(), showsScratch: env.settings.scratchEnabled,
+                    active: activeFolderTab)
     }
 
-    /// Places the rail from the top of the panel, beside the header. It ends where the notes end (the last
-    /// card or folder row), so the panel is never taller than its content. The tabs that do not fit
-    /// scroll. A very short or empty list still leaves room for `minimumTabs` small tabs, otherwise
-    /// there would be no tab to leave it with.
-    func layoutFolderTabs() {
-        guard let v = rootView, let folderTabs, !folderTabs.isHidden else { return }
-        let m = Metrics.outerMargin
-        if FolderTabRailView.style == .header {
-            let f = v.convert(header.tabsFrame, from: header)
-            if folderTabs.superview === v, v.subviews.last !== folderTabs { v.addSubview(folderTabs, positioned: .above, relativeTo: header) }
-            if folderTabs.frame != f { folderTabs.frame = f }
-            folderTabs.layoutTabs()
-            return
-        }
-        if FolderTabs.horizontal {
-            // A bar under the header, as wide as the header pill.
-            let c = columnFrame
-            let f = NSRect(x: c.minX + m, y: m + Metrics.headerHeight + Metrics.gap, width: max(0, c.width - 2 * m),
-                           height: FolderTabRailView.barHeight)
-            if folderTabs.frame != f { folderTabs.frame = f }
-            folderTabs.layoutTabs()
-            return
-        }
-        let top = m
-        let column = columnFrame
-        let w = railInset + FolderTabRailView.tuck
-        folderTabs.railOnLeft = railOnLeft
-        let x = railOnLeft ? column.minX - railInset : column.maxX - FolderTabRailView.tuck
-        let panel = max(0, v.bounds.height - top - m)
-        let notes = min(v.bounds.height, listContentHeight) - m - top
-        let available = min(panel, max(notes, folderTabs.minimumHeight))
-        let f = NSRect(x: x, y: top, width: w, height: folderTabs.fittingHeight(available: available))
-        if folderTabs.frame != f { folderTabs.frame = f }
-        folderTabs.layoutTabs()
-    }
-
-    /// Height of the rail from the top of the panel (0 while the tabs are off).
-    /// Height the bar under the header takes from the lists (0 unless the tabs are a bar).
-    var tabBarInset: CGFloat {
-        env.settings.folderTabsEnabled && FolderTabRailView.style == .bar ? Metrics.gap + FolderTabRailView.barHeight : 0
-    }
-
-    public var railHeight: CGFloat {
-        guard let v = rootView, let folderTabs, !folderTabs.isHidden, !FolderTabs.horizontal else { return 0 }
-        return min(v.bounds.height, folderTabs.frame.maxY + Metrics.outerMargin)
-    }
-
-    func folderTabPressed(_ kind: FolderTabRailView.Kind) {
+    func folderTabPressed(_ kind: FolderTabsView.Kind) {
         switch kind {
         case .scratch: showScratch(edit: false)
         case .folder(let id): showFolder(id)
-        case .allFolders: showFolderList()
+        case .more: break
         }
     }
 
-    /// Header style: what the folder list had besides the folders.
-    func showFolderTabsMoreMenu(from view: NSView) {
+    /// The "…" button: what the folder list had besides the folders.
+    func moreMenu() -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
-        m.addItem(ClosureMenuItem("New Folder", key: "", symbol: "folder.badge.plus") { [weak self] in self?.actions.newFolder() })
-        let archive = NSMenuItem(title: "Archive", action: nil, keyEquivalent: "")
-        archive.image = Symbols.image("archivebox", size: 13)
-        archive.submenu = MenuBuilder.archiveMenu(actions: actions)
-        m.addItem(archive)
+        m.addItem(ClosureMenuItem("New Folder", key: "n", modifiers: [.command, .shift], symbol: "folder.badge.plus") { [weak self] in
+            self?.actions.newFolder()
+        })
+        m.addItem(.separator())
+        func submenu(_ title: String, symbol: String, count: Int, _ menu: NSMenu) -> NSMenuItem {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.image = Symbols.image(symbol, size: 13)
+            item.submenu = menu
+            if count > 0 { item.badge = NSMenuItemBadge(count: count) }
+            return item
+        }
+        m.addItem(submenu("Archive", symbol: "archivebox", count: store.archivedNotes().count + store.archivedFolders().count,
+                          MenuBuilder.archiveMenu(actions: actions)))
+        // Listed whatever Keep deleted items says (it only sets how long). Empty: nothing to open.
+        let trash = store.trashedNotes().count + store.trashedFolders().count
+        let deleted = submenu("Recently Deleted", symbol: "trash", count: trash, MenuBuilder.trashMenu(actions: actions))
+        deleted.isEnabled = trash > 0
+        m.addItem(deleted)
         m.addItem(.separator())
         m.addItem(ClosureMenuItem("Settings…", key: ",", symbol: "gearshape") { [weak self] in self?.env.controller?.openSettings() })
+        return m
+    }
+
+    func showMoreMenu(from view: NSView) {
+        let m = moreMenu()
+        if let hook = menuPopUpHook { hook(m); return }
         m.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.maxY + 6), in: view)
     }
 
-    func folderTabsSettingsChanged() {
-        guard rootView != nil else { return }
-        updateFolderTabs()
-        rootView.needsLayout = true
-        layoutViews()
+    // MARK: Rename
+
+    /// Rename in place on the folder's chip. While the chips do not show (search, the archive), the
+    /// folder opens first.
+    func beginRenameFolder(_ id: FolderID) {
+        guard store.folder(id: id) != nil else { return }
+        if !header.showsTabs { showFolder(id) }
+        rootView.layoutSubtreeIfNeeded()
+        folderTabs.beginRename(id)
+    }
+
+    // MARK: Reorder
+
+    /// A chip was dropped in the gap before chip `gap`. A folder stays inside its pinned or unpinned
+    /// group (pinned folders sort first).
+    func moveFolder(_ id: FolderID, toGap gap: Int) {
+        let folders = store.folders()
+        guard let from = folders.firstIndex(where: { $0.id == id }) else { return }
+        var dest = gap > from ? gap - 1 : gap
+        let pinnedCount = folders.filter(\.isPinned).count
+        let zone = folders[from].isPinned ? 0...max(0, pinnedCount - 1) : pinnedCount...max(pinnedCount, folders.count - 1)
+        dest = max(zone.lowerBound, min(zone.upperBound, dest))
+        if dest != from { actions.reorderFolder(id, toIndex: dest) }
+    }
+
+    // MARK: Next / previous
+
+    /// ⌃Tab / ⌃⇧Tab, `gt` / `gT`: the next or previous chip (Scratch, then the folders), around the
+    /// ends. Not in search and not on the archive screens (the chips do not show there).
+    func stepFolderTab(_ delta: Int) {
+        guard header.showsTabs, let current = activeFolderTab else { NSSound.beep(); return }
+        var strip: [FolderTabsView.Kind] = env.settings.scratchEnabled ? [.scratch] : []
+        strip += store.folders().map { .folder($0.id) }
+        guard strip.count > 1, let i = strip.firstIndex(of: current) else { NSSound.beep(); return }
+        folderTabPressed(strip[((i + delta) % strip.count + strip.count) % strip.count])
     }
 }

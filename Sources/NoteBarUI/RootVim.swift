@@ -5,13 +5,14 @@ import NoteBarCore
 /// (`EditorEvent.vim`).
 ///
 /// Root view (no text being edited):
-/// - Folder list: j / k select, l / ↩ open, R / r / cw rename, o new folder, gg / G first / last,
-///   gp pin, gc color menu, gx / dd delete (with the usual alert, undoable). Letters no longer type
-///   into search.
 /// - Notes list and search results: j / k select, l / ↩ edit, h goes back (like ←), gg / G, and the
 ///   card keys on the selected note without editing it: gp gc gm gy ge ga gx dd za zc zo. Deletes ask first.
 ///   gj / gk move the selected note down / up in its folder (like ⌥⇧⌘↓ / ↑; not in search results).
+///   Letters do not type into search.
+/// - gt / gT: the next / previous folder chip of the header (like ⌃Tab / ⌃⇧Tab).
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
+///
+/// Folders have no keyboard selection: rename, pin, color, archive, and delete are in the chip's menu.
 extension NotesRootViewController {
     static let vimWindowChordTimeout: TimeInterval = 1.5
 
@@ -50,92 +51,51 @@ extension NotesRootViewController {
             }
         }
         if ch == "/" { beginSearch(); return true }
-        if ["g", "d", "z"].contains(ch) || (ch == "c" && !notesVisible) {
+        if ["g", "d", "z"].contains(ch) {
             vimListPrefix = (ch, Date())
             return true
         }
         if ch == "G" { moveSelection(10_000); return true }
-        if notesVisible {
-            switch ch {
-            case "j": moveSelection(1); return true
-            case "k": moveSelection(-1); return true
-            case "l": activateSelection(); return true
-            case "h":
-                if search == nil { goBack() }
-                return true
-            default: break
-            }
-        } else {
-            switch ch {
-            case "j": moveSelection(1); return true
-            case "k": moveSelection(-1); return true
-            case "l": activateSelection(); return true
-            case "R", "r":
-                guard let id = folderList.selectedFolderID else { NSSound.beep(); return true }
-                beginRenameFolder(id)
-                return true
-            case "o", "O":
-                actions.newFolder()
-                return true
-            default: break
-            }
+        switch ch {
+        case "j": moveSelection(1); return true
+        case "k": moveSelection(-1); return true
+        case "l": activateSelection(); return true
+        case "h":
+            // Back from the archive (like ←). A folder has nothing above it.
+            if search == nil, isArchiveScreen { goBack() }
+            return true
+        default: break
         }
-        // Other letters do nothing (they no longer start a search on the folder list / in results).
+        // Other letters do nothing (they do not start a search in the results).
         if let scalar = ch.unicodeScalars.first, CharacterSet.alphanumerics.union(.punctuationCharacters).contains(scalar) {
             return true
         }
         return false
     }
 
-    /// Two-key commands on the selected note / folder. False: not a command here (beep).
+    /// Two-key commands: gg, gt / gT, and those on the selected note. False: not a command here (beep).
     func runVimListChord(_ chord: String) -> Bool {
         if chord == "gg" { moveSelection(-10_000); return true }
-        if notesVisible {
-            guard let id = notesList.selectedNoteID, let note = store.note(id: id) else { return false }
-            switch chord {
-            case "gp": actions.togglePin(id)
-            case "gc": popUpCardMenu(MenuBuilder.gearMenu(for: note, actions: actions), for: id)
-            case "gm": showMoveMenu(for: id)
-            case "gj", "gk":
-                // Reorder within the folder; search results are not a folder order.
-                guard search == nil, !store.isInArchive(note) else { return false }
-                actions.move(id, chord == "gj" ? .down : .up)
-            case "gy": actions.copyText(id)
-            case "ge": toggleExpand(id)
-            case "ga": actions.toggleArchive(id)
-            case "gx", "dd": actions.delete(id)
-            case "za": actions.toggleFold(id)
-            case "zc": actions.setFolded(true, id: id)
-            case "zo": actions.setFolded(false, id: id)
-            default: return false
-            }
-            return true
-        }
-        guard let id = folderList.selectedFolderID, let folder = store.folder(id: id) else { return false }
+        if chord == "gt" || chord == "gT" { stepFolderTab(chord == "gt" ? 1 : -1); return true }
+        guard let id = notesList.selectedNoteID, let note = store.note(id: id) else { return false }
         switch chord {
-        case "gp": actions.togglePinFolder(id)
-        case "gc":
-            let m = NSMenu()
-            m.autoenablesItems = false
-            m.addItem(.sectionHeader(title: "Color"))
-            m.addItem(MenuBuilder.colorRowItem(current: folder.color, env: env) { [weak self] c in
-                self?.actions.setFolderColor(c, id)
-            })
-            popUpFolderMenu(m, for: id)
-        case "ga": actions.toggleArchiveFolder(id)
-        case "gx", "dd": actions.deleteFolder(id)
-        case "cw": beginRenameFolder(id)
+        case "gp": actions.togglePin(id)
+        case "gc": popUpCardMenu(MenuBuilder.gearMenu(for: note, actions: actions), for: id)
+        case "gm": showMoveMenu(for: id)
+        case "gj", "gk":
+            // Reorder within the folder; search results are not a folder order.
+            guard search == nil, !store.isInArchive(note) else { return false }
+            actions.move(id, chord == "gj" ? .down : .up)
+        case "gy": actions.copyText(id)
+        case "ge": toggleExpand(id)
+        case "ga": actions.toggleArchive(id)
+        case "gx", "dd": actions.delete(id)
+        case "za": actions.toggleFold(id)
+        case "zc": actions.setFolded(true, id: id)
+        case "zo": actions.setFolded(false, id: id)
         default: return false
         }
         return true
-    }
-
-    /// Pops a menu up at the left of a folder row.
-    func popUpFolderMenu(_ menu: NSMenu, for id: FolderID) {
-        if let hook = menuPopUpHook { hook(menu); return }
-        guard let row = folderList.row(for: id) else { return }
-        folderList.scrollToVisible(row)
-        menu.popUp(positioning: nil, at: NSPoint(x: 12, y: row.isFlipped ? row.bounds.maxY - 4 : row.bounds.minY + 4), in: row)
     }
 
     /// The card ⌃W J / K starts from: the edited card, else the selected one (nil: none).
@@ -147,7 +107,6 @@ extension NotesRootViewController {
 
     /// ⌃W J / ⌃W K: edit the neighbor card (in Normal mode). A folded card unfolds first.
     func vimFocusCard(from id: NoteID?, delta: Int) {
-        guard notesVisible else { NSSound.beep(); return }
         let cards = notesList.cards
         guard !cards.isEmpty else { NSSound.beep(); return }
         let i = id.flatMap { cid in cards.firstIndex { $0.note.id == cid } }

@@ -33,7 +33,7 @@ final class SearchScopeBar: NSView {
     override var isFlipped: Bool { true }
     override var fittingSize: NSSize { NSSize(width: frame.width, height: Metrics.scopeBarHeight) }
 
-    /// `folderName == nil` hides the toggle (searching from the folder list always covers all folders).
+    /// `folderName == nil` hides the toggle (search from Scratch always covers all folders).
     /// `inArchive`: search started in the archive (only archived notes; no toggles).
     func update(resultCount: Int?, allFolders: Bool, folderName: String?, includeArchived: Bool = false, inArchive: Bool = false) {
         if let n = resultCount {

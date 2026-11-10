@@ -52,13 +52,10 @@ public final class PanelController {
         window.onToggleFloat = { [weak self] in self?.env.controller?.toggleFloatPanel() }
 
         container.side = env.settings.panelSide
-        container.rail = FolderTabs.railWidth(env.settings)
         container.resizeHandle.onResize = { [weak self] proposed in
-            guard let self else { return }
-            // A width set by hand stops following the screen. The handle reports the window width,
-            // which includes the folder tab rail.
-            self.env.settings.panelWidthIsAutomatic = false
-            self.env.settings.panelWidth = Double(PanelSizing.clamp(Double(proposed - FolderTabs.railWidth(self.env.settings))))
+            // A width set by hand stops following the screen.
+            self?.env.settings.panelWidthIsAutomatic = false
+            self?.env.settings.panelWidth = Double(PanelSizing.clamp(Double(proposed)))
         }
 
         autoHide.isPanelVisible = { [weak self] in self?.isVisible ?? false }
@@ -68,7 +65,7 @@ public final class PanelController {
             guard let self else { return false }
             return self.isVisible && self.screenID == screen.nbDisplayID
         }
-        hotSide.contentHeight = { [weak self] in self?.renderedHeight }
+        hotSide.contentHeight = { [weak self] in self?.env.presenter?.contentHeight }
         // Passive: the cursor resting on the edge must not take focus from the app the user types in.
         hotSide.onTrigger = { [weak self] screen in self?.show(on: screen, makeKey: false) }
 
@@ -124,7 +121,6 @@ public final class PanelController {
         isVisible = true
         screenID = target.nbDisplayID
         container.side = g.side
-        container.rail = g.rail
         updateSolidRegion()
         let slide = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         // Start from the hidden position (or fade in place when Reduce Motion is on). If a hide animation
@@ -174,7 +170,7 @@ public final class PanelController {
         let g = geometry(for: screen)
         let core = g.shownFrame
         let sf = screen.frame
-        let ch = self.renderedHeight ?? 0
+        let ch = env.presenter?.contentHeight ?? 0
         let renderedHeight = ch > 0 ? min(ch, core.height) : core.height
         let renderedY = core.maxY - renderedHeight
         let pad: CGFloat = 8
@@ -249,15 +245,7 @@ public final class PanelController {
     // MARK: Frames
 
     private func geometry(for screen: NSScreen) -> PanelGeometry {
-        screen.nbGeometry(side: env.settings.panelSide, width: PanelSizing.requestedWidth(env.settings),
-                          rail: FolderTabs.railWidth(env.settings))
-    }
-
-    /// Height of everything the panel shows, from the top: the content or the folder tab rail,
-    /// whichever ends lower. Used for the passive hover zone and the dynamic Hot Side.
-    private var renderedHeight: CGFloat? {
-        guard let p = env.presenter else { return nil }
-        return max(p.contentHeight, p.railHeight)
+        screen.nbGeometry(side: env.settings.panelSide, width: PanelSizing.requestedWidth(env.settings))
     }
 
     /// Animates (or sets) frame + alpha. Every call supersedes earlier animations.
@@ -289,8 +277,6 @@ public final class PanelController {
     /// Re-applies the frame for the current settings / screens without animation.
     private func relayout() {
         container.side = env.settings.panelSide
-        container.rail = FolderTabs.railWidth(env.settings)
-        updateSolidRegion()
         if isVisible {
             if NSScreen.nbScreen(withID: screenID) == nil { screenID = NSScreen.nbScreenWithMouse?.nbDisplayID }
             if let screen = currentScreen { setFrame(geometry(for: screen).shownFrame, alpha: 1, duration: 0) }
@@ -306,7 +292,6 @@ public final class PanelController {
     private func updateSolidRegion() {
         let h = env.presenter?.contentHeight ?? 0
         container.solidHeight = h > 0 ? h : nil
-        container.railSolidHeight = env.presenter?.railHeight ?? 0
     }
 
     // MARK: Observers
@@ -332,7 +317,7 @@ public final class PanelController {
 
     private func settingsChanged(_ key: String?) {
         switch key {
-        case "panelSide", "panelWidth", "panelWidthIsAutomatic", "folderTabsEnabled":
+        case "panelSide", "panelWidth", "panelWidthIsAutomatic":
             // HotSideController observes panelSide / hotSideEnabled itself.
             relayout()
         case "autoHide", "pinnedOpen":

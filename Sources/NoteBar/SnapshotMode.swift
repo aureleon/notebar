@@ -76,13 +76,12 @@ enum SnapshotMode {
         // The same width rule as the panel: automatic (27 % of the main screen, 380...600) unless the user set one.
         let panelWidth = PanelSizing.width(requested: PanelSizing.requestedWidth(settings),
                                            visibleWidth: NSScreen.main?.visibleFrame.width ?? 0)
-            + FolderTabs.railWidth(settings)
         let panelSize = NSSize(width: panelWidth, height: 760)
         setSize(panelSize)
 
-        root.showFolderList()
-        render("01-folders-light", dark: false)
-        render("02-folders-dark", dark: true)
+        root.showFolder(seeded.work)
+        render("01-folder-light", dark: false)
+        render("02-folder-dark", dark: true)
 
         root.showFolder(seeded.notes)
         probe.createAllEditors()

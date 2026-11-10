@@ -3,7 +3,7 @@ import Foundation
 /// What changed in the store. Posted as `Notification.Name.noteStoreDidChange`
 /// with `userInfo[StoreChange.userInfoKey] as? StoreChange`.
 public enum StoreChange: Sendable, Hashable {
-    /// Folder list changed (create/rename/delete/reorder/pin, or note counts changed).
+    /// The folders changed (create/rename/delete/reorder/pin, or note counts changed).
     case folders
     /// The set or order of notes in a folder changed (create/delete/move/reorder/pin).
     case notes(folderId: FolderID)
@@ -105,7 +105,7 @@ public protocol NoteStore: AnyObject {
 
     /// Never archives the last visible folder.
     func archiveFolder(id: FolderID)
-    /// Puts the folder back in the folder list. A name that is taken now gets a number ("Work 2").
+    /// Puts the folder back with the visible folders. A name that is taken now gets a number ("Work 2").
     func unarchiveFolder(id: FolderID)
     /// Archived folders that are not in the trash, most recently archived first.
     func archivedFolders() -> [Folder]

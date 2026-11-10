@@ -80,21 +80,6 @@ public enum PanelWidth {
     public static let fallback: CGFloat = 380
 }
 
-/// The folder tab rail (`AppSettings.folderTabsEnabled`): binder tabs that hang off the cards on the
-/// panel edge that faces the screen centre. The panel window is wider by the rail, so the cards keep
-/// their width. Shared by the panel (window frame, click region) and the notes UI (layout).
-public enum FolderTabs {
-    /// Width the rail adds to the panel window.
-    public static let railWidth: CGFloat = 30
-    /// The rail width for the current settings (0 while the tabs are off).
-    @MainActor public static func railWidth(_ settings: AppSettings) -> CGFloat {
-        settings.folderTabsEnabled && !horizontal ? railWidth : 0
-    }
-    /// Prototype switch: the tabs are a bar under the header instead of a rail beside the notes, so
-    /// the panel is not wider.
-    nonisolated(unsafe) public static var horizontal = false
-}
-
 public extension Notification.Name {
     /// userInfo["key"] = the property name that changed (String).
     static let appSettingsDidChange = Notification.Name("NoteBar.appSettingsDidChange")
@@ -132,7 +117,6 @@ public final class AppSettings: ObservableObject {
         // A saved width without the flag was set by the user before automatic width existed: keep it fixed.
         panelWidthIsAutomatic = get("panelWidthIsAutomatic", defaults.object(forKey: "panelWidth") == nil)
         blurBackdrop = get("blurBackdrop", true)
-        folderTabsEnabled = get("folderTabsEnabled", false)
         if !defaults.bool(forKey: "migratedHotSideOptIn") {
             defaults.removeObject(forKey: "hotSideEnabled")
             defaults.set(true, forKey: "migratedHotSideOptIn")
@@ -188,9 +172,6 @@ public final class AppSettings: ObservableObject {
     @Published public var hotSideDelay: Double { didSet { save("hotSideDelay", hotSideDelay) } }
     /// Blur the screen area behind the panel (Notification Center style). Off = no backdrop.
     @Published public var blurBackdrop: Bool { didSet { save("blurBackdrop", blurBackdrop) } }
-    /// Experimental: folder tabs on the panel edge that faces the screen centre (`FolderTabs`). One
-    /// click switches folder. Off by default.
-    @Published public var folderTabsEnabled: Bool { didSet { save("folderTabsEnabled", folderTabsEnabled) } }
     /// Hide the panel when another app/window becomes active.
     @Published public var autoHide: Bool { didSet { save("autoHide", autoHide) } }
     /// Keep the panel open (overrides autoHide).
@@ -206,7 +187,7 @@ public final class AppSettings: ObservableObject {
     @Published public var hideMarkup: Bool { didSet { save("hideMarkup", hideMarkup) } }
     @Published public var defaultNoteMode: NoteMode { didSet { save("defaultNoteMode", defaultNoteMode.rawValue) } }
     /// Vim keys: notes open in Normal mode (block caret), motions and operators, `/` search, `:` commands,
-    /// ⌃W J / ⌃W K between cards, j / k / l / R in the folder list. Off by default (opt-in).
+    /// ⌃W J / ⌃W K between cards, gt / gT between folders. Off by default (opt-in).
     @Published public var vimKeybinds: Bool { didSet { save("vimKeybinds", vimKeybinds) } }
     /// Checking an item moves it below the open items of its checklist, and an "N completed" row
     /// can fold the checked items. On by default.
@@ -227,7 +208,7 @@ public final class AppSettings: ObservableObject {
     public private(set) var deletedItemsRetentionChangedAt: Date? {
         didSet { defaults.set(deletedItemsRetentionChangedAt, forKey: "deletedItemsRetentionChangedAt") }
     }
-    /// Folder shown when the panel opens (nil = folder list).
+    /// The folder that was open last. It shows when the panel opens (nil = the first folder).
     @Published public var lastFolderId: FolderID? { didSet { save("lastFolderId", lastFolderId.map { NSNumber(value: $0) }) } }
 
     // MARK: Scratch
