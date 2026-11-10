@@ -387,7 +387,10 @@ extension MarkdownNoteEditor {
                 let cmds: [Character: VimCardCommand] = ["p": .togglePin, "c": .showColorMenu, "m": .showMoveMenu,
                                                          "y": .copyNote, "f": .showFormatMenu, "x": .delete,
                                                          "e": .toggleExpand, "a": .toggleArchive]
-                if vim.pendingOperator == nil, let cmd = cmds[c] {
+                if vim.pendingOperator == nil, c == "t" || c == "T" {
+                    // gt / gT: the next / previous folder chip, as on the notes list.
+                    send(.stepFolder(c == "t" ? 1 : -1))
+                } else if vim.pendingOperator == nil, let cmd = cmds[c] {
                     send(cmd)
                 } else if vim.pendingOperator == nil, c == "j" || c == "k" {
                     // gj / gk: visual lines, the same as j / k here.

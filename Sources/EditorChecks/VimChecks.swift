@@ -213,6 +213,32 @@ enum VimChecks {
     // MARK: VimEx
 
     static func exChecks() {
+        Check.equal(VimEx.parse("folder Work"), .card(.openFolder("Work")), ":folder name")
+        Check.equal(VimEx.parse("f wo"), .card(.openFolder("wo")), ":f")
+        Check.equal(VimEx.parse("b Reading list"), .card(.openFolder("Reading list")), ":b, a name with a space")
+        Check.equal(VimEx.parse("folder"), .error("Usage: :folder name"), ":folder needs a name")
+        Check.equal(VimEx.parse("fo"), .card(.setFolded(true)), ":fo is still fold")
+        Check.equal(VimEx.parse("tabn"), .card(.stepFolder(1)), ":tabn")
+        Check.equal(VimEx.parse("bp"), .card(.stepFolder(-1)), ":bp")
+        Check.equal(VimEx.parse("scratch"), .card(.openScratch), ":scratch")
+        Check.equal(VimEx.parse("newfolder"), .card(.newFolder("")), ":newfolder")
+        Check.equal(VimEx.parse("nf Trip plans"), .card(.newFolder("Trip plans")), ":nf name")
+        Check.equal(VimEx.parse("rename"), .card(.renameFolder("")), ":rename")
+        Check.equal(VimEx.parse("rename Home"), .card(.renameFolder("Home")), ":rename name")
+        Check.equal(VimEx.parse("pinfolder"), .card(.toggleFolderPin), ":pinfolder")
+        Check.equal(VimEx.parse("archivefolder"), .card(.archiveFolder), ":archivefolder")
+        Check.equal(VimEx.parse("deletefolder"), .card(.deleteFolder), ":deletefolder")
+        Check.equal(VimEx.completions("f w", folders: ["Work", "Ideas", "Network"])?.matches, ["Work", "Network"], ":f completes folder names")
+        Check.equal(VimEx.completions("rename w", folders: ["Work"])?.matches, nil, ":rename does not complete")
+        do {
+            let h = harness("hello")
+            h.focus(at: 0)
+            h.editor.vimKeysForTesting("gt")
+            h.editor.vimKeysForTesting("gT")
+            let steps = h.events.compactMap { e -> Int? in if case .vim(.stepFolder(let d)) = e { return d }; return nil }
+            Check.equal(steps, [1, -1], "gt / gT in Normal mode ask the host for the next / previous folder")
+            Check.equal(h.body, "hello", "gt / gT do not edit")
+        }
         Check.equal(VimEx.parse("pin"), .card(.togglePin), ":pin")
         Check.equal(VimEx.parse("p"), .card(.togglePin), ":p")
         Check.equal(VimEx.parse("fold"), .card(.setFolded(true)), ":fold")

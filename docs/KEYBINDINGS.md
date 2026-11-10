@@ -90,7 +90,8 @@ folder chip (right click). In the rename field on a chip: ↩ commits, Esc cance
 | Other letters | Swallowed (do nothing) |
 
 The folder keys of the old folder list (r, R, cw, o, O, and gp gc ga gx dd on a folder) are gone with
-it. `gt` / `gT` work only here, not in an editor.
+it. `gt` / `gT` also work in an editor's Normal mode, and the `:` commands of section 8 open and
+change folders.
 
 ## 5. Editor, all modes (plain editing, or vim Insert mode)
 
@@ -190,6 +191,14 @@ it. `gt` / `gT` work only here, not in an editor.
 | :color [name] | Color menu, or set the color |
 | :mode [standard\|code\|plain] | Mode menu, or set the mode |
 | :move [folder] :m :mv | Move menu, or move to the folder. Tab / ⇧Tab complete and cycle the folder name |
+| :folder name :f :b | Open the folder (exact name, else the first that starts with or contains the text). Tab / ⇧Tab complete |
+| :tabn :bn / :tabp :bp | Next / previous chip of the header (like gt / gT) |
+| :scratch :sc | Today's Scratch note, ready to type |
+| :newfolder [name] :nf :mkdir | New folder, opened. Without a name its chip is ready for one |
+| :rename [name] :ren | Rename the open folder. Without a name its chip becomes the name field |
+| :pinfolder :pf | Pin / unpin the open folder |
+| :archivefolder :af | Archive the open folder (not the last one) |
+| :deletefolder :df :rmdir | Delete the open folder, after the alert (not the last one) |
 
 ## 9. Text fields
 

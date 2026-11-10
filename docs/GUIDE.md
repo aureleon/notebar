@@ -210,7 +210,9 @@ NoteBar adds these keys:
 | Archive or unarchive the note | `ga`, `:archive`, `:unarchive` |
 | Delete the note (with the usual alert, undoable) | `gx`, `:delete` (`dd` on a selected note) |
 | Stop editing | `:q` |
-| Next or previous folder | `gt` and `gT` on the notes list (like ⌃Tab and ⌃⇧Tab) |
+| Next or previous folder | `gt` and `gT`, on the notes list and in a note (like ⌃Tab and ⌃⇧Tab) |
+| Open a folder by name | `:folder name` (Tab completes), `:scratch` for Scratch |
+| Change the open folder | `:newfolder [name]`, `:rename [name]`, `:pinfolder`, `:archivefolder`, `:deletefolder` |
 | Go back from the Archive | ⌃[ (in Insert mode, ⌃[ is Esc) |
 
 ## Your data

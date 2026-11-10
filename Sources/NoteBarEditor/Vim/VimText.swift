@@ -498,12 +498,22 @@ public enum VimEx {
             return .card(.setMode(m))
         case "move", "m", "mv":
             return arg.isEmpty ? .card(.showMoveMenu) : .card(.moveToFolder(arg))
+        case "folder", "f", "b", "buffer":
+            return arg.isEmpty ? .error("Usage: :folder name") : .card(.openFolder(arg))
+        case "tabn", "tabnext", "bn", "bnext": return .card(.stepFolder(1))
+        case "tabp", "tabprevious", "bp", "bprevious": return .card(.stepFolder(-1))
+        case "scratch", "sc": return .card(.openScratch)
+        case "newfolder", "nf", "mkdir": return .card(.newFolder(arg))
+        case "rename", "ren": return .card(.renameFolder(arg))
+        case "pinfolder", "pf": return .card(.toggleFolderPin)
+        case "archivefolder", "af": return .card(.archiveFolder)
+        case "deletefolder", "df", "rmdir": return .card(.deleteFolder)
         default:
             return .error("Not a command: \(trimmed)")
         }
     }
 
-    /// Tab completion of a `:` line. `:move` / `:m` / `:mv` complete a folder name from `folders`:
+    /// Tab completion of a `:` line. `:move` / `:m` / `:mv` and `:folder` / `:f` / `:b` complete a folder name from `folders`:
     /// names that start with the typed text first, then names that contain it (any case), each in
     /// list order. Returns the text before the name (`head`, ends with a space) and the matches; nil
     /// when the line is not a command that completes.
@@ -511,7 +521,7 @@ public enum VimEx {
         let lead = line.prefix { $0 == " " }
         let rest = line.dropFirst(lead.count)
         let cmd = rest.prefix { $0 != " " }
-        guard ["move", "m", "mv"].contains(cmd.lowercased()) else { return nil }
+        guard ["move", "m", "mv", "folder", "f", "b", "buffer"].contains(cmd.lowercased()) else { return nil }
         let arg = rest.dropFirst(cmd.count).drop { $0 == " " }
         let typed = arg.lowercased()
         let head = String(lead) + String(cmd) + " "

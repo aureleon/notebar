@@ -62,6 +62,18 @@ public enum VimCardCommand: Equatable, Sendable {
     case focusNextCard, focusPreviousCard
     /// ⌃[ in Normal mode: go up (like ⌘[).
     case navigateUp
+    /// `gt` / `gT`, `:tabn` / `:tabp`: the next (+1) / previous (-1) chip of the header.
+    case stepFolder(Int)
+    /// `:folder <name>`: open the folder (the host finds it by name).
+    case openFolder(String)
+    /// `:scratch`: today's Scratch note, ready to type.
+    case openScratch
+    /// `:newfolder [name]`: a new folder, opened. Without a name its chip is ready for one.
+    case newFolder(String)
+    /// `:rename [name]`: rename the open folder. Without a name its chip becomes the name field.
+    case renameFolder(String)
+    /// `:pinfolder`, `:archivefolder`, `:deletefolder`: on the open folder (delete asks first).
+    case toggleFolderPin, archiveFolder, deleteFolder
     /// The editor could not run a command (unknown `:` command, no match): the host shows `message`.
     case message(String)
 }

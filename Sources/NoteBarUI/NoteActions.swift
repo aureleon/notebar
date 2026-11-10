@@ -307,11 +307,13 @@ final class NoteActions {
     // MARK: Folders
 
     /// The new folder opens, and its chip is ready for a name.
-    func newFolder() {
-        let f = store.createFolder(name: uniqueFolderName("New Folder", in: store))
+    /// `named` (vim `:newfolder name`): the folder has its name already.
+    func newFolder(named: String? = nil) {
+        let given = named?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let f = store.createFolder(name: uniqueFolderName(given?.isEmpty == false ? given! : "New Folder", in: store))
         registerUndo("New Folder") { $0.trashFolderUndoably(f.id, name: "New Folder") }
         root?.showFolder(f.id)
-        root?.beginRenameFolder(f.id)
+        if given?.isEmpty != false { root?.beginRenameFolder(f.id) }
     }
 
     func renameFolder(_ id: FolderID, to name: String) {

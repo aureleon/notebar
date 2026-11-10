@@ -1728,6 +1728,58 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
         Check.expect(false, "vim: gj / gk need a note with a same-zone note below (\(order))")
     }
     probe.captureMenus(nil)
+
+    // Folder commands from an editor (`:` commands and gt / gT send them).
+    vc.showFolder(folders.notes.id)
+    probe.layoutNow(); spin()
+    if let nid = probe.displayedNoteIDs.first {
+        func cmd(_ c: VimCardCommand) {
+            let on = probe.displayedNoteIDs.first ?? nid
+            probe.vimCommand(c, on: on)
+            probe.layoutNow(); spin()
+        }
+        cmd(.openFolder("wor"))
+        Check.equal(vc.currentFolderId, folders.work.id, "vim: :folder opens a folder by the start of its name")
+        cmd(.openFolder("no such folder"))
+        Check.equal(vc.currentFolderId, folders.work.id, "vim: :folder with an unknown name stays")
+        Check.expect(probe.toastMessage?.hasPrefix("No folder") == true, "vim: and says so")
+        probe.dismissToast()
+        let before = vc.currentFolderId
+        cmd(.stepFolder(1))
+        Check.expect(vc.currentFolderId != before, "vim: gt from an editor goes to the next folder")
+        cmd(.stepFolder(-1))
+        Check.equal(vc.currentFolderId, before, "vim: gT goes back")
+        let count = store.folders().count
+        cmd(.newFolder("Vim made"))
+        let made = store.folders().first { $0.name == "Vim made" }
+        Check.expect(made != nil && store.folders().count == count + 1, "vim: :newfolder name makes the folder")
+        Check.equal(vc.currentFolderId, made?.id, "vim: and opens it")
+        Check.equal(probe.renamingFolderID, nil, "vim: a named new folder needs no rename")
+        if let made {
+            let n = store.createNote(in: made.id, body: "x", mode: .standard, position: .top)
+            probe.layoutNow(); spin()
+            probe.vimCommand(.renameFolder("Vim renamed"), on: n.id)
+            Check.equal(store.folder(id: made.id)?.name, "Vim renamed", "vim: :rename name renames the open folder")
+            probe.vimCommand(.toggleFolderPin, on: n.id)
+            Check.equal(store.folder(id: made.id)?.isPinned, true, "vim: :pinfolder pins it")
+            probe.vimCommand(.toggleFolderPin, on: n.id)
+            probe.vimCommand(.renameFolder(""), on: n.id)
+            probe.layoutNow(); spin()
+            Check.equal(probe.renamingFolderID, made.id, "vim: bare :rename starts the rename on the chip")
+            vc.showFolder(made.id)
+            probe.layoutNow(); spin()
+            probe.confirmDestructiveAlerts(true)
+            probe.vimCommand(.deleteFolder, on: n.id)
+            probe.confirmDestructiveAlerts(nil)
+            probe.layoutNow(); spin()
+            Check.equal(store.folder(id: made.id), nil, "vim: :deletefolder deletes the open folder")
+            Check.expect(vc.currentFolderId != nil && vc.currentFolderId != made.id, "vim: and another folder opens")
+            probe.commitDelete()
+            probe.dismissToast()
+        }
+    } else {
+        Check.expect(false, "vim: a note for the folder commands")
+    }
     settings.vimKeybinds = false
 }
 
