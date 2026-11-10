@@ -123,6 +123,12 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         folderTabs = FolderTabRailView(env: env)
         folderTabs.onSelect = { [weak self] kind in self?.folderTabPressed(kind) }
         folderTabs.onHeightChange = { [weak self] in self?.updateBackdrop() }
+        folderTabs.onStepDay = { [weak self] delta in self?.stepScratchDay(delta) }
+        folderTabs.onMore = { [weak self] view in self?.showFolderTabsMoreMenu(from: view) }
+        folderTabs.menuForFolder = { [weak self] id in
+            guard let self else { return nil }
+            return MenuBuilder.folderContextMenu(for: self.store.folder(id: id), actions: self.actions)
+        }
         // Lowest: the backdrop covers the spine, so in glass mode the tabs hang on the backdrop edge.
         for sub in [folderTabs!, backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
         notesList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
@@ -647,6 +653,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     func plusPressed() {
+        // Tabs in the header: + on Scratch starts a new entry.
+        if search == nil, isScratchScreen, header.hostsTabs { showScratch(edit: true); return }
         if search == nil, screen == .folders { actions.newFolder() } else { createNewNote() }
     }
 

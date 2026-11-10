@@ -35,6 +35,12 @@ final class FolderTabRailView: FlippedView {
     static let tuck: CGFloat = Metrics.outerMargin
 
     var onSelect: ((Kind) -> Void)?
+    /// Header style: ‹ › in the open Scratch tab (-1 an earlier day, +1 a later one), the menu of a
+    /// folder chip (right click), and the button at the end (New Folder, Archive, Settings).
+    var onStepDay: ((Int) -> Void)?
+    var menuForFolder: ((FolderID) -> NSMenu?)?
+    var onMore: ((NSView) -> Void)?
+    var scratchStepper: (back: Bool, forward: Bool)?
     /// The rail got taller or shorter (folders changed).
     var onHeightChange: (() -> Void)?
     var railOnLeft = true {
@@ -62,7 +68,10 @@ final class FolderTabRailView: FlippedView {
         allTab.symbolName = "list.bullet"
         allTab.toolTip = "All Folders"
         allTab.setAccessibilityLabel("All Folders")
-        allTab.onClick = { [weak self] in self?.onSelect?(.allFolders) }
+        allTab.onClick = { [weak self] in
+            guard let self else { return }
+            if Self.style == .header { self.onMore?(self.allTab) } else { self.onSelect?(.allFolders) }
+        }
         isHidden = true
         setAccessibilityRole(.tabGroup)
         setAccessibilityLabel("Folders")
@@ -96,6 +105,7 @@ final class FolderTabRailView: FlippedView {
             t.setAccessibilityLabel(f.name)
             t.noteColor = f.color
             t.onClick = { [weak self] in self?.onSelect?(.folder(f.id)) }
+            t.menuProvider = { [weak self] in self?.menuForFolder?(f.id) }
             if t.superview !== clip { clip.addSubview(t) }
             return t
         }
@@ -105,7 +115,13 @@ final class FolderTabRailView: FlippedView {
             t.isActive = t.kind == active
             t.railOnLeft = railOnLeft
         }
-        scratchTab?.title = Self.style == .header && active == .scratch ? scratchTitle : nil
+        let openScratch = Self.style == .header && active == .scratch
+        scratchTab?.title = openScratch ? scratchTitle : nil
+        scratchTab?.stepper = openScratch ? scratchStepper : nil
+        scratchTab?.onStep = { [weak self] in self?.onStepDay?($0) }
+        allTab.symbolName = Self.style == .header ? "ellipsis" : "list.bullet"
+        allTab.toolTip = Self.style == .header ? "Folders, Archive, and Settings" : "All Folders"
+        if Self.style == .header { allTab.isActive = false }
         updateTucks()
         restyle()
         needsLayout = true
@@ -223,13 +239,12 @@ final class FolderTabRailView: FlippedView {
         let d = bounds.height - 2 * pad
         var left = pad
         if let s = scratchTab {
-            let w = s.title == nil ? d : s.titleWidth + 38
+            let w = s.title == nil ? d : s.titleWidth + (s.stepper == nil ? 38 : 72)
             s.frame = NSRect(x: left, y: pad, width: w, height: d)
             left += w + Self.tabGap
         }
-        allTab.isHidden = inHeader
-        if !inHeader { allTab.frame = NSRect(x: bounds.width - pad - d, y: pad, width: d, height: d) }
-        let room = max(0, (inHeader ? bounds.width : allTab.frame.minX - Self.tabGap) - left)
+        allTab.frame = NSRect(x: bounds.width - pad - d, y: pad, width: d, height: d)
+        let room = max(0, allTab.frame.minX - Self.tabGap - left)
         clip.frame = NSRect(x: left, y: pad, width: room, height: d)
         var x: CGFloat = 0
         var frames: [NSRect] = []
@@ -431,6 +446,13 @@ final class FolderTabView: NSView {
     var isActive = false { didSet { if oldValue != isActive { image = nil; needsDisplay = true } } }
     var railOnLeft = true { didSet { if oldValue != railOnLeft { needsDisplay = true } } }
     var onClick: (() -> Void)?
+    var menuProvider: (() -> NSMenu?)?
+    override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
+    /// The open Scratch tab: ‹ day › (which way it can step).
+    var stepper: (back: Bool, forward: Bool)? { didSet { needsDisplay = true } }
+    var onStep: ((Int) -> Void)?
+    private var backRect: NSRect { NSRect(x: 27, y: 0, width: 16, height: bounds.height) }
+    private var forwardRect: NSRect { NSRect(x: bounds.width - 24, y: 0, width: 16, height: bounds.height) }
     /// How far the body reaches into the notes column (0: the tab ends at the spine).
     var tuck: CGFloat = FolderTabRailView.tuck { didSet { if oldValue != tuck { needsDisplay = true } } }
 
@@ -555,7 +577,14 @@ final class FolderTabView: NSView {
             if image == nil { image = Symbols.image(symbolName, size: fontSize - 3, weight: .semibold) }
             if let image { Symbols.draw(image, in: NSRect(x: 8, y: 0, width: 18, height: b.height), color: inkColor, fraction: 1) }
             let h = (title as NSString).size(withAttributes: attrs).height
-            (title as NSString).draw(at: NSPoint(x: 29, y: ((b.height - h) / 2).rounded()), withAttributes: attrs)
+            (title as NSString).draw(at: NSPoint(x: stepper == nil ? 29 : 46, y: ((b.height - h) / 2).rounded()), withAttributes: attrs)
+            if let stepper {
+                for (name, rect, on) in [("chevron.left", backRect, stepper.back), ("chevron.right", forwardRect, stepper.forward)] {
+                    if let c = Symbols.image(name, size: fontSize - 5, weight: .bold) {
+                        Symbols.draw(c, in: rect, color: inkColor, fraction: on ? 0.9 : 0.3)
+                    }
+                }
+            }
             return
         }
         let showsTitle = title != nil
@@ -598,7 +627,13 @@ final class FolderTabView: NSView {
     override func mouseUp(with event: NSEvent) {
         let inside = bounds.contains(convert(event.locationInWindow, from: nil))
         pressed = false
-        if inside { onClick?() }
+        guard inside else { return }
+        if let stepper {
+            let p = convert(event.locationInWindow, from: nil)
+            if backRect.insetBy(dx: -4, dy: 0).contains(p) { if stepper.back { onStep?(-1) }; return }
+            if forwardRect.insetBy(dx: -6, dy: 0).contains(p) { if stepper.forward { onStep?(1) }; return }
+        }
+        onClick?()
     }
 
     func setHoveredForSnapshot(_ on: Bool) { hovering = on }

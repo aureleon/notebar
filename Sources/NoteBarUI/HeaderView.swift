@@ -109,6 +109,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     /// The folder tabs sit in the pill, where the back arrow and the title are otherwise.
     var hostsTabs = false { didSet { if oldValue != hostsTabs { update(); needsLayout = true } } }
     /// Room for the folder tabs: from the left end of the pill to the first button on the right.
+    private var effectivePlus: Bool { showsPlus || (hostsTabs && stepper != nil) }
     var tabsFrame: NSRect {
         let pill = pillRect
         let s = Metrics.headerButtonSize
@@ -173,11 +174,12 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         titleLabel.isHidden = isSearching || hostsTabs
         backButton.isHidden = isSearching || !showsBack || hostsTabs
         settingsButton.isHidden = isSearching || !showsSettings
-        searchButton.isHidden = isSearching || stepper != nil
-        plusButton.isHidden = isSearching || !showsPlus
+        // With the tabs in the pill the day stepper is in the Scratch tab, and search and + stay.
+        searchButton.isHidden = isSearching || (stepper != nil && !hostsTabs)
+        plusButton.isHidden = isSearching || !effectivePlus
         scratchButton.isHidden = isSearching || !showsScratch
-        previousDayButton.isHidden = isSearching || stepper == nil
-        nextDayButton.isHidden = isSearching || stepper == nil
+        previousDayButton.isHidden = isSearching || stepper == nil || hostsTabs
+        nextDayButton.isHidden = isSearching || stepper == nil || hostsTabs
         searchField.isHidden = !isSearching
         closeSearchButton.isHidden = !isSearching
         restyle()
@@ -218,7 +220,7 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         backButton.frame = NSRect(x: 8, y: y, width: s, height: s)
         plusButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         // Without the + button (archive), search takes its place at the right end.
-        searchButton.frame = NSRect(x: showsPlus ? plusButton.frame.minX - 6 - s : w - 8 - s, y: y, width: s, height: s)
+        searchButton.frame = NSRect(x: effectivePlus ? plusButton.frame.minX - 6 - s : w - 8 - s, y: y, width: s, height: s)
         // Top level: settings · Scratch · search · +.
         scratchButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
         let beforeScratch = showsScratch ? scratchButton.frame.minX : searchButton.frame.minX

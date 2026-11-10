@@ -44,7 +44,11 @@ extension NotesRootViewController {
         header?.hostsTabs = hosted
         folderTabs.isHidden = !on
         guard on else { return }
-        if case .scratch(let day) = screen { folderTabs.scratchTitle = env.scratch.title(for: day) }
+        if case .scratch(let day) = screen {
+            let s = env.scratch
+            folderTabs.scratchTitle = s.title(for: day)
+            folderTabs.scratchStepper = (s.days().contains { $0 < day }, day < s.todayKey)
+        }
         folderTabs.reload(folders: store.folders(), showsScratch: env.settings.scratchEnabled, active: activeFolderTab)
         layoutFolderTabs()
     }
@@ -102,6 +106,20 @@ extension NotesRootViewController {
         case .folder(let id): showFolder(id)
         case .allFolders: showFolderList()
         }
+    }
+
+    /// Header style: what the folder list had besides the folders.
+    func showFolderTabsMoreMenu(from view: NSView) {
+        let m = NSMenu()
+        m.autoenablesItems = false
+        m.addItem(ClosureMenuItem("New Folder", key: "", symbol: "folder.badge.plus") { [weak self] in self?.actions.newFolder() })
+        let archive = NSMenuItem(title: "Archive", action: nil, keyEquivalent: "")
+        archive.image = Symbols.image("archivebox", size: 13)
+        archive.submenu = MenuBuilder.archiveMenu(actions: actions)
+        m.addItem(archive)
+        m.addItem(.separator())
+        m.addItem(ClosureMenuItem("Settings…", key: ",", symbol: "gearshape") { [weak self] in self?.env.controller?.openSettings() })
+        m.popUp(positioning: nil, at: NSPoint(x: 0, y: view.bounds.maxY + 6), in: view)
     }
 
     func folderTabsSettingsChanged() {
