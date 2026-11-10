@@ -34,6 +34,7 @@ MainActor.assumeIsolated {
         let dir = i + 1 < arguments.count ? arguments[i + 1] : "/tmp/nb-editor"
         Snapshots.run(outputDirectory: URL(fileURLWithPath: dir, isDirectory: true))
         EntryChecks.snapshots(outputDirectory: URL(fileURLWithPath: dir, isDirectory: true))
+        VimChecks.snapshots(outputDirectory: URL(fileURLWithPath: dir, isDirectory: true))
     }
 }
 Check.finish()

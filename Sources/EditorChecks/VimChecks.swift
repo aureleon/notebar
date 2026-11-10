@@ -276,6 +276,20 @@ enum VimChecks {
         return h
     }
 
+    /// Offscreen PNGs of the `:` line in a note.
+    static func snapshots(outputDirectory dir: URL) {
+        for (name, appearance, color) in [("light", NSAppearance(named: .aqua)!, NoteColor.none), ("dark", NSAppearance(named: .darkAqua)!, NoteColor.blue)] {
+            let env = BehaviorChecks.makeEnv()
+            env.settings.vimKeybinds = true
+            var note = env.store.createNote(in: env.store.folders()[0].id, body: "Meeting notes\nRemember the agenda.\nAsk about the release date.",
+                                            mode: .standard, position: .top)
+            note.color = color
+            env.store.updateNote(note)
+            Snapshots.render(note: note, env: env, appearance: appearance, caret: 0, vimKeys: ":folder wo",
+                             to: dir.appendingPathComponent("vim-prompt-\(name).png"))
+        }
+    }
+
     static func editorChecks() {
         // Focus starts in Normal mode; keys do not type.
         var h = harness("hello world\nsecond line")

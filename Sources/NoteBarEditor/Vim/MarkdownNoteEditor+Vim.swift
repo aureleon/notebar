@@ -776,7 +776,9 @@ extension MarkdownNoteEditor {
 
     // MARK: Prompt (: / ?)
 
-    var promptHeight: CGFloat { vimPrompt == nil ? 0 : VimPromptView.height(font: style.bodyFont) }
+    /// The `:` / `/` line looks like the command line of the notes list: the code font, in a rounded field.
+    var promptFont: NSFont { style.font(size: style.fontSize - 1, mono: true) }
+    var promptHeight: CGFloat { vimPrompt == nil ? 0 : VimPromptView.height(font: promptFont) }
 
     private func openPrompt(_ kind: VimState.PromptKind) {
         vim.resetPending()
@@ -805,7 +807,7 @@ extension MarkdownNoteEditor {
         guard let p = vim.prompt, let v = vimPrompt else { return }
         // While completing: which match this is ("2/5").
         let hint = p.completion.flatMap { $0.matches.count > 1 ? "\($0.index + 1)/\($0.matches.count)" : nil }
-        v.configure(prefix: String(p.kind.rawValue), text: p.text, hint: hint, font: mode == .code ? style.monoFont : style.bodyFont,
+        v.configure(prefix: String(p.kind.rawValue), text: p.text, hint: hint, font: promptFont,
                     color: style.text, secondary: style.text.withAlphaComponent(0.55))
     }
 
@@ -1170,7 +1172,10 @@ final class VimPromptView: NSView {
     private let label = NSTextField(labelWithString: "")
     private var lineColor: NSColor = .separatorColor
 
-    static func height(font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) + 10 }
+    /// Room above the field, and the field: the text line with some padding.
+    static let gapAbove: CGFloat = 8
+    static func height(font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) + 10 + gapAbove }
+    private var fieldRect: NSRect { NSRect(x: 0, y: Self.gapAbove, width: bounds.width, height: bounds.height - Self.gapAbove) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1192,7 +1197,7 @@ final class VimPromptView: NSView {
         if let hint { s.append(NSAttributedString(string: "  " + hint, attributes: [.font: font, .foregroundColor: secondary])) }
         hintLength = hint.map { 2 + $0.count } ?? 0
         label.attributedStringValue = s
-        lineColor = secondary.withAlphaComponent(0.3)
+        lineColor = color
         needsLayout = true
         needsDisplay = true
     }
@@ -1208,11 +1213,17 @@ final class VimPromptView: NSView {
     override func layout() {
         super.layout()
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: 0, y: 6 + max(0, (bounds.height - 6 - h) / 2), width: bounds.width, height: h)
+        let f = fieldRect
+        label.frame = NSRect(x: f.minX + 8, y: f.minY + max(0, (f.height - h) / 2), width: max(0, f.width - 16), height: h)
     }
 
+    /// A rounded field in a shade of the note's text color, so it fits every card color.
     override func draw(_ dirtyRect: NSRect) {
-        lineColor.setFill()
-        NSRect(x: 0, y: 2, width: bounds.width, height: 1).fill()
+        let path = NSBezierPath(roundedRect: fieldRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        lineColor.withAlphaComponent(0.06).setFill()
+        path.fill()
+        lineColor.withAlphaComponent(0.14).setStroke()
+        path.lineWidth = 1
+        path.stroke()
     }
 }
