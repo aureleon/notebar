@@ -44,7 +44,7 @@ extension NotesRootViewController {
         header?.hostsTabs = hosted
         folderTabs.isHidden = !on
         guard on else { return }
-        if case .scratch(let day) = screen { folderTabs.scratchTitle = "Scratch · \(env.scratch.title(for: day))" }
+        if case .scratch(let day) = screen { folderTabs.scratchTitle = env.scratch.title(for: day) }
         folderTabs.reload(folders: store.folders(), showsScratch: env.settings.scratchEnabled, active: activeFolderTab)
         layoutFolderTabs()
     }

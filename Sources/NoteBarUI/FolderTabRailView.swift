@@ -17,7 +17,7 @@ final class FolderTabRailView: FlippedView {
     ///   Scratch and all folders, and a chip with the name of each folder.
     /// - header: the same chips inside the header pill, in place of the back arrow and the title.
     enum Style: String, CaseIterable { case spine, pill, floating, joined, bar, header }
-    /// Header style: the title of the Scratch screen ("Scratch · Today"), shown on the open Scratch tab.
+    /// Header style: the day of the Scratch screen ("Today"), shown after the icon on the open Scratch tab.
     var scratchTitle: String?
     static let barHeight: CGFloat = 32
     static var style: Style = .spine
@@ -223,7 +223,7 @@ final class FolderTabRailView: FlippedView {
         let d = bounds.height - 2 * pad
         var left = pad
         if let s = scratchTab {
-            let w = s.title == nil ? d : s.titleWidth + 20
+            let w = s.title == nil ? d : s.titleWidth + 38
             s.frame = NSRect(x: left, y: pad, width: w, height: d)
             left += w + Self.tabGap
         }
@@ -550,6 +550,14 @@ final class FolderTabView: NSView {
         }
         var attrs = titleAttributes
         attrs[.foregroundColor] = inkColor
+        if let symbolName, let title {
+            // The open Scratch tab: its icon, then the day.
+            if image == nil { image = Symbols.image(symbolName, size: fontSize - 3, weight: .semibold) }
+            if let image { Symbols.draw(image, in: NSRect(x: 8, y: 0, width: 18, height: b.height), color: inkColor, fraction: 1) }
+            let h = (title as NSString).size(withAttributes: attrs).height
+            (title as NSString).draw(at: NSPoint(x: 29, y: ((b.height - h) / 2).rounded()), withAttributes: attrs)
+            return
+        }
         let showsTitle = title != nil
         let para = NSMutableParagraphStyle()
         para.alignment = .center
