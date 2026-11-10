@@ -991,8 +991,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     var isEditingText: Bool { view.window?.firstResponder is NSText }
     var backdropFrame: NSRect { backdrop.frame }
-    /// For checks: whether the last backdrop resize was animated.
-    private(set) var lastBackdropChangeAnimated: Bool?
+    var backdropLayerForChecks: CALayer? { backdrop.isHidden ? nil : backdrop.layer }
 
     /// Height of the header and the shown list, from the top, with `outerMargin` below the last element.
     var listContentHeight: CGFloat {
@@ -1056,20 +1055,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             bottom = m + Metrics.headerHeight
         }
         let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
-        guard backdrop.frame != f else { return }
-        // The cards must never stick out below the backdrop. A card that grows without animation (typing,
-        // pasting) grows the backdrop at once; otherwise the card's glass shows below the backdrop's
-        // bottom edge until the backdrop catches up. The backdrop animates only with animated card
-        // layouts (expand, reorder) and when it shrinks (the cards stay inside it while it follows them).
-        let grows = f.height > backdrop.frame.height + 0.5
-        let animate = NoteBarUIOptions.animations && v.window != nil && (!grows || notesList.isAnimatingLayout)
-        lastBackdropChangeAnimated = animate
-        NSAnimationContext.runAnimationGroup { ctx in
-            // Duration 0 also replaces a running animation (a plain frame set would not stop it).
-            ctx.duration = animate ? 0.22 : 0
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            backdrop.animator().frame = f
-        }
+        // The backdrop is where the cards are, in every frame. The list reports each frame of its
+        // animations (cards, scroll), so the backdrop needs no animation of its own; one would only go
+        // ahead of the cards or trail behind them.
+        if backdrop.frame != f { backdrop.frame = f }
     }
 
     /// A click anywhere in the panel outside the card being edited (header, search bar, gaps, another

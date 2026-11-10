@@ -6,6 +6,7 @@ import NoteBarEditor
 
 // Renders the notes UI offscreen (no window is ever shown) to PNGs and runs behavior checks.
 // Usage: swift run UISnapshot [/tmp/nb-snap]
+//        swift run UISnapshot --motion /tmp/nb-motion   (animations with real glass, see Motion.swift)
 // Exit code != 0 if a check fails.
 
 @MainActor
@@ -94,6 +95,7 @@ MainActor.assumeIsolated {
         Check.expect(false, "unexpected dialog: \(title)")
         return .cancel
     }
+    if CommandLine.arguments.contains("--motion") { runMotionChecks() }
     let app = NSApplication.shared
     app.setActivationPolicy(.prohibited)
     NoteBarUIOptions.useGlass = false
@@ -678,8 +680,8 @@ MainActor.assumeIsolated {
     print("Contracted cardVisibleHeight:", probe.cardVisibleHeight(singleNote.id) ?? 0)
     Check.equal(probe.backdropFrame.height, probe.rootContentHeight, "backdrop returns to initial height after collapse")
 
-    // A note that grows (typing, pasting) grows the backdrop at once, also past the panel height: an
-    // animated backdrop would trail behind and the card's glass would show below its bottom edge.
+    // A note that grows (typing, pasting) grows the backdrop at once, also past the panel height.
+    // (`swift run UISnapshot --motion` checks that they stay together in animations.)
     NoteBarUIOptions.animations = true
     let shortBody = "Single Note\nSome content"
     let tallBody = shortBody + String(repeating: "\nmore content", count: 80)
@@ -690,7 +692,6 @@ MainActor.assumeIsolated {
         probe.layoutNow(); spin(); probe.layoutNow()
     }
     setBody(tallBody)
-    Check.equal(probe.lastBackdropChangeAnimated, false, "a growing note grows the backdrop without animation")
     Check.equal(probe.backdropFrame.height, vc.view.bounds.height, "a note taller than the panel: the backdrop takes the full height")
     // The card runs past the panel bottom: it stays inside the backdrop, cut with card corners
     // `outerMargin` above its bottom edge instead of drawn over the backdrop's rounded corners.
@@ -702,8 +703,12 @@ MainActor.assumeIsolated {
     Check.equal(probe.listClipShows(NSPoint(x: mm + 2, y: vb.height - mm - 2)), false, "list clip: rounded bottom-left corner")
     Check.equal(probe.listClipShows(NSPoint(x: vb.width - mm - 2, y: vb.height - mm - 2)), false, "list clip: rounded bottom-right corner")
     Check.equal(probe.listClipShows(NSPoint(x: 2, y: vb.midY)), true, "list clip: full width above the corners (side shadows)")
+    // Glass is not cut by the layer mask: its frame ends at the same line.
+    Check.equal(probe.glassFrame(of: singleNote.id)?.maxY, vb.height - mm, "a tall card's glass ends above the bottom margin")
     setBody(shortBody)
-    Check.equal(probe.lastBackdropChangeAnimated, true, "a shrinking note animates the backdrop (the cards stay inside it)")
+    Check.equal(probe.backdropFrame.height, probe.rootContentHeight, "a shrinking note takes the backdrop with it at once")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.equal(probe.glassFrame(of: singleNote.id)?.height, probe.cardVisibleHeight(singleNote.id), "a short card's glass is the whole card")
     NoteBarUIOptions.animations = false
     probe.layoutNow(); spin(); probe.layoutNow()
     NoteBarUIOptions.useGlass = false

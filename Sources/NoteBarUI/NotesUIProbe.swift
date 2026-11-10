@@ -325,7 +325,6 @@ public final class NotesUIProbe {
     public func isExpanded(_ id: NoteID) -> Bool { list.card(for: id)?.isExpanded ?? false }
     public func toggleExpand(_ id: NoteID) { root.toggleExpand(id) }
     public var backdropFrame: NSRect { root.backdropFrame }
-    public var lastBackdropChangeAnimated: Bool? { root.lastBackdropChangeAnimated }
     /// Whether the notes list shows a point (root view coordinates) through its bottom clip. nil: no clip.
     public func listClipShows(_ p: NSPoint) -> Bool? {
         let sv = list.scrollView
@@ -334,6 +333,23 @@ public final class NotesUIProbe {
         let v = sv.convert(p, from: root.view)
         let lp = layer.isGeometryFlipped ? v : NSPoint(x: v.x, y: sv.bounds.height - v.y)
         return path.contains(lp)
+    }
+    /// The card's glass frame in root view coordinates (as it would be laid out; also without glass).
+    public func glassFrame(of id: NoteID) -> NSRect? {
+        list.card(for: id).map { $0.convert($0.glassFrame, to: root.view) }
+    }
+    /// What is on screen right now (presentation layers, so mid-animation values), as distances from
+    /// the top of the root view: the bottom edge of the lowest card, of its glass, and of the backdrop.
+    public func motionSample() -> (card: CGFloat, glass: CGFloat?, backdrop: CGFloat)? {
+        guard let rootLayer = root.view.layer, let card = list.cards.max(by: { $0.frame.maxY < $1.frame.maxY }),
+              let cardLayer = card.layer, let backLayer = root.backdropLayerForChecks else { return nil }
+        let rootP = rootLayer.presentation() ?? rootLayer
+        func bottom(_ layer: CALayer, inset: CGFloat = 0) -> CGFloat {
+            let l = layer.presentation() ?? layer
+            let r = l.convert(l.bounds.insetBy(dx: inset, dy: inset), to: rootP)
+            return rootLayer.isGeometryFlipped ? r.maxY : rootLayer.bounds.height - r.minY
+        }
+        return (bottom(cardLayer, inset: Metrics.cardShadowPad), card.glassLayerForChecks.map { bottom($0) }, bottom(backLayer))
     }
     public var rootContentHeight: CGFloat { root.contentHeight }
 

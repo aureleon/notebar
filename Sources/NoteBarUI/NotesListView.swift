@@ -35,7 +35,6 @@ final class NotesListView: NSView, NoteCardDelegate {
     private var lastSize: NSSize = .zero
     private var isLayingOut = false
     private var liveEditorsScheduled = false
-    private var lastTargetBottom: CGFloat?
 
     /// Pinned at the top of the document (search scope bar). Scrolls with the cards.
     var topAccessory: NSView? {
@@ -108,7 +107,6 @@ final class NotesListView: NSView, NoteCardDelegate {
         cardsByID = [:]
         selectedNoteID = nil
         expandedNoteID = nil
-        lastTargetBottom = nil
         layoutCards(animated: false)
         scrollToTop()
     }
@@ -191,10 +189,142 @@ final class NotesListView: NSView, NoteCardDelegate {
     /// The panel draws its backdrop (glass): cards at the bottom edge stay inside its rounded corners.
     var clipsToBackdrop = false { didSet { if oldValue != clipsToBackdrop { needsLayout = true } } }
 
+    /// Keeps the glass of a card at the bottom edge inside the backdrop (`NoteCardView.glassClipBottom`):
+    /// the same line as `backdropClipPath`, `outerMargin` above the list's bottom edge.
+    private func updateGlassClip() {
+        for card in cards { updateGlassClip(of: card) }
+    }
+
+    private func updateGlassClip(of card: NoteCardView) {
+        guard clipsToBackdrop else {
+            if card.glassClipBottom != nil { card.glassClipBottom = nil }
+            return
+        }
+        let local = scrollView.contentView.bounds.maxY - Metrics.outerMargin - card.frame.minY
+        card.glassClipBottom = local < card.cardRect.maxY ? local : nil
+    }
+
+    // MARK: Animation
+
+    // One animation moves everything: the list steps `layoutProgress` from 0 to 1 and, in each frame,
+    // sets the real frames of the cards and the scroll position for that progress. What depends on
+    // where the cards are on the screen (the panel backdrop, the glass clip) is then set from those
+    // real values in the same frame, with no animation of its own, so nothing goes ahead of the
+    // cards or trails behind them. (AppKit's `animator().frame` cannot do this: it steps size changes
+    // in this process but hands plain moves to the render server, one frame apart.)
+
+    static let layoutAnimationDuration: TimeInterval = 0.22
+
+    private struct LayoutAnimation {
+        var items: [ObjectIdentifier: (card: NoteCardView, from: NSRect, to: NSRect)] = [:]
+        var scroll: (from: CGFloat, to: CGFloat)?
+    }
+    private var layoutAnimation: LayoutAnimation?
+    private var layoutGeneration = 0
+    private var isSteppingAnimation = false
+
+    /// 0...1 while a layout animation runs. Animated through `animator()` (AppKit steps it each frame).
+    @objc dynamic var layoutProgress: CGFloat = 1 {
+        didSet { applyLayoutProgress() }
+    }
+
+    override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+        key == "layoutProgress" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+    }
+
+    /// Where the card will be when the running animation ends.
+    private func targetFrame(of card: NoteCardView) -> NSRect {
+        layoutAnimation?.items[ObjectIdentifier(card)]?.to ?? card.frame
+    }
+
+    /// The document's height once the running animation ends. The document keeps its old (larger)
+    /// height during the animation: shrinking it at once makes the clip view jump to its new limit,
+    /// and the cards with it.
+    private var pendingDocHeight: CGFloat?
+
+    private var maxScrollY: CGFloat {
+        max(-topInset, (pendingDocHeight ?? doc.frame.height) - scrollView.contentView.bounds.height)
+    }
+
+    /// Animates cards to new frames and / or the scroll position. Changes made in the same run loop
+    /// turn join one animation; a later call starts again from where everything is on the screen.
+    private func animateLayout(cards targets: [(NoteCardView, NSRect)] = [], scrollTo: CGFloat? = nil) {
+        let clip = scrollView.contentView
+        let joins = layoutAnimation != nil && layoutProgress == 0
+        var anim = layoutAnimation ?? LayoutAnimation()
+        if !joins {
+            for (key, item) in anim.items { anim.items[key] = (item.card, item.card.frame, item.to) }
+            if let s = anim.scroll { anim.scroll = (clip.bounds.minY, s.to) }
+        }
+        for (card, to) in targets {
+            let key = ObjectIdentifier(card)
+            if let item = anim.items[key] {
+                anim.items[key] = (card, item.from, to)
+            } else if card.frame != to {
+                anim.items[key] = (card, card.frame, to)
+            }
+        }
+        if let scrollTo { anim.scroll = (anim.scroll?.from ?? clip.bounds.minY, max(-topInset, min(scrollTo, maxScrollY))) }
+        layoutAnimation = anim
+        guard !joins else { return }
+        layoutGeneration += 1
+        let generation = layoutGeneration
+        // Duration 0 replaces a running animation (a plain set would not stop it).
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0
+            animator().layoutProgress = 0
+        }
+        layoutProgress = 0
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = Self.layoutAnimationDuration
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().layoutProgress = 1
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.endLayoutAnimation(generation) }
+        })
+    }
+
+    private func applyLayoutProgress() {
+        guard let anim = layoutAnimation else { return }
+        let p = min(max(layoutProgress, 0), 1)
+        let scale = window?.backingScaleFactor ?? 2
+        func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { p >= 1 ? b : ((a + (b - a) * p) * scale).rounded() / scale }
+        isSteppingAnimation = true
+        for (_, item) in anim.items {
+            let f = NSRect(x: mix(item.from.minX, item.to.minX), y: mix(item.from.minY, item.to.minY),
+                           width: mix(item.from.width, item.to.width), height: mix(item.from.height, item.to.height))
+            if item.card.frame != f { item.card.frame = f }
+        }
+        if let s = anim.scroll {
+            let clip = scrollView.contentView
+            let y = mix(s.from, s.to)
+            if clip.bounds.minY != y {
+                clip.scroll(to: NSPoint(x: 0, y: y))
+                scrollView.reflectScrolledClipView(clip)
+            }
+        }
+        isSteppingAnimation = false
+        updateGlassClip()
+        onContentExtentChange?()
+    }
+
+    private func endLayoutAnimation(_ generation: Int) {
+        guard generation == layoutGeneration, layoutAnimation != nil else { return }
+        if layoutProgress != 1 { layoutProgress = 1 }
+        layoutAnimation = nil
+        if let h = pendingDocHeight {
+            pendingDocHeight = nil
+            doc.frame.size.height = h
+        }
+        updateGlassClip()
+        onContentExtentChange?()
+    }
+
     override func layout() {
         super.layout()
         scrollView.frame = bounds
         applyEdgeFade(to: scrollView, top: Metrics.gap, bottom: Metrics.outerMargin + 2, clipToBackdrop: clipsToBackdrop)
+        updateGlassClip()
         let visibleTop = topInset
         let accessoryH: CGFloat = topAccessory == nil ? 0 : Metrics.scopeBarHeight + Metrics.gap
         emptyView.frame = NSRect(x: Metrics.outerMargin, y: visibleTop + accessoryH + 24, width: max(0, bounds.width - 2 * Metrics.outerMargin), height: 80)
@@ -213,8 +343,6 @@ final class NotesListView: NSView, NoteCardDelegate {
     /// scrolled to the top.
     /// Height of all cards plus margins, from the last layout pass (used by snapshots).
     private(set) var lastContentHeight: CGFloat = 0
-    /// Cards are moving in an animated layout (the backdrop follows them with the same animation).
-    private(set) var isAnimatingLayout = false
 
     func layoutCards(animated: Bool, fadeIn: Set<ObjectIdentifier> = []) {
         guard !isLayingOut else { return }
@@ -255,32 +383,42 @@ final class NotesListView: NSView, NoteCardDelegate {
         }
         let contentH = (cards.isEmpty ? y : y - Metrics.gap) + Metrics.gap + m
         lastContentHeight = contentH
-        lastTargetBottom = targets.last.map { $0.1.maxY - pad }
-        doc.frame = NSRect(x: 0, y: 0, width: width, height: max(contentH, visibleH))
+        let docH = max(contentH, visibleH)
+        // Also in a plain layout while an animation runs: its cards go on to their (new) places.
+        let animating = animated || layoutAnimation != nil
+        if animating, docH < doc.frame.height {
+            pendingDocHeight = docH
+            doc.frame.size.width = width
+        } else {
+            pendingDocHeight = nil
+            doc.frame = NSRect(x: 0, y: 0, width: width, height: docH)
+        }
 
         if animated {
-            isAnimatingLayout = true
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.22
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                ctx.allowsImplicitAnimation = true
-                for (card, r) in targets {
-                    if fadeIn.contains(ObjectIdentifier(card)) {
-                        card.frame = r
-                        card.alphaValue = 0
+            var moves: [(NoteCardView, NSRect)] = []
+            for (card, r) in targets {
+                if fadeIn.contains(ObjectIdentifier(card)) {
+                    card.frame = r
+                    card.alphaValue = 0
+                    NSAnimationContext.runAnimationGroup { ctx in
+                        ctx.duration = Self.layoutAnimationDuration
                         card.animator().alphaValue = card.isDragSource ? 0.35 : 1
-                    } else if card.frame != r {
-                        card.animator().frame = r
                     }
+                } else {
+                    moves.append((card, r))
                 }
-            }, completionHandler: { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.isAnimatingLayout = false
-                    self?.onContentExtentChange?()
-                }
-            })
+            }
+            // The document will be shorter: go to the new scroll limit together with the cards.
+            animateLayout(cards: moves, scrollTo: clip.bounds.minY > maxScrollY ? maxScrollY : nil)
         } else {
-            for (card, r) in targets where card.frame != r { card.frame = r }
+            for (card, r) in targets {
+                let key = ObjectIdentifier(card)
+                if let item = layoutAnimation?.items[key] {
+                    layoutAnimation?.items[key] = (card, item.from, r)
+                } else if card.frame != r {
+                    card.frame = r
+                }
+            }
         }
         for (card, _) in targets { card.layoutSubtreeIfNeeded() }
 
@@ -288,14 +426,14 @@ final class NotesListView: NSView, NoteCardDelegate {
             let newY = card.frame.minY - offset
             scrollClip(to: newY)
         }
+        updateGlassClip()
         scheduleLiveEditors()
         onContentExtentChange?()
     }
 
     private func scrollClip(to y: CGFloat) {
         let clip = scrollView.contentView
-        let maxY = max(-topInset, doc.frame.height - clip.bounds.height)
-        let clamped = max(-topInset, min(y, maxY))
+        let clamped = max(-topInset, min(y, maxScrollY))
         if abs(clamped - clip.bounds.minY) > 0.5 {
             clip.scroll(to: NSPoint(x: 0, y: clamped))
             scrollView.reflectScrolledClipView(clip)
@@ -306,6 +444,9 @@ final class NotesListView: NSView, NoteCardDelegate {
 
     @objc private func clipBoundsChanged() {
         scheduleLiveEditors()
+        // In an animation frame, once for all its changes (`applyLayoutProgress`).
+        guard !isSteppingAnimation else { return }
+        updateGlassClip()
         onContentExtentChange?()
     }
 
@@ -317,10 +458,9 @@ final class NotesListView: NSView, NoteCardDelegate {
     var contentBottom: CGFloat {
         var docBottom: CGFloat?
         if let acc = topAccessory { docBottom = acc.frame.maxY }
-        if let target = lastTargetBottom {
-            docBottom = max(docBottom ?? 0, target)
-        } else if let last = cards.last {
-            docBottom = max(docBottom ?? 0, last.frame.maxY - Metrics.cardShadowPad)
+        // Where the cards are now (in an animated layout: this frame), not where they will end.
+        if let lowest = cards.map(\.frame.maxY).max() {
+            docBottom = max(docBottom ?? 0, lowest - Metrics.cardShadowPad)
         }
         var y = docBottom.map { convert(NSPoint(x: 0, y: $0), from: doc).y } ?? topInset
         if !emptyView.isHidden { y = max(y, emptyView.frame.maxY) }
@@ -373,20 +513,14 @@ final class NotesListView: NSView, NoteCardDelegate {
     func scrollToCard(_ card: NoteCardView, animated: Bool = false) {
         let clip = scrollView.contentView
         let vis = clip.bounds
-        let r = card.frame.insetBy(dx: 0, dy: Metrics.cardShadowPad - 4)
+        let r = targetFrame(of: card).insetBy(dx: 0, dy: Metrics.cardShadowPad - 4)
         let top = vis.minY + topInset
         var y = vis.minY
         if r.minY < top { y = r.minY - topInset }
         else if r.maxY > vis.maxY { y = min(r.maxY - vis.height, r.minY - topInset) }
         else { return }
         if animated && NoteBarUIOptions.animations {
-            let maxY = max(-topInset, doc.frame.height - clip.bounds.height)
-            let clamped = max(-topInset, min(y, maxY))
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.2
-                clip.animator().setBoundsOrigin(NSPoint(x: 0, y: clamped))
-            }
-            scrollView.reflectScrolledClipView(clip)
+            animateLayout(scrollTo: y)
         } else {
             scrollClip(to: y)
         }
@@ -440,17 +574,11 @@ final class NotesListView: NSView, NoteCardDelegate {
     func scrollToCardTop(_ card: NoteCardView, animated: Bool = true) {
         let clip = scrollView.contentView
         let pad = Metrics.cardShadowPad
-        let targetY = card.frame.minY + pad - topInset
-        let maxY = max(-topInset, doc.frame.height - clip.bounds.height)
-        let clamped = max(-topInset, min(targetY, maxY))
+        let targetY = targetFrame(of: card).minY + pad - topInset
         if animated && NoteBarUIOptions.animations {
-            NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.22
-                clip.animator().setBoundsOrigin(NSPoint(x: 0, y: clamped))
-            }
-            scrollView.reflectScrolledClipView(clip)
+            animateLayout(scrollTo: targetY)
         } else {
-            scrollClip(to: clamped)
+            scrollClip(to: targetY)
         }
         updateLiveEditors()
     }

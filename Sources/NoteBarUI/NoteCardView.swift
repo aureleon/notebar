@@ -162,6 +162,30 @@ final class NoteCardView: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
 
     var cardRect: NSRect { bounds.insetBy(dx: Metrics.cardShadowPad, dy: Metrics.cardShadowPad) }
+
+    /// Lowest y (card coordinates) the glass may reach; nil = no limit. Set by the list for a card
+    /// that runs past the bottom of the backdrop. The window server does not apply the list's layer
+    /// mask to glass, so the glass is kept inside the backdrop by its frame: it ends at the limit
+    /// with its own rounded corners.
+    var glassClipBottom: CGFloat? { didSet { if oldValue != glassClipBottom { layoutGlass() } } }
+
+    /// `cardRect`, cut at `glassClipBottom`.
+    var glassFrame: NSRect {
+        var r = cardRect
+        if let limit = glassClipBottom { r.size.height = max(0, min(r.maxY, limit) - r.minY) }
+        return r
+    }
+
+    var glassLayerForChecks: CALayer? { glass?.isHidden == false ? glass?.layer : nil }
+
+    private func layoutGlass() {
+        guard let glass else { return }
+        let f = glassFrame
+        if glass.frame != f { glass.frame = f }
+        // Too short for its corners: nothing useful to show.
+        let hidden = f.height < 1
+        if glass.isHidden != hidden { glass.isHidden = hidden }
+    }
     /// The card title font: the same size and weight as the editor's title line, so the folded and the
     /// expanded title match.
     var titleFont: NSFont { UIFonts.title(env.themes.fontSize + 2) }
@@ -545,7 +569,7 @@ final class NoteCardView: NSView {
             }
             y += contentH
         }
-        glass?.frame = cr
+        layoutGlass()
         chrome?.frame = bounds
     }
 
@@ -605,7 +629,7 @@ final class NoteCardView: NSView {
         if let glass {
             glass.cornerRadius = env.themes.cornerRadius
             glass.tintColor = CardGlass.tint(backgroundColor, dark: effectiveAppearance.isDark)
-            glass.frame = cardRect
+            layoutGlass()
             if chrome == nil {
                 let v = CardChromeView(frame: bounds)
                 v.card = self
