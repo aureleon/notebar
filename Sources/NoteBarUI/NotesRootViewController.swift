@@ -79,6 +79,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var notesList: NotesListView!
     var scopeBar: SearchScopeBar!
     var toast: ToastView!
+    /// The `:` line of the notes list (vim keys). Made when first used.
+    var commandLine: CommandLineView?
     /// The folder chips in the header pill.
     var folderTabs: FolderTabsView { header.tabs }
 
@@ -926,11 +928,13 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         guard let v = rootView else { return 0 }
         var h = listContentHeight
         if let toast, !toast.isHidden { h = max(h, toast.frame.maxY + Metrics.outerMargin) }
+        if let commandLine, !commandLine.isHidden { h = max(h, commandLine.frame.maxY + Metrics.outerMargin) }
         return min(v.bounds.height, h)
     }
 
     /// The toast sits just below the last element (at the bottom when the list fills the panel).
     private func layoutToast() {
+        defer { layoutCommandLine() }
         guard rootView != nil, toast != nil else { return }
         let b = rootView.bounds
         let m = Metrics.outerMargin

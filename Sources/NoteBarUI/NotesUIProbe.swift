@@ -470,6 +470,14 @@ public final class NotesUIProbe {
         PasteboardImport.externalTypes.contains(type) && PasteboardImport.attachmentTypes.contains(type)
     }
     public var settings: AppSettings { root.env.settings }
+    // The `:` line of the notes list.
+    public var isCommandLineOpen: Bool { root.isCommandLineOpen }
+    public var commandLineFrame: NSRect? { root.isCommandLineOpen ? root.commandLine?.frame : nil }
+    public var commandLineText: String? { root.isCommandLineOpen ? root.commandLine?.text : nil }
+    public func typeCommandLine(_ text: String) { root.commandLine?.field.stringValue = text }
+    public func commandLineTab(_ delta: Int = 1) { root.commandLine?.complete(delta) }
+    public func submitCommandLine() { root.endCommandLine(run: root.commandLine?.text ?? "") }
+    public func cancelCommandLine() { root.endCommandLine(run: nil) }
     public func dismissToast() { root.dismissTrashToast(); root.toast.dismiss(expired: false) }
     public func showToast(_ text: String, action: String?) { root.showToast(text, actionTitle: action, action: action == nil ? nil : {}) }
 }

@@ -727,6 +727,7 @@ MainActor.assumeIsolated {
     NoteBarUIOptions.useGlass = false
 
     // MARK: Vim keys
+    renderHook = { render($0) }
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
     vimScrollChecks(spin: spin)
     written += scratchEntryChecks(out: out, spin: spin)
@@ -1780,6 +1781,68 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     } else {
         Check.expect(false, "vim: a note for the folder commands")
     }
+
+    // The `:` line of the notes list: no note needs to be open.
+    vc.showFolder(folders.ideas.id)
+    probe.layoutNow(); spin()
+    probe.select(nil)
+    probe.focusList()
+    spin()
+    let heightBefore = vc.contentHeight
+    key(":", 41, [.shift])
+    probe.layoutNow(); spin()
+    Check.expect(probe.isCommandLineOpen, "command line: : on the notes list opens it")
+    Check.expect(vc.contentHeight > heightBefore || heightBefore >= 700, "command line: the content grows by it (\(heightBefore) → \(vc.contentHeight))")
+    if let f = probe.commandLineFrame {
+        Check.expect(f.maxY <= vc.contentHeight && f.minY >= heightBefore - 12, "command line: below the last note (\(f))")
+    }
+    probe.typeCommandLine("f wo")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "f Work", "command line: Tab completes a folder name")
+    renderHook?("50-command-line-light")
+    probe.submitCommandLine()
+    probe.layoutNow(); spin()
+    Check.expect(!probe.isCommandLineOpen, "command line: Return closes it")
+    Check.equal(vc.currentFolderId, folders.work.id, "command line: :f opens the folder")
+    Check.equal(vc.contentHeight, { probe.layoutNow(); return vc.contentHeight }(), "command line: the content is back")
+    key(":", 41, [.shift])
+    probe.cancelCommandLine()
+    Check.expect(!probe.isCommandLineOpen && vc.currentFolderId == folders.work.id, "command line: Escape closes it and runs nothing")
+    // A note command needs a selected note.
+    key(":", 41, [.shift])
+    probe.typeCommandLine("pin")
+    probe.submitCommandLine()
+    Check.equal(probe.toastMessage, "Select a note first", "command line: a note command without a selection says so")
+    probe.dismissToast()
+    if let nid = probe.displayedNoteIDs.last {
+        probe.select(nid)
+        let was = store.note(id: nid)?.isPinned
+        key(":", 41, [.shift])
+        probe.typeCommandLine("pin")
+        probe.submitCommandLine()
+        Check.equal(store.note(id: nid)?.isPinned, was.map { !$0 }, "command line: :pin acts on the selected note")
+        key(":", 41, [.shift])
+        probe.typeCommandLine("pin")
+        probe.submitCommandLine()
+    }
+    key(":", 41, [.shift])
+    probe.typeCommandLine("nonsense")
+    probe.submitCommandLine()
+    Check.expect(probe.toastMessage?.hasPrefix("Not a command") == true, "command line: an unknown command says so")
+    probe.dismissToast()
+    key(":", 41, [.shift])
+    probe.typeCommandLine("scratch")
+    probe.submitCommandLine()
+    probe.layoutNow(); spin()
+    Check.expect(probe.scratchDay != nil, "command line: :scratch opens Scratch")
+    vc.showFolder(folders.notes.id)
+    probe.layoutNow(); spin()
+    probe.focusList()
+    settings.vimKeybinds = false
+    key(":", 41, [.shift])
+    Check.expect(!probe.isCommandLineOpen, "command line: not with vim keys off")
+    if probe.isSearching { probe.goBack() }
+    settings.vimKeybinds = true
     settings.vimKeybinds = false
 }
 

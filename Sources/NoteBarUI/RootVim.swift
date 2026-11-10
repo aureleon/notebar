@@ -10,6 +10,8 @@ import NoteBarCore
 ///   gj / gk move the selected note down / up in its folder (like ⌥⇧⌘↓ / ↑; not in search results).
 ///   Letters do not type into search.
 /// - gt / gT: the next / previous folder chip of the header (like ⌃Tab / ⌃⇧Tab).
+/// - `:` opens a command line below the notes (`RootCommandLine`): the folder commands run as they
+///   are, the note commands on the selected note.
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 ///
 /// Folders have no keyboard selection. From an editor: gt / gT too, `:folder <name>` (Tab completes),
@@ -53,6 +55,7 @@ extension NotesRootViewController {
             }
         }
         if ch == "/" { beginSearch(); return true }
+        if ch == ":" { beginCommandLine(); return true }
         if ["g", "d", "z"].contains(ch) {
             vimListPrefix = (ch, Date())
             return true
@@ -178,6 +181,24 @@ extension NotesRootViewController {
             vimFocusCard(from: id, delta: -1)
         case .navigateUp:
             goBack()
+        case .stepFolder, .openFolder, .openScratch, .newFolder, .renameFolder, .toggleFolderPin, .archiveFolder, .deleteFolder:
+            runVimFolderCommand(cmd)
+        case .message(let text):
+            showToast(text)
+        }
+    }
+
+    /// Folding the edited card ends editing; the card stays selected so j / k / ⌃W / ⌥⌘→ keep working.
+    func setFoldedKeepingSelection(_ folded: Bool, id: NoteID) {
+        actions.setFolded(folded, id: id)
+        if folded, search == nil { select(id) }
+    }
+
+    /// `:move <name>`: exact name first (any case), then a name that starts with / contains it.
+    /// The commands that act on the folders, not on a note. They need no card, so the `:` line of
+    /// the notes list runs them too.
+    func runVimFolderCommand(_ cmd: VimCardCommand) {
+        switch cmd {
         case .stepFolder(let delta):
             stepFolderTab(delta)
         case .openFolder(let name):
@@ -200,18 +221,11 @@ extension NotesRootViewController {
             guard store.folders().count > 1 else { showToast("The last folder stays"); return }
             focusRoot()
             if cmd == .archiveFolder { actions.toggleArchiveFolder(fid) } else { actions.deleteFolder(fid) }
-        case .message(let text):
-            showToast(text)
+        default:
+            break
         }
     }
 
-    /// Folding the edited card ends editing; the card stays selected so j / k / ⌃W / ⌥⌘→ keep working.
-    func setFoldedKeepingSelection(_ folded: Bool, id: NoteID) {
-        actions.setFolded(folded, id: id)
-        if folded, search == nil { select(id) }
-    }
-
-    /// `:move <name>`: exact name first (any case), then a name that starts with / contains it.
     /// The folder a `:` command names: the exact name, else the first that starts with it, else the
     /// first that contains it (any case).
     func vimFolder(named raw: String) -> Folder? {
