@@ -11,7 +11,7 @@ import NoteBarCore
 ///   Letters do not type into search.
 /// - gt / gT: the next / previous folder chip of the header (like ⌃Tab / ⌃⇧Tab).
 /// - `:` opens a command line below the notes (`RootCommandLine`): the folder commands run as they
-///   are, the note commands on the selected note.
+///   are, the note commands on the selected note. It hangs below the header pill.
 /// - Everywhere: ⌃W J / ⌃W K edit the next / previous card, ⌃[ goes up (like ⌘[), / starts search.
 ///
 /// Folders have no keyboard selection. From an editor: gt / gT too, `:folder <name>` (Tab completes),

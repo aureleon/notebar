@@ -1794,7 +1794,7 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     Check.expect(probe.isCommandLineOpen, "command line: : on the notes list opens it")
     Check.expect(vc.contentHeight > heightBefore || heightBefore >= 700, "command line: the content grows by it (\(heightBefore) → \(vc.contentHeight))")
     if let f = probe.commandLineFrame {
-        Check.expect(f.maxY <= vc.contentHeight && f.minY >= heightBefore - 12, "command line: below the last note (\(f))")
+        Check.expect(abs(f.minY - 59) <= 1 && f.maxY < 100, "command line: right under the header pill (\(f))")
     }
     probe.typeCommandLine("f wo")
     probe.commandLineTab()

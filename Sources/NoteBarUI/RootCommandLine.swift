@@ -1,8 +1,8 @@
 import AppKit
 import NoteBarCore
 
-/// The `:` command line of the notes list (vim keys on, no note being edited). It opens below the
-/// last note, where the toast sits, and the panel's content grows by it. The folder commands
+/// The `:` command line of the notes list (vim keys on, no note being edited). It drops out of the
+/// header pill like a drawer, above the notes, which move down by it. The folder commands
 /// (`:folder`, `:newfolder`, `:rename`, ...) run as they are. The note commands (`:pin`, `:move`, ...)
 /// run on the selected note. In a note, the editor has its own `:` line.
 extension NotesRootViewController {
@@ -20,12 +20,13 @@ extension NotesRootViewController {
                 let open = self.currentFolderId
                 return VimEx.completions(line, folders: self.store.folders().filter { $0.id != open }.map(\.name))
             }
-            rootView.addSubview(bar)
+            // Below the header, so the pill's shadow falls on it.
+            rootView.addSubview(bar, positioned: .below, relativeTo: header)
             commandLine = bar
         }
         bar.reset()
         bar.isHidden = false
-        updateBackdrop()
+        layoutViews()
         // Before the focus: a field whose frame changes while it is edited ends the editing.
         bar.layoutSubtreeIfNeeded()
         bar.focus()
@@ -34,22 +35,19 @@ extension NotesRootViewController {
     func endCommandLine(run text: String?) {
         guard let bar = commandLine, !bar.isHidden else { return }
         bar.isHidden = true
-        updateBackdrop()
+        layoutViews()
         focusRoot()
         if let text { runCommandLine(text) }
     }
 
-    /// Below the last element, like the toast (at the bottom when the list fills the panel).
+    /// Right under the header pill, a little narrower than it.
     func layoutCommandLine() {
         guard let bar = commandLine, !bar.isHidden, rootView != nil else { return }
         let b = rootView.bounds
         let m = Metrics.outerMargin
-        let h = CommandLineView.height
-        var y = listContentHeight - m + Metrics.gap
-        // A toast that shows keeps its place: the line goes below it.
-        if let toast, !toast.isHidden { y = max(y, toast.frame.maxY + Metrics.gap) }
-        y = min(y, b.height - m - h)
-        let f = NSRect(x: b.minX + m, y: max(y, 0), width: max(0, b.width - 2 * m), height: h)
+        let inset = Metrics.headerCornerRadius - 4
+        let f = NSRect(x: b.minX + m + inset, y: m + Metrics.headerHeight - 1, width: max(0, b.width - 2 * (m + inset)),
+                       height: CommandLineView.height)
         if bar.frame != f { bar.frame = f }
     }
 
@@ -84,7 +82,7 @@ extension NotesRootViewController {
 /// Tab / ⇧Tab complete a folder name and cycle through the matches.
 @MainActor
 final class CommandLineView: FlippedView, NSTextFieldDelegate {
-    static let height: CGFloat = 32
+    static let height: CGFloat = 30
     var onSubmit: ((String) -> Void)?
     var onCancel: (() -> Void)?
     var completions: ((String) -> (head: String, matches: [String])?)?
@@ -145,7 +143,16 @@ final class CommandLineView: FlippedView, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         let ui = env.themes.ui(effectiveAppearance)
-        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 10, yRadius: 10)
+        // Flat at the top, where it meets the pill. Round at the bottom.
+        let r: CGFloat = 11
+        let b = bounds.insetBy(dx: 0.5, dy: 0)
+        let path = NSBezierPath()
+        path.move(to: NSPoint(x: b.minX, y: b.minY))
+        path.line(to: NSPoint(x: b.minX, y: b.maxY - 0.5 - r))
+        path.appendArc(withCenter: NSPoint(x: b.minX + r, y: b.maxY - 0.5 - r), radius: r, startAngle: 180, endAngle: 90, clockwise: true)
+        path.line(to: NSPoint(x: b.maxX - r, y: b.maxY - 0.5))
+        path.appendArc(withCenter: NSPoint(x: b.maxX - r, y: b.maxY - 0.5 - r), radius: r, startAngle: 90, endAngle: 0, clockwise: true)
+        path.line(to: NSPoint(x: b.maxX, y: b.minY))
         ui.headerBackground.setFill()
         path.fill()
         ui.hairline.setStroke()

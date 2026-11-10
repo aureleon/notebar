@@ -150,7 +150,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         let hh = Metrics.headerHeight
         header.frame = NSRect(x: b.minX + m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
         // The lists start at the bottom of the header pill; cards fade out in the gap below it.
-        let listTop = m + hh
+        // The open `:` line hangs below the pill, and the notes move down by it.
+        let listTop = m + hh + (isCommandLineOpen ? CommandLineView.height : 0)
         notesList.frame = NSRect(x: b.minX, y: listTop, width: b.width, height: max(0, b.height - listTop))
         if notesList.topInset != Metrics.gap { notesList.topInset = Metrics.gap }
         updateBackdrop()
@@ -928,7 +929,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         guard let v = rootView else { return 0 }
         var h = listContentHeight
         if let toast, !toast.isHidden { h = max(h, toast.frame.maxY + Metrics.outerMargin) }
-        if let commandLine, !commandLine.isHidden { h = max(h, commandLine.frame.maxY + Metrics.outerMargin) }
         return min(v.bounds.height, h)
     }
 
