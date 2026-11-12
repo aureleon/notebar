@@ -9,6 +9,7 @@ import NoteBarCore
 ///   card keys on the selected note without editing it: gp gc gm gy ge ga gx dd za zc zo. Deletes ask first.
 ///   gj / gk move the selected note down / up in its folder (like ⌥⇧⌘↓ / ↑; not in search results).
 ///   Letters do not type into search.
+/// - Scratch: h / l go to the earlier / later day (↩ edits the note). In the note: ⌃H / ⌃L.
 /// - gt / gT: the next / previous folder chip of the header (like ⌃Tab / ⌃⇧Tab).
 /// - `:` opens a command line below the notes (`RootCommandLine`): the folder commands run as they
 ///   are, the note commands on the selected note. It hangs below the header pill.
@@ -64,10 +65,13 @@ extension NotesRootViewController {
         switch ch {
         case "j": moveSelection(1); return true
         case "k": moveSelection(-1); return true
-        case "l": activateSelection(); return true
+        case "l":
+            // Scratch: the days are side by side, like the notes of a folder are with j / k.
+            if isScratchScreen, search == nil { stepScratchDay(1) } else { activateSelection() }
+            return true
         case "h":
-            // Back from the archive (like ←). A folder has nothing above it.
-            if search == nil, isArchiveScreen { goBack() }
+            // Scratch: the earlier day. Else back from the archive (like ←). A folder has nothing above it.
+            if isScratchScreen, search == nil { stepScratchDay(-1) } else if search == nil, isArchiveScreen { goBack() }
             return true
         default: break
         }
@@ -181,6 +185,16 @@ extension NotesRootViewController {
             vimFocusCard(from: id, delta: -1)
         case .navigateUp:
             goBack()
+        case .stepScratchDay(let delta):
+            // The keys came from the day's editor: the caret goes to the new day, so they repeat.
+            guard case .scratch(let before) = screen, search == nil else { NSSound.beep(); return }
+            stepScratchDay(delta)
+            guard case .scratch(let day) = screen, day != before else { return }
+            rootView.layoutSubtreeIfNeeded()
+            if let nid = notesList.cards.first?.note.id, let card = notesList.card(for: nid) {
+                card.focusEditor(atEnd: true)
+                notesList.selectedNoteID = nid
+            }
         case .stepFolder, .openFolder, .openScratch, .newFolder, .renameFolder, .toggleFolderPin, .archiveFolder, .deleteFolder:
             runVimFolderCommand(cmd)
         case .message(let text):

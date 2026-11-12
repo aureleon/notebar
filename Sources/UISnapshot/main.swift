@@ -985,7 +985,7 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     Check.equal(probe.activeFolderTabKey, key(ideas), "tabs: hideMarkup does not touch the chips")
     settings.hideMarkup.toggle()
 
-    // ⌃Tab / ⌃⇧Tab: the next / previous chip, around the ends. Scratch is part of the round.
+    // ⌃Tab / ⌃⇧Tab: the next / previous folder, around the ends. Scratch is not part of the round.
     probe.focusList()
     ctrlTab()
     Check.equal(vc.currentFolderId, shopping.id, "tabs: ⌃Tab opens the next folder")
@@ -996,12 +996,17 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     ctrlTab()
     Check.equal(vc.currentFolderId, reading.id, "tabs: ⌃Tab again")
     ctrlTab()
-    Check.equal(probe.activeFolderTabKey, "scratch", "tabs: ⌃Tab on the last folder goes around to Scratch")
-    Check.equal(probe.focusedNoteID, nil, "tabs: ⌃Tab to Scratch does not start typing")
-    ctrlTab()
-    Check.equal(vc.currentFolderId, notes.id, "tabs: ⌃Tab on Scratch opens the first folder")
-    ctrlTab(shift: true); ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, notes.id, "tabs: ⌃Tab on the last folder goes around to the first, not to Scratch")
+    ctrlTab(shift: true)
     Check.equal(vc.currentFolderId, reading.id, "tabs: ⌃⇧Tab goes around the other way")
+    vc.showFolder(ideas.id)
+    probe.clickFolderTab("scratch")
+    ctrlTab()
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: ⌃Tab on Scratch goes back to the folder open last")
+    probe.clickFolderTab("scratch")
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: so does ⌃⇧Tab")
+    vc.showFolder(reading.id)
     vc.reveal(noteId: store.notes(in: reading.id)[0].id, edit: true)
     Check.equal(probe.focusedNoteID, store.notes(in: reading.id)[0].id, "tabs: editing a note")
     probe.pressKeyEquivalent(keyCode: 48, characters: "\t", modifiers: [.control, .shift])
@@ -1071,8 +1076,9 @@ func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
     Check.equal(probe.folderTabKeys.first, key(notes), "tabs: Scratch off, no Scratch chip")
     Check.equal(vc.currentFolderId, work.id, "tabs: Scratch off while it shows, the last folder opens")
     checkNoOverlap("tabs, Scratch off")
-    ctrlTab(shift: true); ctrlTab(shift: true)
-    Check.equal(vc.currentFolderId, reading.id, "tabs: Scratch off, ⌃⇧Tab goes around the folders only")
+    vc.showFolder(notes.id)
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, reading.id, "tabs: Scratch off, ⌃⇧Tab goes around the folders")
     vc.showFolder(work.id)
     render("47-header-scratch-off-light")
     settings.scratchEnabled = true
@@ -1604,9 +1610,9 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     key("o", 31); key("R", 15, [.shift])
     Check.expect(store.folders().count == before0 && probe.renamingFolderID == nil, "vim: o and R are not folder keys any more")
 
-    // gt / gT: the next / previous chip (Scratch, then the folders), around the ends.
-    let strip = Array(probe.folderTabKeys.dropLast())
-    Check.equal(strip.first, "scratch", "vim: the strip starts with Scratch")
+    // gt / gT: the next / previous folder, around the ends (not Scratch).
+    let strip = Array(probe.folderTabKeys.dropLast().dropFirst())
+    Check.equal(probe.folderTabKeys.first, "scratch", "vim: the strip starts with Scratch")
     guard let at = strip.firstIndex(of: tabKey(folders.notes)) else { Check.expect(false, "vim: chip of Notes"); return }
     key("g", 5); key("t", 17)
     Check.equal(probe.activeFolderTabKey, strip[(at + 1) % strip.count], "vim: gt opens the next folder")
@@ -1614,9 +1620,9 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     Check.equal(probe.activeFolderTabKey, tabKey(folders.notes), "vim: gT opens the previous folder")
     vc.showFolder(store.folders().last!.id)
     key("g", 5); key("t", 17)
-    Check.equal(probe.activeFolderTabKey, "scratch", "vim: gt on the last folder goes around to Scratch")
+    Check.equal(vc.currentFolderId, store.folders().first!.id, "vim: gt on the last folder goes around to the first")
     key("g", 5); key("T", 17, [.shift])
-    Check.equal(vc.currentFolderId, store.folders().last!.id, "vim: gT on Scratch goes around to the last folder")
+    Check.equal(vc.currentFolderId, store.folders().last!.id, "vim: gT goes around the other way")
     for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }
 
     // ⌃[ in a folder goes nowhere. ⌘/ searches all folders.
@@ -2415,6 +2421,35 @@ func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     Check.equal(probe.scratchDay, day2, "scratch: › goes back to today")
     Check.expect(probe.clickScratchChipStepper(-1) && probe.scratchDay == today, "scratch: ‹ in the chip steps to yesterday")
     probe.stepScratchDay(1)
+
+    // Vim: h / l on the list step the days. From the note (⌃H / ⌃L) the caret goes along.
+    settings.vimKeybinds = true
+    probe.select(nil)
+    probe.focusList()
+    probe.press(keyCode: 4, characters: "h")
+    Check.equal(probe.scratchDay, today, "scratch, vim: h goes to the earlier day")
+    Check.equal(probe.focusedNoteID, nil, "scratch, vim: h does not start editing")
+    probe.press(keyCode: 37, characters: "l")
+    Check.equal(probe.scratchDay, day2, "scratch, vim: l goes to the later day")
+    probe.press(keyCode: 37, characters: "l")
+    Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == nil, "scratch, vim: l on today stays (nothing later)")
+    if let d2 = day2Note {
+        probe.showScratch(edit: true)
+        probe.layoutNow(); spin()
+        probe.vimCommand(.stepScratchDay(-1), on: d2.id)
+        probe.layoutNow(); spin()
+        Check.equal(probe.scratchDay, today, "scratch, vim: ⌃H in the note goes to the earlier day")
+        Check.equal(probe.focusedNoteID, todayNote.id, "scratch, vim: the caret is in that day's note")
+        probe.vimCommand(.stepScratchDay(1), on: todayNote.id)
+        probe.layoutNow(); spin()
+        Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == d2.id, "scratch, vim: ⌃L goes back, caret in today")
+        probe.vimCommand(.stepScratchDay(1), on: d2.id)
+        Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == d2.id, "scratch, vim: ⌃L on today stays in the note")
+        probe.select(nil)
+        probe.focusList()
+        spin()
+    }
+    settings.vimKeybinds = false
 
     // An empty earlier day is dropped; days beyond the window go to the trash as normal notes.
     settings.scratchKeepDays = 2

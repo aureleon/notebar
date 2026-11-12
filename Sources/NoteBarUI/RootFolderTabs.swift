@@ -112,12 +112,13 @@ extension NotesRootViewController {
 
     // MARK: Next / previous
 
-    /// ⌃Tab / ⌃⇧Tab, `gt` / `gT`: the next or previous chip (Scratch, then the folders), around the
-    /// ends. Not in search and not on the archive screens (the chips do not show there).
+    /// ⌃Tab / ⌃⇧Tab, `gt` / `gT`: the next or previous folder, around the ends. Scratch is not part
+    /// of the round (it has its own key). On Scratch they go back to the folder that was open last.
+    /// Not in search and not on the archive screens (the chips do not show there).
     func stepFolderTab(_ delta: Int) {
         guard header.showsTabs, let current = activeFolderTab else { NSSound.beep(); return }
-        var strip: [FolderTabsView.Kind] = env.settings.scratchEnabled ? [.scratch] : []
-        strip += store.folders().map { .folder($0.id) }
+        if current == .scratch { showLastFolder(); return }
+        let strip = store.folders().map { FolderTabsView.Kind.folder($0.id) }
         guard strip.count > 1, let i = strip.firstIndex(of: current) else { NSSound.beep(); return }
         folderTabPressed(strip[((i + delta) % strip.count + strip.count) % strip.count])
     }

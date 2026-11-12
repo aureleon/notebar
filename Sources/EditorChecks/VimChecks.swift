@@ -239,6 +239,21 @@ enum VimChecks {
             Check.equal(steps, [1, -1], "gt / gT in Normal mode ask the host for the next / previous folder")
             Check.equal(h.body, "hello", "gt / gT do not edit")
         }
+        do {
+            let s = BehaviorChecks.Harness("--- 09:14 ---\ncall Sam", scratch: true)
+            s.env.settings.vimKeybinds = true
+            s.focus(at: 3)
+            s.editor.vimKeysForTesting("<C-h>")
+            s.editor.vimKeysForTesting("i<C-l>")
+            let steps = s.events.compactMap { e -> Int? in if case .vim(.stepScratchDay(let d)) = e { return d }; return nil }
+            Check.equal(steps, [-1, 1], "⌃H / ⌃L in a Scratch note ask for the earlier / later day (Normal and Insert mode)")
+            Check.equal(s.body, "--- 09:14 ---\ncall Sam", "⌃H / ⌃L do not edit")
+            let n = harness("hello")
+            n.focus(at: 2)
+            n.editor.vimKeysForTesting("<C-h><C-l>")
+            Check.expect(!n.events.contains { if case .vim(.stepScratchDay) = $0 { return true }; return false },
+                         "⌃H / ⌃L are not day keys in a normal note")
+        }
         Check.equal(VimEx.parse("pin"), .card(.togglePin), ":pin")
         Check.equal(VimEx.parse("p"), .card(.togglePin), ":p")
         Check.equal(VimEx.parse("fold"), .card(.setFolded(true)), ":fold")

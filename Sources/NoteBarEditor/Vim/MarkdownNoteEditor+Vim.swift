@@ -319,6 +319,10 @@ extension MarkdownNoteEditor {
         case .ctrl("w"):
             textView.deleteWordBackward(nil)
             return true
+        case .ctrl("h") where note.isScratch, .ctrl("l") where note.isScratch:
+            // Also while typing: Scratch opens in Insert mode.
+            send(.stepScratchDay(key == .ctrl("h") ? -1 : 1))
+            return true
         default:
             return false
         }
@@ -424,6 +428,11 @@ extension MarkdownNoteEditor {
         case .ctrl("w"):
             vim.resetPending()
             vim.windowArmedAt = Date()
+            return true
+        case .ctrl("h") where note.isScratch, .ctrl("l") where note.isScratch:
+            // Scratch: the earlier / later day (h / l do it on the notes list).
+            vim.resetPending()
+            send(.stepScratchDay(key == .ctrl("h") ? -1 : 1))
             return true
         case .ctrl("d"), .ctrl("u"):
             if vim.pendingOperator != nil || vim.pendingG || vim.pendingZ || vim.pendingReplace {

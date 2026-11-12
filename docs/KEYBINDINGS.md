@@ -30,7 +30,7 @@ Contexts:
 | ⌘F | Panel | Search in the folder | ″ |
 | ⌘/ | Panel | Search all folders | ″ |
 | ⌘[ | Panel | Back: close search, leave the archive for the last folder. In a folder or Scratch: nothing (beep) | ″ |
-| ⌃Tab / ⌃⇧Tab | Panel (also while editing), not in search or the archive | Next / previous chip of the header (Scratch, then the folders), around the ends | `RootKeyboard.handleFolderTabKey` |
+| ⌃Tab / ⌃⇧Tab | Panel (also while editing), not in search or the archive | Next / previous folder, around the ends. Scratch is not part of the round: on Scratch they go back to the folder open last | `RootKeyboard.handleFolderTabKey` |
 | ⇧⌘[ / ⇧⌘] | Scratch screen (also while editing) | Earlier / later Scratch day | ″ |
 | ⇧⌘E | Panel (also while editing) | Expand / collapse the active note | ″ |
 | ⇧⌘M | Panel | Move menu for the active note | ″ |
@@ -74,7 +74,8 @@ folder chip (right click). In the rename field on a chip: ↩ commits, Esc cance
 | l | Edit the card |
 | h | Back from the archive (not in search). In a folder: nothing |
 | gg / G | First / last |
-| gt / gT | Next / previous chip of the header (like ⌃Tab / ⌃⇧Tab) |
+| gt / gT | Next / previous folder (like ⌃Tab / ⌃⇧Tab) |
+| h / l (Scratch) | Earlier / later Scratch day (↩ edits the note). In the note: ⌃H / ⌃L, in Normal and Insert mode, and the caret goes to that day |
 | : | Command line under the header pill, above the notes. The folder commands of section 8 run as they are (`:folder`, `:newfolder`, `:rename`, `:scratch`, ...), the note commands on the selected note, `:q` hides the panel. ↩ runs, Esc or ⌫ on the empty line closes, Tab / ⇧Tab complete a folder name |
 | / | Search |
 | ⌃[ | Back (like ⌘[) |

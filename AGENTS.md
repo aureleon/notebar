@@ -104,7 +104,7 @@ NoteBarUI  NoteBarEditor  │  NoteBarSettings NoteBarStore NoteBarIntegrations
 - Scratch open: its chip is filled and holds **`✎ ‹ Today ›`** (the day stepper). + starts a new entry.
 - Archive screens: **`[<] Title`** and **`[🔍]`**. Search mode: the search field and a close button. Only these two have a way back (`goBack`).
 - A folder chip: click opens, right click is the folder menu, drag sideways reorders (`moveFolder(_:toGap:)`), Rename and New Folder edit the name in a field on the chip (`beginRenameFolder`), and it takes drops (a note moves, files and text make a note). The tooltip has the note count.
-- ⌃Tab / ⌃⇧Tab (and `gt` / `gT` with vim keys on the list) step through the chips (`stepFolderTab`).
+- ⌃Tab / ⌃⇧Tab (and `gt` / `gT` with vim keys on the list) step through the folders, not Scratch (`stepFolderTab`). On Scratch, vim `h` / `l` (in the note ⌃H / ⌃L) step the days.
 
 ### Daily Scratch
 - One Scratch note per day (`Note.scratchDay`, "yyyy-MM-dd") in a hidden folder (`Folder.isScratch`). `folders()`, `folder(id:)`, search and the archive never show it.

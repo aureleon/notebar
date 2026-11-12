@@ -64,6 +64,8 @@ public enum VimCardCommand: Equatable, Sendable {
     case navigateUp
     /// `gt` / `gT`, `:tabn` / `:tabp`: the next (+1) / previous (-1) chip of the header.
     case stepFolder(Int)
+    /// ⌃H / ⌃L in a Scratch note: the earlier (-1) / later (+1) Scratch day.
+    case stepScratchDay(Int)
     /// `:folder <name>`: open the folder (the host finds it by name).
     case openFolder(String)
     /// `:scratch`: today's Scratch note, ready to type.
