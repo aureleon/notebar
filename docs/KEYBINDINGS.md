@@ -76,7 +76,7 @@ folder chip (right click). In the rename field on a chip: ↩ commits, Esc cance
 | gg / G | First / last |
 | gt / gT | Next / previous folder (like ⌃Tab / ⌃⇧Tab) |
 | h / l (Scratch) | Earlier / later Scratch day (↩ edits the note). In the note: ⌃H / ⌃L, in Normal and Insert mode, and the caret goes to that day |
-| : | Command line under the header pill, above the notes. The folder commands of section 8 run as they are (`:folder`, `:newfolder`, `:rename`, `:scratch`, ...), the note commands on the selected note, `:q` hides the panel. ↩ runs, Esc or ⌫ on the empty line closes, Tab / ⇧Tab complete a folder name |
+| : | Command line under the header pill, above the notes. The folder commands of section 8 run as they are (`:folder`, `:newfolder`, `:rename`, `:scratch`, ...), the note commands on the selected note, `:q` hides the panel. ↩ runs, Esc or ⌫ on the empty line closes, Tab / ⇧Tab complete the command name (`:f` gives `:folder`), then a folder name |
 | / | Search |
 | ⌃[ | Back (like ⌘[) |
 | ⌃W J / ⌃W K | Edit the next / previous card |

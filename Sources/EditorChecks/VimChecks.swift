@@ -230,6 +230,26 @@ enum VimChecks {
         Check.equal(VimEx.parse("deletefolder"), .card(.deleteFolder), ":deletefolder")
         Check.equal(VimEx.completions("f w", folders: ["Work", "Ideas", "Network"])?.matches, ["Work", "Network"], ":f completes folder names")
         Check.equal(VimEx.completions("rename w", folders: ["Work"])?.matches, nil, ":rename does not complete")
+        Check.equal(VimEx.completions("f", folders: [])?.matches, ["folder", "fold", "format"], ":f completes to folder first")
+        Check.equal(VimEx.completions("f", folders: [])?.head, "", "a command name has nothing before it")
+        Check.equal(VimEx.completions("ne", folders: [])?.matches, ["newfolder"], ":ne completes to newfolder")
+        Check.equal(VimEx.completions("arch", folders: [])?.matches, ["archive", "archivefolder"], ":arch, the short form's command first")
+        Check.equal(VimEx.completions("folder", folders: [])?.matches, [], "a full name goes on to its folders (none here)")
+        Check.equal(VimEx.completions("zz", folders: [])?.matches, nil, "no command starts with zz")
+        for c in ["folder x", "move x", "scratch", "newfolder", "rename", "pinfolder", "archivefolder", "deletefolder", "tabnext",
+                  "tabprevious", "pin", "unpin", "fold", "unfold", "copy", "delete", "archive", "unarchive", "format", "color",
+                  "mode", "nohlsearch", "write", "quit"] {
+            if case .error = VimEx.parse(c) { Check.expect(false, "completed command :\(c) parses") }
+        }
+        do {
+            let h = harness("hello")
+            h.focus(at: 0)
+            h.editor.vimKeysForTesting(":f<Tab>")
+            Check.equal(h.editor.vimPromptTextForTesting, ":folder", "Tab in a note's : line completes the command")
+            h.editor.vimKeysForTesting("<Tab>")
+            Check.equal(h.editor.vimPromptTextForTesting, ":fold", "Tab again cycles")
+            h.editor.vimKeysForTesting("<Esc>")
+        }
         do {
             let h = harness("hello")
             h.focus(at: 0)
@@ -431,10 +451,13 @@ enum VimChecks {
         let folders = ["Notes", "Work", "Homework", "Ideas"]
         func comp(_ s: String) -> [String]? { VimEx.completions(s, folders: folders).map { [$0.head] + $0.matches } }
         Check.equal(comp("move w"), ["move ", "Work", "Homework"], "prefix matches first, then names containing it")
-        Check.equal(comp("mv"), ["mv ", "Notes", "Work", "Homework", "Ideas"], "no name yet: every folder")
+        Check.equal(comp("mv"), ["", "move"], "a short form completes to its command first")
+        Check.equal(comp("move"), ["move ", "Notes", "Work", "Homework", "Ideas"], "the full name, no folder yet: every folder")
+        Check.equal(comp("mv "), ["mv ", "Notes", "Work", "Homework", "Ideas"], "after the space: every folder")
         Check.equal(comp("m ID"), ["m ", "Ideas"], "any case")
         Check.equal(comp("m zz"), ["m "], "no match")
-        Check.equal(comp("pin"), nil, "other commands do not complete")
+        Check.equal(comp("mode"), nil, "a full name without folders has nothing to complete")
+        Check.equal(comp("pin"), ["", "pinfolder"], "a full name that starts a longer one completes to it")
         let store = h.env.store
         store.createFolder(name: "Work")
         store.createFolder(name: "Homework")
@@ -454,8 +477,8 @@ enum VimChecks {
                      "the note's own folder is not offered")
         h.editor.vimKeysForTesting("<BS>")
         Check.equal(h.editor.vimPromptHintForTesting, nil, "typing ends the completion")
-        h.editor.vimKeysForTesting("<Esc>:pin<Tab>")
-        Check.equal(h.editor.vimPromptTextForTesting, ":pin", "Tab after another command does nothing")
+        h.editor.vimKeysForTesting("<Esc>:mode<Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":mode", "Tab after a complete command without folders does nothing")
         h.editor.vimKeysForTesting("<Esc>")
 
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.

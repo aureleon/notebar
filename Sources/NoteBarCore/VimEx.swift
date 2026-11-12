@@ -65,7 +65,18 @@ public enum VimEx {
         }
     }
 
-    /// Tab completion of a `:` line. `:move` / `:m` / `:mv` and `:folder` / `:f` / `:b` complete a folder name from `folders`:
+    /// The commands by their full name, with the short forms `parse` takes, for Tab completion.
+    static let commandNames: [(name: String, short: [String])] = [
+        ("folder", ["f", "b", "buffer"]), ("move", ["m", "mv"]), ("scratch", ["sc"]),
+        ("newfolder", ["nf", "mkdir"]), ("rename", ["ren"]), ("pinfolder", ["pf"]),
+        ("archivefolder", ["af"]), ("deletefolder", ["df", "rmdir"]),
+        ("tabnext", ["tabn", "bn", "bnext"]), ("tabprevious", ["tabp", "bp", "bprevious"]),
+        ("pin", ["p"]), ("unpin", []), ("fold", ["fo"]), ("unfold", ["foldopen"]), ("copy", ["y", "yank", "co"]),
+        ("delete", ["d", "del"]), ("archive", ["arch"]), ("unarchive", ["unarch"]), ("format", ["fmt"]),
+        ("color", ["col", "colour"]), ("mode", []), ("nohlsearch", ["noh", "nohl"]), ("write", ["w"]), ("quit", ["q"]),
+    ]
+
+    /// Tab completion of a `:` line. Before the first space it completes the command name. `:move` / `:m` / `:mv` and `:folder` / `:f` / `:b` complete a folder name from `folders`:
     /// names that start with the typed text first, then names that contain it (any case), each in
     /// list order. Returns the text before the name (`head`, ends with a space) and the matches; nil
     /// when the line is not a command that completes.
@@ -73,6 +84,16 @@ public enum VimEx {
         let lead = line.prefix { $0 == " " }
         let rest = line.dropFirst(lead.count)
         let cmd = rest.prefix { $0 != " " }
+        if cmd.count == rest.count {
+            // Still on the command name: the command a short form stands for first (`f` = folder),
+            // then the names that start with the typed text.
+            let typed = cmd.lowercased()
+            let exact = commandNames.filter { $0.short.contains(typed) }.map(\.name)
+            let starts = commandNames.map(\.name).filter { $0.hasPrefix(typed) && !exact.contains($0) }
+            let matches = (exact + starts).filter { $0 != typed }
+            // A full name: on to its folder names (`move` + Tab), if it takes one.
+            if !matches.isEmpty { return (String(lead), matches) }
+        }
         guard ["move", "m", "mv", "folder", "f", "b", "buffer"].contains(cmd.lowercased()) else { return nil }
         let arg = rest.dropFirst(cmd.count).drop { $0 == " " }
         let typed = arg.lowercased()

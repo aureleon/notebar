@@ -1833,6 +1833,11 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     if let f = probe.commandLineFrame {
         Check.expect(abs(f.minY - 59) <= 1 && f.maxY < 100, "command line: right under the header pill (\(f))")
     }
+    probe.typeCommandLine("f")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "folder", "command line: Tab completes the command name")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "fold", "command line: Tab again cycles the commands")
     probe.typeCommandLine("f wo")
     probe.commandLineTab()
     Check.equal(probe.commandLineText, "f Work", "command line: Tab completes a folder name")
