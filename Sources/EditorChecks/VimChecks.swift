@@ -213,6 +213,67 @@ enum VimChecks {
     // MARK: VimEx
 
     static func exChecks() {
+        Check.equal(VimEx.parse("folder Work"), .card(.openFolder("Work")), ":folder name")
+        Check.equal(VimEx.parse("f wo"), .card(.openFolder("wo")), ":f")
+        Check.equal(VimEx.parse("b Reading list"), .card(.openFolder("Reading list")), ":b, a name with a space")
+        Check.equal(VimEx.parse("folder"), .error("Usage: :folder name"), ":folder needs a name")
+        Check.equal(VimEx.parse("fo"), .card(.setFolded(true)), ":fo is still fold")
+        Check.equal(VimEx.parse("tabn"), .card(.stepFolder(1)), ":tabn")
+        Check.equal(VimEx.parse("bp"), .card(.stepFolder(-1)), ":bp")
+        Check.equal(VimEx.parse("scratch"), .card(.openScratch), ":scratch")
+        Check.equal(VimEx.parse("newfolder"), .card(.newFolder("")), ":newfolder")
+        Check.equal(VimEx.parse("nf Trip plans"), .card(.newFolder("Trip plans")), ":nf name")
+        Check.equal(VimEx.parse("rename"), .card(.renameFolder("")), ":rename")
+        Check.equal(VimEx.parse("rename Home"), .card(.renameFolder("Home")), ":rename name")
+        Check.equal(VimEx.parse("pinfolder"), .card(.toggleFolderPin), ":pinfolder")
+        Check.equal(VimEx.parse("archivefolder"), .card(.archiveFolder), ":archivefolder")
+        Check.equal(VimEx.parse("deletefolder"), .card(.deleteFolder), ":deletefolder")
+        Check.equal(VimEx.completions("f w", folders: ["Work", "Ideas", "Network"])?.matches, ["Work", "Network"], ":f completes folder names")
+        Check.equal(VimEx.completions("rename w", folders: ["Work"])?.matches, nil, ":rename does not complete")
+        Check.equal(VimEx.completions("f", folders: [])?.matches, ["folder", "fold", "format"], ":f completes to folder first")
+        Check.equal(VimEx.completions("f", folders: [])?.head, "", "a command name has nothing before it")
+        Check.equal(VimEx.completions("ne", folders: [])?.matches, ["newfolder"], ":ne completes to newfolder")
+        Check.equal(VimEx.completions("arch", folders: [])?.matches, ["archive", "archivefolder"], ":arch, the short form's command first")
+        Check.equal(VimEx.completions("folder", folders: [])?.matches, [], "a full name goes on to its folders (none here)")
+        Check.equal(VimEx.completions("zz", folders: [])?.matches, nil, "no command starts with zz")
+        for c in ["folder x", "move x", "scratch", "newfolder", "rename", "pinfolder", "archivefolder", "deletefolder", "tabnext",
+                  "tabprevious", "pin", "unpin", "fold", "unfold", "copy", "delete", "archive", "unarchive", "format", "color",
+                  "mode", "nohlsearch", "write", "quit"] {
+            if case .error = VimEx.parse(c) { Check.expect(false, "completed command :\(c) parses") }
+        }
+        do {
+            let h = harness("hello")
+            h.focus(at: 0)
+            h.editor.vimKeysForTesting(":f<Tab>")
+            Check.equal(h.editor.vimPromptTextForTesting, ":folder", "Tab in a note's : line completes the command")
+            h.editor.vimKeysForTesting("<Tab>")
+            Check.equal(h.editor.vimPromptTextForTesting, ":fold", "Tab again cycles")
+            h.editor.vimKeysForTesting("<Esc>")
+        }
+        do {
+            let h = harness("hello")
+            h.focus(at: 0)
+            h.editor.vimKeysForTesting("gt")
+            h.editor.vimKeysForTesting("gT")
+            let steps = h.events.compactMap { e -> Int? in if case .vim(.stepFolder(let d)) = e { return d }; return nil }
+            Check.equal(steps, [1, -1], "gt / gT in Normal mode ask the host for the next / previous folder")
+            Check.equal(h.body, "hello", "gt / gT do not edit")
+        }
+        do {
+            let s = BehaviorChecks.Harness("--- 09:14 ---\ncall Sam", scratch: true)
+            s.env.settings.vimKeybinds = true
+            s.focus(at: 3)
+            s.editor.vimKeysForTesting("<C-h>")
+            s.editor.vimKeysForTesting("i<C-l>")
+            let steps = s.events.compactMap { e -> Int? in if case .vim(.stepScratchDay(let d)) = e { return d }; return nil }
+            Check.equal(steps, [-1, 1], "⌃H / ⌃L in a Scratch note ask for the earlier / later day (Normal and Insert mode)")
+            Check.equal(s.body, "--- 09:14 ---\ncall Sam", "⌃H / ⌃L do not edit")
+            let n = harness("hello")
+            n.focus(at: 2)
+            n.editor.vimKeysForTesting("<C-h><C-l>")
+            Check.expect(!n.events.contains { if case .vim(.stepScratchDay) = $0 { return true }; return false },
+                         "⌃H / ⌃L are not day keys in a normal note")
+        }
         Check.equal(VimEx.parse("pin"), .card(.togglePin), ":pin")
         Check.equal(VimEx.parse("p"), .card(.togglePin), ":p")
         Check.equal(VimEx.parse("fold"), .card(.setFolded(true)), ":fold")
@@ -248,6 +309,20 @@ enum VimChecks {
         let h = BehaviorChecks.Harness(body, mode: mode)
         h.env.settings.vimKeybinds = true
         return h
+    }
+
+    /// Offscreen PNGs of the `:` line in a note.
+    static func snapshots(outputDirectory dir: URL) {
+        for (name, appearance, color) in [("light", NSAppearance(named: .aqua)!, NoteColor.none), ("dark", NSAppearance(named: .darkAqua)!, NoteColor.blue)] {
+            let env = BehaviorChecks.makeEnv()
+            env.settings.vimKeybinds = true
+            var note = env.store.createNote(in: env.store.folders()[0].id, body: "Meeting notes\nRemember the agenda.\nAsk about the release date.",
+                                            mode: .standard, position: .top)
+            note.color = color
+            env.store.updateNote(note)
+            Snapshots.render(note: note, env: env, appearance: appearance, caret: 0, vimKeys: ":folder wo",
+                             to: dir.appendingPathComponent("vim-prompt-\(name).png"))
+        }
     }
 
     static func editorChecks() {
@@ -376,10 +451,13 @@ enum VimChecks {
         let folders = ["Notes", "Work", "Homework", "Ideas"]
         func comp(_ s: String) -> [String]? { VimEx.completions(s, folders: folders).map { [$0.head] + $0.matches } }
         Check.equal(comp("move w"), ["move ", "Work", "Homework"], "prefix matches first, then names containing it")
-        Check.equal(comp("mv"), ["mv ", "Notes", "Work", "Homework", "Ideas"], "no name yet: every folder")
+        Check.equal(comp("mv"), ["", "move"], "a short form completes to its command first")
+        Check.equal(comp("move"), ["move ", "Notes", "Work", "Homework", "Ideas"], "the full name, no folder yet: every folder")
+        Check.equal(comp("mv "), ["mv ", "Notes", "Work", "Homework", "Ideas"], "after the space: every folder")
         Check.equal(comp("m ID"), ["m ", "Ideas"], "any case")
         Check.equal(comp("m zz"), ["m "], "no match")
-        Check.equal(comp("pin"), nil, "other commands do not complete")
+        Check.equal(comp("mode"), nil, "a full name without folders has nothing to complete")
+        Check.equal(comp("pin"), ["", "pinfolder"], "a full name that starts a longer one completes to it")
         let store = h.env.store
         store.createFolder(name: "Work")
         store.createFolder(name: "Homework")
@@ -399,8 +477,8 @@ enum VimChecks {
                      "the note's own folder is not offered")
         h.editor.vimKeysForTesting("<BS>")
         Check.equal(h.editor.vimPromptHintForTesting, nil, "typing ends the completion")
-        h.editor.vimKeysForTesting("<Esc>:pin<Tab>")
-        Check.equal(h.editor.vimPromptTextForTesting, ":pin", "Tab after another command does nothing")
+        h.editor.vimKeysForTesting("<Esc>:mode<Tab>")
+        Check.equal(h.editor.vimPromptTextForTesting, ":mode", "Tab after a complete command without folders does nothing")
         h.editor.vimKeysForTesting("<Esc>")
 
         // Direct card keys (g prefix), za / Tab, ⌃W chord, ⌃[.

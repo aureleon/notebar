@@ -1,19 +1,26 @@
 import AppKit
 import NoteBarCore
 
-/// The rounded header pill: back chevron, title, search, +. In search mode: search field + close button.
+/// The rounded header pill.
+/// - Folder and Scratch screens: the folder chips (`FolderTabsView`), search, +.
+/// - Archive screens: back chevron, title, search.
+/// - Search mode: the search field and a close button.
 @MainActor
 final class HeaderView: NSView, NSSearchFieldDelegate {
     /// Room around the pill for its drawn shadow. The pill itself is `pillRect`.
     static let shadowPad: CGFloat = 6
 
+    /// What the pill shows while search is closed.
+    enum Content: Equatable {
+        /// The folder chips, search, and + (`plusToolTip`: what + makes on this screen).
+        case tabs(plusToolTip: String)
+        /// A back arrow, a title, and search (the archive).
+        case title(String)
+    }
+
     var onBack: (() -> Void)?
-    var onSettings: (() -> Void)?
     var onSearch: (() -> Void)?
     var onPlus: (() -> Void)?
-    var onScratch: (() -> Void)?
-    /// Scratch day stepper: -1 = an earlier day, +1 = a later day.
-    var onStepDay: ((Int) -> Void)?
     var onQueryChange: ((String) -> Void)?
     /// Escape in the search field. Return true if handled.
     var onSearchEscape: (() -> Void)?
@@ -24,36 +31,28 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     /// ⌃[ in the search field (vim: go up). Returns false when not used.
     var onSearchNavigateUp: (() -> Bool)?
     var onCloseSearch: (() -> Void)?
-    /// A note is dragged over the back button long enough (spring loading).
-    var onSpringBack: (() -> Void)?
 
     private let env: AppEnvironment
     private var glass: NSGlassEffectView?
+    /// Everything in the pill is a subview of this view. In glass mode it is the glass view's content
+    /// view, so the chips and buttons sit above the glass.
     private let content = FlippedView()
+    let tabs: FolderTabsView
     let backButton = IconButton(symbol: "chevron.left", size: 13, toolTip: "Back (⌘[)")
-    let settingsButton = IconButton(symbol: "gearshape", size: 12.5, toolTip: "Settings (⌘,)")
     let searchButton = IconButton(symbol: "magnifyingglass", size: 12.5, toolTip: "Search (⌘F)")
     let plusButton = IconButton(symbol: "plus", size: 13, toolTip: "New Note (⌘N)")
-    let scratchButton = IconButton(symbol: "pencil.and.scribble", size: 12.5, toolTip: "Scratch")
-    let previousDayButton = IconButton(symbol: "arrowtriangle.backward.fill", size: 9.5, toolTip: "Earlier Day (⇧⌘[)")
-    let nextDayButton = IconButton(symbol: "arrowtriangle.forward.fill", size: 9.5, toolTip: "Later Day (⇧⌘])")
     private let closeSearchButton = IconButton(symbol: "xmark", size: 11, toolTip: "Close Search (Esc)")
     private let titleLabel = PassthroughLabel()
     let searchField = HeaderSearchField()
 
     private(set) var isSearching = false
-    private var showsBack = false
-    private var showsSettings = false
-    private var showsPlus = true
-    private var showsScratch = false
-    /// Scratch screen: the day stepper replaces search and +. nil = no stepper.
-    private var stepper: (canGoBack: Bool, canGoForward: Bool)?
-    private var title = "NoteBar"
-    private var titleIsAccent = false
-    private var springTimer: Timer?
+    private(set) var shown: Content = .tabs(plusToolTip: "New Note (⌘N)")
+    /// The chips are in the pill (not in search, not on the archive screens).
+    var showsTabs: Bool { if case .tabs = shown { return !isSearching }; return false }
 
     init(env: AppEnvironment) {
         self.env = env
+        tabs = FolderTabsView(env: env)
         super.init(frame: NSRect(x: 0, y: 0, width: PanelSizing.defaultWidth, height: Metrics.headerHeight + 2 * Self.shadowPad))
         if NoteBarUIOptions.useGlass {
             let g = NSGlassEffectView()
@@ -66,8 +65,8 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         }
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         titleLabel.lineBreakMode = .byTruncatingTail
-        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton, scratchButton,
-                  previousDayButton, nextDayButton] {
+        content.addSubview(tabs)
+        for b in [backButton, searchButton, plusButton, closeSearchButton] {
             b.symbolWeight = .semibold
             content.addSubview(b)
         }
@@ -84,17 +83,9 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         searchField.action = #selector(searchFieldAction(_:))
         closeSearchButton.isHidden = true
         backButton.onClick = { [weak self] _ in self?.onBack?() }
-        settingsButton.onClick = { [weak self] _ in self?.onSettings?() }
         searchButton.onClick = { [weak self] _ in self?.onSearch?() }
         plusButton.onClick = { [weak self] _ in self?.onPlus?() }
-        scratchButton.onClick = { [weak self] _ in self?.onScratch?() }
-        scratchButton.setAccessibilityLabel("Scratch note")
-        previousDayButton.onClick = { [weak self] _ in self?.onStepDay?(-1) }
-        previousDayButton.setAccessibilityLabel("Earlier day")
-        nextDayButton.onClick = { [weak self] _ in self?.onStepDay?(1) }
-        nextDayButton.setAccessibilityLabel("Later day")
         closeSearchButton.onClick = { [weak self] _ in self?.onCloseSearch?() }
-        registerForDraggedTypes([.noteBarNoteID])
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel("NoteBar header")
         update()
@@ -108,21 +99,12 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
 
     // MARK: State
 
-    func setTitle(_ title: String, accent: Bool, showsBack: Bool, showsSettings: Bool = false, showsPlus: Bool = true,
-                  plusToolTip: String, showsScratch: Bool = false, scratchToolTip: String = "Scratch",
-                  stepper: (canGoBack: Bool, canGoForward: Bool)? = nil) {
-        self.title = title
-        self.titleIsAccent = accent
-        self.showsBack = showsBack
-        self.showsSettings = showsSettings
-        self.showsPlus = showsPlus && stepper == nil
-        self.showsScratch = showsScratch && stepper == nil
-        self.stepper = stepper
-        scratchButton.toolTip = scratchToolTip
-        previousDayButton.isEnabled = stepper?.canGoBack ?? false
-        nextDayButton.isEnabled = stepper?.canGoForward ?? false
-        plusButton.toolTip = plusToolTip
-        plusButton.setAccessibilityLabel(plusToolTip)
+    func show(_ content: Content) {
+        shown = content
+        if case .tabs(let tip) = content {
+            plusButton.toolTip = tip
+            plusButton.setAccessibilityLabel(tip)
+        }
         update()
     }
 
@@ -153,15 +135,15 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
     }
 
     private func update() {
-        titleLabel.stringValue = title
-        titleLabel.isHidden = isSearching
-        backButton.isHidden = isSearching || !showsBack
-        settingsButton.isHidden = isSearching || !showsSettings
-        searchButton.isHidden = isSearching || stepper != nil
-        plusButton.isHidden = isSearching || !showsPlus
-        scratchButton.isHidden = isSearching || !showsScratch
-        previousDayButton.isHidden = isSearching || stepper == nil
-        nextDayButton.isHidden = isSearching || stepper == nil
+        var title: String?
+        if case .title(let t) = shown { title = t }
+        titleLabel.stringValue = title ?? ""
+        titleLabel.isHidden = isSearching || title == nil
+        backButton.isHidden = isSearching || title == nil
+        tabs.isHidden = !showsTabs
+        searchButton.isHidden = isSearching
+        // The archive has no +: nothing is made there.
+        plusButton.isHidden = !showsTabs
         searchField.isHidden = !isSearching
         closeSearchButton.isHidden = !isSearching
         restyle()
@@ -172,15 +154,15 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         let c = env.themes.ui(effectiveAppearance)
         titleLabel.font = UIFonts.headerTitle(env.themes.fontSize)
         searchField.font = UIFonts.headerSearch(env.themes.fontSize)
-        titleLabel.textColor = titleIsAccent ? c.accent : c.text
-        for b in [backButton, settingsButton, searchButton, plusButton, closeSearchButton, scratchButton,
-                  previousDayButton, nextDayButton] {
+        titleLabel.textColor = c.accent
+        for b in [backButton, searchButton, plusButton, closeSearchButton] {
             b.onTint = c.accent
             b.tint = c.text.withAlphaComponent(0.85)
             b.restingFill = c.headerButtonFill
             b.hoverFill = c.hoverFill
             b.pressedFill = c.pressedFill
         }
+        tabs.restyle()
         glass?.tintColor = c.isDark ? NSColor.black.withAlphaComponent(0.12) : NSColor.white.withAlphaComponent(0.25)
         needsDisplay = true
     }
@@ -202,19 +184,14 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
         backButton.frame = NSRect(x: 8, y: y, width: s, height: s)
         plusButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         // Without the + button (archive), search takes its place at the right end.
-        searchButton.frame = NSRect(x: showsPlus ? plusButton.frame.minX - 6 - s : w - 8 - s, y: y, width: s, height: s)
-        // Top level: settings · Scratch · search · +.
-        scratchButton.frame = NSRect(x: searchButton.frame.minX - 6 - s, y: y, width: s, height: s)
-        let beforeScratch = showsScratch ? scratchButton.frame.minX : searchButton.frame.minX
-        settingsButton.frame = NSRect(x: beforeScratch - 6 - s, y: y, width: s, height: s)
-        // Scratch: ◀ ▶ at the right end.
-        nextDayButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
-        previousDayButton.frame = NSRect(x: nextDayButton.frame.minX - 6 - s, y: y, width: s, height: s)
-        let titleX: CGFloat = showsBack ? backButton.frame.maxX + 8 : 16
+        searchButton.frame = NSRect(x: plusButton.isHidden ? w - 8 - s : plusButton.frame.minX - 6 - s, y: y, width: s, height: s)
+        // The chips: from the left end of the pill to the search button.
+        let tabsFrame = NSRect(x: 8, y: y, width: max(0, searchButton.frame.minX - 8 - 8), height: s)
+        if tabs.frame != tabsFrame { tabs.frame = tabsFrame }
+        tabs.layoutChips()
+        let titleX = backButton.frame.maxX + 8
         let th = ceil(titleLabel.intrinsicContentSize.height)
-        let rightLimit = stepper != nil ? previousDayButton.frame.minX
-            : !settingsButton.isHidden ? settingsButton.frame.minX : beforeScratch
-        titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, rightLimit - 8 - titleX), height: th)
+        titleLabel.frame = NSRect(x: titleX, y: (h - th) / 2, width: max(0, searchButton.frame.minX - 8 - titleX), height: th)
         closeSearchButton.frame = NSRect(x: w - 8 - s, y: y, width: s, height: s)
         let fh: CGFloat = min(28, h - 12)
         searchField.frame = NSRect(x: 10, y: (h - fh) / 2, width: max(40, closeSearchButton.frame.minX - 8 - 10), height: fh)
@@ -276,48 +253,6 @@ final class HeaderView: NSView, NSSearchFieldDelegate {
             }
             return false
         }
-    }
-
-    // MARK: Spring-loaded back button (drag a note onto it to reach the folder list)
-
-    private func overBack(_ info: NSDraggingInfo) -> Bool {
-        guard !backButton.isHidden else { return false }
-        let p = content.convert(info.draggingLocation, from: nil)
-        return backButton.frame.insetBy(dx: -6, dy: -6).contains(p)
-    }
-
-    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
-
-    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard PasteboardImport.hasInternalNote(sender.draggingPasteboard), overBack(sender) else {
-            cancelSpring()
-            return []
-        }
-        if springTimer == nil {
-            backButton.isOn = true
-            springTimer = Timer.scheduledTimer(withTimeInterval: 0.55, repeats: false) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.cancelSpring()
-                    self?.onSpringBack?()
-                }
-            }
-        }
-        return .move
-    }
-
-    override func draggingExited(_ sender: NSDraggingInfo?) { cancelSpring() }
-    override func draggingEnded(_ sender: NSDraggingInfo) { cancelSpring() }
-    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        let over = overBack(sender)
-        cancelSpring()
-        if over { onSpringBack?() }
-        return false
-    }
-
-    private func cancelSpring() {
-        springTimer?.invalidate()
-        springTimer = nil
-        backButton.isOn = false
     }
 }
 

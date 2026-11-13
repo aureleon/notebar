@@ -60,7 +60,7 @@ struct ShortcutsPane: View {
         ("Move to Folder…", "⇧⌘M"),
         ("Move to a New Folder", "⌥⌘M"),
         ("Fold / Unfold Note", "⌥⌘← · ⌥⌘→"),
-        ("Archive / Unarchive Note or Folder", "⌥⌘A"),
+        ("Archive / Unarchive Note", "⌥⌘A"),
         ("Move Note Up", "⌥⇧⌘↑"),
         ("Move Note Down", "⌥⇧⌘↓"),
         ("Search All Folders", "⌘/"),
@@ -76,13 +76,12 @@ struct ShortcutsPane: View {
         ("Move note down / up in folder", "gj · gk"),
         ("Copy note", "gy · :copy"),
         ("Expand / collapse card", "ge"),
-        ("Archive / unarchive note or folder", "ga · :archive · :unarchive"),
+        ("Archive / unarchive note", "ga · :archive · :unarchive"),
         ("Formatting menu", "gf"),
         ("Delete note", "gx · dd (selected note) · :delete"),
         ("Selected note, not editing", "gp gc gm gj gk gy ge ga gx za · gg G"),
-        ("Folder list", "j k · gg G · l or ↩ open · o new"),
-        ("Folder: rename, pin, color, delete", "R or cw · gp · gc · gx or dd"),
-        ("Go up to the folder list", "⌃["),
+        ("Next / previous folder", "gt · gT (notes list)"),
+        ("Go back from the archive", "⌃["),
     ]
 
     var body: some View {

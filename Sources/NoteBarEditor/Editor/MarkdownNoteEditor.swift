@@ -85,6 +85,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
     var activeEntry: Int?
     var provisionalBase: String?
     public var entryMenuItems: ((String) -> [NSMenuItem])?
+    public var commandLineFrame: (() -> NSRect?)?
 
     var style: EditorStyle { styler.style }
     var codecOptions: CodecOptions {
@@ -798,7 +799,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         let f = NSRect(x: 0, y: 0, width: w, height: h)
         if textView.frame != f { textView.frame = f }
         // The vim prompt sits at the bottom of the editor (of the card when it is expanded).
-        vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+        placeVimPrompt(measured: measured, width: w)
         positionTableViews()
         positionCompletedRows()
         if abs(measured + ph - reportedHeight) > 0.5, reportedHeight >= 0 {
@@ -817,7 +818,7 @@ public final class MarkdownNoteEditor: NSView, NoteEditing, NSTextViewDelegate, 
         if w > 1 {
             let f = NSRect(x: 0, y: 0, width: w, height: max(bounds.height - ph, measured))
             if textView.frame != f { textView.frame = f }
-            vimPrompt?.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+            placeVimPrompt(measured: measured, width: w)
         }
         positionTableViews()
         positionCompletedRows()

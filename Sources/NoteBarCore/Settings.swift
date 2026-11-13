@@ -187,7 +187,7 @@ public final class AppSettings: ObservableObject {
     @Published public var hideMarkup: Bool { didSet { save("hideMarkup", hideMarkup) } }
     @Published public var defaultNoteMode: NoteMode { didSet { save("defaultNoteMode", defaultNoteMode.rawValue) } }
     /// Vim keys: notes open in Normal mode (block caret), motions and operators, `/` search, `:` commands,
-    /// ⌃W J / ⌃W K between cards, j / k / l / R in the folder list. Off by default (opt-in).
+    /// ⌃W J / ⌃W K between cards, gt / gT between folders. Off by default (opt-in).
     @Published public var vimKeybinds: Bool { didSet { save("vimKeybinds", vimKeybinds) } }
     /// Checking an item moves it below the open items of its checklist, and an "N completed" row
     /// can fold the checked items. On by default.
@@ -208,7 +208,7 @@ public final class AppSettings: ObservableObject {
     public private(set) var deletedItemsRetentionChangedAt: Date? {
         didSet { defaults.set(deletedItemsRetentionChangedAt, forKey: "deletedItemsRetentionChangedAt") }
     }
-    /// Folder shown when the panel opens (nil = folder list).
+    /// The folder that was open last. It shows when the panel opens (nil = the first folder).
     @Published public var lastFolderId: FolderID? { didSet { save("lastFolderId", lastFolderId.map { NSNumber(value: $0) }) } }
 
     // MARK: Scratch

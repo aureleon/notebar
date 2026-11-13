@@ -1,8 +1,8 @@
 import AppKit
 import NoteBarCore
 
-/// The Scratch screen: one day's Scratch note under a "Scratch · Today" header with a ◀ ▶ day stepper.
-/// The note is a log of entries (`ScratchEntries`): opening it to type (hotkey, header button, menu
+/// The Scratch screen: one day's Scratch note. Its chip in the header is open and holds ‹ day ›.
+/// The note is a log of entries (`ScratchEntries`): opening it to type (hotkey, the + button, menu
 /// bar, URL) starts a new entry at the end. A click into the text edits in place.
 /// Today's note is editable; earlier days are read-only (Save as Note keeps a copy). The screen follows
 /// the day when a new one starts, except while the user is typing in it.
@@ -14,7 +14,8 @@ extension NotesRootViewController {
         "Scratch" + (env.settings.hotkeys[.scratch].map { " (\($0.displayString))" } ?? "")
     }
 
-    /// Hotkey, header button, menu bar, `notebar://scratch`: today's note, `edit` = ready to type.
+    /// Hotkey, + on Scratch, menu bar, `notebar://scratch`: today's note, `edit` = ready to type. The
+    /// Scratch chip shows it without the caret (`edit` false).
     public func showScratch(edit: Bool) {
         _ = view
         guard env.settings.scratchEnabled, let note = env.scratch.todayNote(create: true) else { return }
@@ -53,9 +54,8 @@ extension NotesRootViewController {
         } else {
             reloadNotes(animated: false)
         }
-        folderList.endRename()
+        folderTabs.endRename()
         updateHeader()
-        setListVisibilityForScratch()
         rootView.needsLayout = true
     }
 
@@ -82,7 +82,7 @@ extension NotesRootViewController {
         }
     }
 
-    /// ◀ (-1) an earlier day with a note, ▶ (+1) a later one (at last today).
+    /// ‹ (-1) an earlier day with a note, › (+1) a later one (at last today).
     func stepScratchDay(_ delta: Int) {
         guard case .scratch(let day) = screen, search == nil else { return }
         let s = env.scratch
@@ -109,16 +109,11 @@ extension NotesRootViewController {
 
     func scratchSettingsChanged() {
         guard header != nil else { return }
+        // Scratch was turned off while it shows: the last folder.
         if !env.settings.scratchEnabled, isScratchScreen || isScratchOrigin {
-            if search != nil { search?.origin = .folders }
-            showFolderList()
+            showLastFolder()
             return
         }
-        if search == nil, screen == .folders || isScratchScreen { updateHeader() }
-    }
-
-    private func setListVisibilityForScratch() {
-        notesList.isHidden = false
-        folderList.isHidden = true
+        updateHeader()
     }
 }

@@ -6,7 +6,7 @@ public enum DeletedItemsRetention: String, CaseIterable, Codable, Sendable {
     case untilQuit
     /// One hour after the delete.
     case oneHour
-    /// 30 days. (Every setting lists the trash in the "Recently Deleted" row of the folder list.)
+    /// 30 days. (Every setting lists the trash in the "Recently Deleted" menu of the header.)
     case recentlyDeleted
 
     public var displayName: String {

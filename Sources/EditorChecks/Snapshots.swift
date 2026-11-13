@@ -133,8 +133,9 @@ enum Snapshots {
         print("snapshots written to \(dir.path)")
     }
 
+    /// `vimKeys`: keys typed after the focus (set `vimKeybinds` first), e.g. ":move wo" to show the prompt.
     static func render(note: Note, env: AppEnvironment, appearance: NSAppearance, caret: Int?, hover: String? = nil,
-                       width: CGFloat = 260, to url: URL) {
+                       width: CGFloat = 260, vimKeys: String? = nil, to url: URL) {
         let pad: CGFloat = 16
         let canvas = Canvas(frame: NSRect(x: 0, y: 0, width: width + 2 * pad + 16, height: 200))
         canvas.appearance = appearance
@@ -157,6 +158,7 @@ enum Snapshots {
             window = w
             editor.focus(atEnd: false)
             editor.textViewForTesting.setSelectedRange(NSRange(location: caret, length: 0))
+            if let vimKeys { _ = editor.vimKeysForTesting(vimKeys) }
         }
 
         // Let async image / thumbnail loads finish.

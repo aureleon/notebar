@@ -30,6 +30,9 @@ final class NoteCardView: NSView {
     weak var delegate: NoteCardDelegate?
 
     private(set) var editor: (any NoteEditing)?
+    /// Room for the editor's command line in the bottom row (card coordinates). nil: the card is too
+    /// narrow, or folded.
+    private(set) var commandLineRect: NSRect?
     private var preview: NotePreviewView?
     private let titleLabel = PassthroughLabel()
     private let badge = BadgeButton()
@@ -303,6 +306,10 @@ final class NoteCardView: NSView {
             guard let self else { return }
             self.delegate?.card(self, editorEvent: event)
         }
+        e.commandLineFrame = { [weak self, weak e] in
+            guard let self, let e, let r = self.commandLineRect else { return nil }
+            return e.convert(r, from: self)
+        }
         e.entryMenuItems = { [weak self] text in
             guard let self, let actions = self.delegate?.actions else { return [] }
             return [MenuBuilder.saveEntryAsNoteItem(text: text, noteID: self.note.id, actions: actions)]
@@ -523,6 +530,7 @@ final class NoteCardView: NSView {
             // No badge: the title may use the date slot while the date is hidden.
             if badge.isHidden, !footerVisible || dateLabel == nil { right = dateRight }
             footer?.frame = .zero
+            commandLineRect = nil
             formatButton.isHidden = true
             modeButton.isHidden = true
             foldFits = false
@@ -562,6 +570,10 @@ final class NoteCardView: NSView {
             let trayRight = pf.maxX + CardActionsView.padding
             let trayLeft = (formatButton.isHidden ? modeButton.frame.maxX : formatButton.frame.maxX) + 8
             footer?.frame = NSRect(x: trayLeft, y: rowY, width: max(0, trayRight - trayLeft), height: rowH)
+            // The editor's command line (vim) fits in the row, between Aa and the tray's three buttons.
+            let tray = 3 * CardActionsView.buttonSize + 2 * CardActionsView.padding
+            let line = NSRect(x: trayLeft, y: rowY, width: trayRight - tray - 8 - trayLeft, height: rowH)
+            commandLineRect = line.width >= 90 ? line : nil
             if let dateLabel {
                 // Centered on the pin, ending where the text ends.
                 let dw = dateReserve

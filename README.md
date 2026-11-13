@@ -14,7 +14,7 @@ continue your work.
   you type. You do not see the Markdown marks.
 - **Add pictures and files.** Paste them, or drop them on the panel.
 - **Keep things in order.** Put notes in folders, give them colors, pin the important ones, and fold
-  long notes.
+  long notes. The folders are in the header: one click opens a folder.
 - **Find anything.** Search one folder or all of them.
 - **Jot things down.** The Scratch note starts empty every day. Push ⌃⌥⌘S from any app to type in
   it: each visit starts a new entry below a thin line, with the time after a break. You can still

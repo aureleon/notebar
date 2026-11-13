@@ -114,7 +114,6 @@ MainActor.assumeIsolated {
                              editorFactory: PlainNoteEditorFactory())
 
     let vc = NotesRootViewController(env: env)
-    vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
     // Same default width as the panel on a 1512 pt wide screen (about 27 %, clamped to 380...600).
@@ -146,20 +145,22 @@ MainActor.assumeIsolated {
         written.append(name)
     }
 
-    // MARK: Folder list
-    vc.showFolderList()
-    render("01-folders-light")
-    render("02-folders-dark", dark: true)
-    Check.expect(probe.folderRowsVisible, "folder list visible at root")
-    Check.equal(probe.folderRowIDs.first, folders.work.id, "pinned folder first")
-    Check.equal(probe.headerTitle, "NoteBar", "root title")
-    Check.expect(probe.isSettingsButtonVisible, "settings button visible at root")
+    // MARK: Start: there is no folder list, a folder is always open
+    _ = vc.view
+    Check.equal(settings.lastFolderId, folders.work.id, "start: no folder was open before, the first folder opens")
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "start: the first folder is open")
+    Check.equal(store.folders()[0].id, folders.work.id, "pinned folder first")
+    Check.expect(probe.folderTabsVisible, "start: the header has the folder chips")
+    Check.equal(probe.folderTabKeys.dropFirst().first, NotesUIProbe.folderTabKey(folders.work.id), "the pinned folder's chip is first")
+    Check.equal(probe.headerTitle, "Work", "start: the folder's name")
+    render("01-start-light")
+    render("02-start-dark", dark: true)
 
     // MARK: Notes list
     vc.showFolder(folders.notes.id)
     Check.equal(settings.lastFolderId, folders.notes.id, "lastFolderId remembered")
     Check.equal(probe.headerTitle, "Notes", "folder title")
-    Check.expect(!probe.isSettingsButtonVisible, "settings button hidden in folder")
+    Check.expect(!probe.isBackButtonVisible, "no back arrow in a folder")
     let ids = store.notes(in: folders.notes.id).map(\.id)
     Check.equal(probe.displayedNoteIDs, ids, "cards follow store order")
     render("03-notes-light")
@@ -451,11 +452,13 @@ MainActor.assumeIsolated {
     probe.focusList()
     probe.pressEscape()
     Check.expect(probe.selectedNoteID == nil, "Esc clears the selection")
-    Check.expect(!probe.folderRowsVisible, "Esc does not go back to the folder list")
-    probe.goBack()
-    Check.expect(probe.folderRowsVisible, "back goes to the folder list")
-    Check.expect(UserDefaults(suiteName: suite)!.bool(forKey: "NoteBarUI.showsFolderList"), "folder list remembered")
-    Check.equal(settings.lastFolderId, folders.work.id, "lastFolderId keeps the last opened folder at the folder list")
+    Check.equal(vc.currentFolderId, folders.work.id, "Esc does not leave the folder")
+    // Go up (⌘[) from a folder: nothing is above it.
+    probe.press(keyCode: 33, characters: "[", modifiers: [.command])
+    Check.equal(vc.currentFolderId, folders.work.id, "⌘[ in a folder does nothing")
+    probe.press(keyCode: 123, characters: "\u{F702}")
+    Check.equal(vc.currentFolderId, folders.work.id, "← in a folder does nothing")
+    Check.equal(settings.lastFolderId, folders.work.id, "lastFolderId is the open folder")
 
     // ⌘digits never switch folders (⌘1–⌘3 are headings while editing).
     vc.showFolder(folders.ideas.id)
@@ -470,31 +473,46 @@ MainActor.assumeIsolated {
     Check.equal(headingProbe.receivedHeading, 2, "⌘2 while editing reaches the text view")
     Check.expect(window.firstResponder === headingProbe, "⌘2 while editing keeps focus")
     headingProbe.removeFromSuperview()
-    vc.showFolderList()
-    Check.equal(settings.lastFolderId, folders.ideas.id, "folder list keeps lastFolderId for new-note hotkeys")
+    // The archive is the only screen with something above it: back shows the last folder.
+    vc.showArchive()
+    Check.expect(!probe.folderTabsVisible && probe.isBackButtonVisible, "archive: title and back arrow, no chips")
+    Check.equal(settings.lastFolderId, folders.ideas.id, "the archive keeps lastFolderId for new-note hotkeys")
+    probe.goBack()
+    Check.equal(vc.currentFolderId, folders.ideas.id, "back from the archive shows the last folder")
 
-    // Folder reorder across the pinned boundary: Ideas to the top of the unpinned zone.
+    // Chip drag across the pinned boundary: Ideas to the start of the unpinned group.
     probe.moveFolder(folders.ideas.id, toGap: 1)
-    Check.equal(store.folders().map(\.id)[1], folders.ideas.id, "folder drag below pinned folder")
+    Check.equal(store.folders().map(\.id)[1], folders.ideas.id, "chip drag to the gap after the pinned folder")
     probe.moveFolder(folders.ideas.id, toGap: 0)
     Check.equal(store.folders().map(\.id)[0], folders.work.id, "pinned folder stays first")
+    Check.equal(Array(probe.folderTabKeys.dropFirst().dropLast()), store.folders().map { NotesUIProbe.folderTabKey($0.id) },
+                "the chips follow the folder order")
 
-    // Inline rename.
+    // Inline rename on the chip.
     probe.beginRename(folders.ideas.id)
+    Check.equal(probe.renamingFolderID, folders.ideas.id, "rename starts on the chip")
     render("16-rename-light")
     probe.endRename()
+    Check.equal(probe.renamingFolderID, nil, "rename ended")
 
-    // New folder via + at root.
+    // New folder from the "…" menu. + always makes a note.
     let folderCount = store.folders().count
-    probe.plus()
-    Check.equal(store.folders().count, folderCount + 1, "+ at root creates a folder")
+    probe.moreMenuRun("New Folder")
+    Check.equal(store.folders().count, folderCount + 1, "New Folder in the … menu creates a folder")
     probe.endRename()
+    let noteCount = store.notes(in: vc.currentFolderId ?? 0).count
+    probe.plus()
+    Check.equal(store.folders().count, folderCount + 1, "+ does not create a folder")
+    Check.equal(store.notes(in: vc.currentFolderId ?? 0).count, noteCount + 1, "+ in a folder creates a note")
+    probe.focusList()
 
-    // Deleting the open folder returns to the list.
+    // The open folder goes away: the first folder shows (it was the last one open, so there is no other).
     let tmpFolder = store.createFolder(name: "Temp")
     vc.showFolder(tmpFolder.id)
     store.deleteFolder(id: tmpFolder.id)
-    Check.expect(probe.folderRowsVisible, "deleted open folder -> folder list")
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "deleted open folder: the first folder shows")
+    Check.expect(probe.folderTabsVisible && probe.activeFolderTabKey == NotesUIProbe.folderTabKey(store.folders()[0].id),
+                 "and its chip is the open one")
 
     // Performance: 200 notes.
     let big = store.createFolder(name: "Big")
@@ -714,9 +732,11 @@ MainActor.assumeIsolated {
     NoteBarUIOptions.useGlass = false
 
     // MARK: Vim keys
+    renderHook = { render($0) }
     vimChecks(vc: vc, probe: probe, store: store, settings: settings, folders: folders, spin: spin)
-    vimScrollChecks(spin: spin)
+    vimScrollChecks(out: out, spin: spin)
     written += scratchEntryChecks(out: out, spin: spin)
+    written += folderTabChecks(out: out, spin: spin)
 
     // MARK: Panel undo (⌘Z / ⇧⌘Z on the list)
     renderHook = { render($0) }
@@ -768,17 +788,6 @@ MainActor.assumeIsolated {
             probe.setHovered(ids[0], false)
             probe.select(nil)
         } else { Check.expect(false, "hover: two notes") }
-        vc.showFolderList()
-        probe.layoutNow(); spin(); probe.layoutNow()
-        let fids = probe.folderRowIDs
-        probe.setFolderRowHovered(fids[0], true)
-        Check.equal(probe.folderRowShowsHover(fids[0]), true, "hover: pointer over the first folder")
-        _ = probe.press(keyCode: 125, characters: "\u{F701}")
-        _ = probe.press(keyCode: 125, characters: "\u{F701}")
-        Check.equal(probe.folderRowShowsHover(fids[0]), false, "hover: ↓ on the folder list hides the folder hover")
-        probe.mouseMoved()
-        Check.equal(probe.folderRowShowsHover(fids[0]), true, "hover: mouse move shows the folder hover again")
-        probe.setFolderRowHovered(fids[0], false)
     }
 
     // MARK: Fold: ⌥⌘← / ⌥⌘→ and the fold button
@@ -830,6 +839,542 @@ MainActor.assumeIsolated {
     Check.finish()
 }
 
+/// The folder chips in the header pill: the one and only navigation (there is no folder list screen).
+@MainActor
+func folderTabChecks(out: URL, spin: () -> Void) -> [String] {
+    let suite = "NoteBarUISnapshotTabs"
+    UserDefaults().removePersistentDomain(forName: suite)
+    let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
+    let store = InMemoryNoteStore(seed: false)
+    let notes = store.folders()[0]
+    func folder(_ name: String, _ color: NoteColor) -> Folder {
+        var f = store.createFolder(name: name)
+        f.color = color
+        store.updateFolder(f)
+        return f
+    }
+    let work = folder("Work", .blue)
+    let ideas = folder("Ideas", .yellow)
+    let shopping = folder("Shopping", .green)
+    let reading = folder("Reading", .pink)
+    func add(_ f: Folder, _ body: String, _ color: NoteColor = .none) {
+        var n = store.createNote(in: f.id, body: body, mode: .standard, position: .bottom)
+        n.color = color
+        store.updateNote(n)
+    }
+    add(notes, "Hello!\nNoteBar is a notes panel that lives on the side of your screen.", .purple)
+    add(notes, "Tasks\n- [x] first task\n- [ ] second task\n- [ ] third task")
+    add(notes, "Colors\nHere are some colors.\nThey are written in #rrggbb format.", .yellow)
+    add(work, "Meeting notes\nRemember the agenda.\nAsk about the release date.", .blue)
+    add(work, "Quarterly plan\nShip the panel.\nPolish the editor.")
+    add(work, "Review\nTwo changes wait for a second look.", .green)
+    add(ideas, "Ideas\nA notes bar that slides in from the edge.")
+    add(shopping, "Groceries\nMilk\nBread", .green)
+    add(reading, "Books\nThe Soul of a New Machine", .pink)
+
+    let env = AppEnvironment(store: store, backups: nil, settings: settings,
+                             themes: ThemeManager(settings: settings, store: store), editorFactory: PlainNoteEditorFactory())
+    let vc = NotesRootViewController(env: env)
+    env.presenter = vc
+    let probe = vc.probe
+    var width: CGFloat = 420
+    let height: CGFloat = 420
+    let backdrop = Backdrop(frame: .zero)
+    backdrop.addSubview(vc.view)
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.borderless],
+                          backing: .buffered, defer: true)
+    window.isReleasedWhenClosed = false
+    window.contentView = backdrop
+    window.appearance = NSAppearance(named: .aqua)
+    backdrop.appearance = NSAppearance(named: .aqua)
+    defer { window.contentView = nil; UserDefaults().removePersistentDomain(forName: suite) }
+    func layout() { probe.layoutNow(); spin(); probe.layoutNow() }
+    func resize() {
+        window.setContentSize(NSSize(width: width + 40, height: height + 20))
+        backdrop.frame = NSRect(x: 0, y: 0, width: width + 40, height: height + 20)
+        vc.view.frame = NSRect(x: 20, y: 10, width: width, height: height)
+        layout()
+    }
+    var written: [String] = []
+    func render(_ name: String, dark: Bool = false) {
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!
+        window.appearance = appearance
+        backdrop.appearance = appearance
+        spin(); layout()
+        backdrop.layoutSubtreeIfNeeded()
+        backdrop.display()
+        // At 2x, so the chips can be judged.
+        let b = backdrop.bounds
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(b.width * 2), pixelsHigh: Int(b.height * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        rep.size = b.size
+        backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
+        if let data = rep.representation(using: .png, properties: [:]) {
+            try? data.write(to: out.appendingPathComponent(name + ".png"))
+            written.append(name)
+        }
+        window.appearance = NSAppearance(named: .aqua)
+        backdrop.appearance = NSAppearance(named: .aqua)
+        layout()
+    }
+    func key(_ f: Folder) -> String { NotesUIProbe.folderTabKey(f.id) }
+    func ctrlTab(shift: Bool = false) { probe.press(keyCode: 48, characters: "\t", modifiers: shift ? [.control, .shift] : [.control]) }
+    /// The chips never reach the buttons on the right, and everything is inside the pill.
+    func checkNoOverlap(_ label: String) {
+        let strip = probe.folderTabsFrame, search = probe.searchButtonFrame, plus = probe.plusButtonFrame, pill = probe.headerPillFrame
+        Check.expect(strip.maxX <= search.minX, "\(label): the chips end before search (\(strip.maxX) vs \(search.minX))")
+        Check.expect(search.maxX <= plus.minX && plus.maxX <= pill.maxX, "\(label): search and + are inside the pill")
+        Check.expect(strip.minX >= pill.minX, "\(label): the chips start inside the pill")
+        if let more = probe.folderTabFrame("more") {
+            Check.expect(more.maxX <= strip.maxX + 0.5 && more.width >= 30, "\(label): the … button is whole (\(more))")
+            for k in probe.folderTabKeys where k != "more" && probe.isFolderTabInView(k) {
+                Check.expect((probe.folderTabFrame(k)?.maxX ?? 0) <= more.minX, "\(label): \(k) ends before the … button")
+            }
+            if let s = probe.folderTabFrame("scratch") { Check.expect(s.maxX <= more.minX, "\(label): Scratch ends before the … button") }
+        } else { Check.expect(false, "\(label): the … button") }
+    }
+
+    // Start: no folder was open before, so the first one is. The strip: Scratch, the folders, "…".
+    resize()
+    let all = [notes, work, ideas, shopping, reading]
+    Check.equal(vc.currentFolderId, notes.id, "tabs: the first folder is open at the start")
+    Check.expect(probe.folderTabsVisible, "tabs: shown")
+    Check.equal(store.folders().map(\.id), all.map(\.id), "tabs: the seed order")
+    Check.equal(probe.folderTabKeys, ["scratch"] + all.map(key) + ["more"], "tabs: Scratch, the folders in order, the … button")
+    Check.equal(all.map { probe.folderTabTitle(key($0)) }, ["Notes", "Work", "Ideas", "Shopping", "Reading"], "tabs: a chip has the folder name")
+    // Note counts are not on screen: the tooltip has them. The chips keep their labels.
+    Check.equal(probe.folderTabToolTip(key(work)), "Work · 3 notes", "tabs: the tooltip has the note count")
+    Check.equal(probe.folderTabToolTip(key(ideas)), "Ideas · 1 note", "tabs: one note")
+    Check.equal(probe.folderTabAccessibilityLabel(key(work)), "Work · 3 notes", "tabs: a chip has its accessibility label")
+    Check.equal(probe.folderTabAccessibilityLabel("scratch"), "Scratch", "tabs: the Scratch chip has its label")
+    Check.equal(probe.folderTabsAccessibilityRole, .tabGroup, "tabs: the strip is a tab group")
+    Check.equal(probe.folderTabToolTip("scratch")?.hasPrefix("Scratch"), true, "tabs: Scratch tooltip")
+    add(ideas, "Second idea")
+    Check.equal(probe.folderTabToolTip(key(ideas)), "Ideas · 2 notes", "tabs: the count follows the notes")
+    // Colors: the open chip is filled with the folder's strong color, the others have a dot in it.
+    Check.expect(Set(all.map { probe.folderTabFill(key($0)) }).count == 5, "tabs: colors differ by folder")
+    Check.expect(!probe.folderTabShowsDot(key(notes)) && probe.folderTabShowsDot(key(work)), "tabs: a dot only for a folder with a color")
+    let lightFill = probe.folderTabFill(key(work))
+    backdrop.appearance = NSAppearance(named: .darkAqua)!
+    layout()
+    Check.expect(probe.folderTabFill(key(work)) != lightFill, "tabs: the color follows the appearance")
+    backdrop.appearance = NSAppearance(named: .aqua)!
+    layout()
+    settings.themeId = "graphite"
+    layout()
+    Check.expect(probe.folderTabFill(key(work)) != nil && probe.folderTabInk(key(work)) != probe.folderTabFill(key(work)),
+                 "tabs: another theme, the chip has a fill and a text color")
+    settings.themeId = "default"
+    layout()
+    Check.equal(probe.folderTabFill(key(work)), lightFill, "tabs: back to the default theme")
+    Check.equal(probe.activeFolderTabKey, key(notes), "tabs: the open folder's chip is the open one")
+    checkNoOverlap("tabs")
+
+    // One click switches folder.
+    probe.clickFolderTab(key(work))
+    layout()
+    Check.equal(vc.currentFolderId, work.id, "tabs: a click opens the folder")
+    Check.equal(probe.displayedNoteIDs, store.notes(in: work.id).map(\.id), "tabs: the folder's notes show")
+    Check.equal(probe.activeFolderTabKey, key(work), "tabs: the clicked chip is the open one")
+    Check.equal(settings.lastFolderId, work.id, "tabs: lastFolderId follows")
+    Check.expect(probe.isPlusButtonVisible && probe.isSearchButtonVisible && !probe.isBackButtonVisible,
+                 "tabs: search and +, no back arrow")
+    Check.equal(probe.plusButtonToolTip, "New Note (⌘N)", "tabs: + in a folder is New Note")
+    render("40-header-folder-light")
+    render("41-header-folder-dark", dark: true)
+    vc.showFolder(ideas.id)
+    Check.equal(probe.activeFolderTabKey, key(ideas), "tabs: the open chip follows showFolder")
+    settings.hideMarkup.toggle()
+    layout()
+    Check.equal(probe.activeFolderTabKey, key(ideas), "tabs: hideMarkup does not touch the chips")
+    settings.hideMarkup.toggle()
+
+    // ⌃Tab / ⌃⇧Tab: the next / previous folder, around the ends. Scratch is not part of the round.
+    probe.focusList()
+    ctrlTab()
+    Check.equal(vc.currentFolderId, shopping.id, "tabs: ⌃Tab opens the next folder")
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: ⌃⇧Tab opens the previous folder")
+    probe.pressKeyEquivalent(keyCode: 48, characters: "\t", modifiers: [.control])
+    Check.equal(vc.currentFolderId, shopping.id, "tabs: ⌃Tab as a key equivalent (how it reaches the panel)")
+    ctrlTab()
+    Check.equal(vc.currentFolderId, reading.id, "tabs: ⌃Tab again")
+    ctrlTab()
+    Check.equal(vc.currentFolderId, notes.id, "tabs: ⌃Tab on the last folder goes around to the first, not to Scratch")
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, reading.id, "tabs: ⌃⇧Tab goes around the other way")
+    vc.showFolder(ideas.id)
+    probe.clickFolderTab("scratch")
+    ctrlTab()
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: ⌃Tab on Scratch goes back to the folder open last")
+    probe.clickFolderTab("scratch")
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: so does ⌃⇧Tab")
+    vc.showFolder(reading.id)
+    vc.reveal(noteId: store.notes(in: reading.id)[0].id, edit: true)
+    Check.equal(probe.focusedNoteID, store.notes(in: reading.id)[0].id, "tabs: editing a note")
+    probe.pressKeyEquivalent(keyCode: 48, characters: "\t", modifiers: [.control, .shift])
+    Check.equal(vc.currentFolderId, shopping.id, "tabs: ⌃⇧Tab also works while a note is edited")
+    Check.equal(probe.focusedNoteID, nil, "tabs: and ends the editing")
+    vc.beginSearch()
+    ctrlTab()
+    Check.expect(probe.isSearching && vc.currentFolderId == shopping.id, "tabs: ⌃Tab does nothing in search")
+    probe.goBack()
+
+    // Scratch chip: opens today without the caret. Open, it holds ‹ day ›. + starts typing.
+    let scratch = env.scratch
+    var clock = Date()
+    scratch.now = { clock }
+    scratch.refresh()
+    probe.clickFolderTab("scratch")
+    layout()
+    Check.equal(probe.scratchDay, scratch.todayKey, "tabs: the Scratch chip opens today's Scratch")
+    Check.equal(probe.activeFolderTabKey, "scratch", "tabs: Scratch is the open chip")
+    Check.equal(probe.focusedNoteID, nil, "tabs: the Scratch chip does not start typing")
+    Check.equal(probe.scratchChipTitle, "Today", "tabs: the open Scratch chip shows the day")
+    Check.equal(probe.folderTabToolTip("scratch"), nil, "tabs: no tooltip over the stepper")
+    Check.equal(probe.plusButtonToolTip, "New Entry", "tabs: + on Scratch is New Entry")
+    Check.expect((probe.folderTabFrame("scratch")?.width ?? 0) > 80, "tabs: the open Scratch chip is wide")
+    checkNoOverlap("tabs, Scratch open")
+    let first = scratch.todayNote(create: false)
+    probe.clickPlusButton()
+    layout()
+    Check.expect(first != nil && probe.focusedNoteID == first?.id, "tabs: + on Scratch starts typing in today's note")
+    Check.equal(probe.scratchDay, scratch.todayKey, "tabs: + stays on Scratch")
+    Check.equal(store.folders().count, 5, "tabs: + on Scratch makes no folder")
+    probe.focusList()
+    render("42-header-scratch-today-light")
+    // An earlier day: ‹ › in the chip step through the days.
+    if let first { store.updateNoteBody(id: first.id, body: "Call back about the build\nBook the room") }
+    let day1 = scratch.todayKey
+    clock = Calendar.current.date(byAdding: .day, value: 1, to: clock)!
+    scratch.refresh()
+    layout()
+    let day2 = scratch.todayKey
+    Check.equal(probe.scratchDay, day2, "tabs: Scratch follows the new day")
+    Check.expect(probe.canStepToEarlierDay && !probe.canStepToLaterDay, "tabs: ‹ on, › off on today")
+    Check.expect(!probe.clickScratchChipStepper(1) && probe.scratchDay == day2, "tabs: › does nothing on today")
+    Check.expect(probe.clickScratchChipStepper(-1), "tabs: ‹ steps")
+    layout()
+    Check.equal(probe.scratchDay, day1, "tabs: ‹ shows the earlier day")
+    Check.equal(probe.scratchChipTitle, "Yesterday", "tabs: the chip shows that day")
+    Check.expect(!probe.canStepToEarlierDay && probe.canStepToLaterDay, "tabs: ‹ off, › on on the oldest day")
+    Check.equal(probe.activeFolderTabKey, "scratch", "tabs: still the Scratch chip")
+    checkNoOverlap("tabs, Scratch on an earlier day")
+    render("43-header-scratch-earlier-day-light")
+    Check.expect(probe.clickScratchChipStepper(1) && probe.scratchDay == day2, "tabs: › goes back to today")
+    // A chip leaves Scratch. Search keeps the chip of its screen, and the chips make room for the field.
+    probe.clickFolderTab(key(work))
+    Check.equal(vc.currentFolderId, work.id, "tabs: a folder chip leaves Scratch")
+    Check.equal(probe.scratchChipTitle, nil, "tabs: the closed Scratch chip is a round button")
+    vc.beginSearch()
+    Check.expect(!probe.folderTabsVisible && probe.folderTabKeys.isEmpty, "tabs: hidden in search")
+    Check.equal(probe.activeFolderTabKey, key(work), "tabs: search keeps the chip of its folder")
+    probe.pressEscape()
+    Check.expect(probe.folderTabsVisible && vc.currentFolderId == work.id, "tabs: back after search")
+
+    // Scratch off: no Scratch chip. Turned off while it shows: the last folder.
+    probe.clickFolderTab("scratch")
+    settings.scratchEnabled = false
+    layout()
+    Check.equal(probe.folderTabKeys.first, key(notes), "tabs: Scratch off, no Scratch chip")
+    Check.equal(vc.currentFolderId, work.id, "tabs: Scratch off while it shows, the last folder opens")
+    checkNoOverlap("tabs, Scratch off")
+    vc.showFolder(notes.id)
+    ctrlTab(shift: true)
+    Check.equal(vc.currentFolderId, reading.id, "tabs: Scratch off, ⌃⇧Tab goes around the folders")
+    vc.showFolder(work.id)
+    render("47-header-scratch-off-light")
+    settings.scratchEnabled = true
+    layout()
+    Check.equal(probe.folderTabKeys.first, "scratch", "tabs: Scratch on, the chip is back")
+    for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }
+    scratch.now = Date.init
+    scratch.refresh()
+
+    // The "…" menu: New Folder first, Archive and Recently Deleted, Settings last.
+    Check.equal(probe.moreMenuItems, ["New Folder", "-", "Archive", "Recently Deleted", "-", "Settings…"], "tabs: the … menu")
+    Check.expect(probe.moreMenuItemIsEnabled("Archive") && !probe.moreMenuItemIsEnabled("Recently Deleted"),
+                 "tabs: Recently Deleted is off while the trash is empty")
+    var menus: [NSMenu] = []
+    probe.captureMenus { menus.append($0) }
+    probe.clickFolderTab("more")
+    Check.equal(menus.last?.items.map { $0.isSeparatorItem ? "-" : $0.title }, probe.moreMenuItems, "tabs: a click on … opens that menu")
+    Check.equal(vc.currentFolderId, work.id, "tabs: … is not a screen")
+    probe.captureMenus(nil)
+    // Right click on a chip: the folder menu (no Open: a click does that).
+    Check.equal(probe.folderMenuItems(for: ideas.id),
+                ["New Folder", "New Note in Folder", "Rename", "Pin", "Color", "Archive Folder", "Delete Folder…"],
+                "tabs: the menu of a chip")
+    probe.folderMenuRun(ideas.id, "New Note in Folder")
+    layout()
+    Check.equal(vc.currentFolderId, ideas.id, "tabs: New Note in Folder opens the folder")
+    Check.expect(probe.focusedNoteID != nil && store.note(id: probe.focusedNoteID ?? 0)?.folderId == ideas.id,
+                 "tabs: and starts a note in it")
+    if let id = probe.focusedNoteID { probe.focusList(); store.deleteNote(id: id) }
+    probe.folderMenuRun(reading.id, "Pin")
+    layout()
+    Check.equal(probe.folderTabKeys[1], key(reading), "tabs: Pin moves the chip to the front")
+    Check.equal(probe.folderTabToolTip(key(reading)), "Reading · 1 note · pinned", "tabs: the tooltip says pinned")
+    Check.equal(probe.folderMenuItems(for: reading.id)[3], "Unpin", "tabs: the menu offers Unpin")
+    probe.folderMenuRun(reading.id, "Unpin")
+    Check.equal(probe.folderTabKeys, ["scratch"] + all.map(key) + ["more"], "tabs: Unpin puts it back")
+    probe.folderMenuRun(notes.id, "Color", "Purple")
+    Check.equal(store.folder(id: notes.id)?.color, .purple, "tabs: Color in the menu sets the folder color")
+    Check.expect(probe.folderTabShowsDot(key(notes)), "tabs: and the chip gets its dot")
+    probe.folderMenuRun(notes.id, "Color", "None")
+    Check.expect(!probe.folderTabShowsDot(key(notes)), "tabs: None takes it away")
+
+    // Inline rename: the chip becomes a text field in place.
+    vc.showFolder(ideas.id)
+    layout()
+    let chipBefore = probe.folderTabFrame(key(ideas)) ?? .zero
+    probe.folderMenuRun(ideas.id, "Rename")
+    layout()
+    Check.equal(probe.renamingFolderID, ideas.id, "rename: Rename in the menu starts on the chip")
+    Check.equal(probe.renameFieldText, "Ideas", "rename: the field has the name")
+    Check.expect(probe.isRenameFieldFocused, "rename: the field has the keyboard focus")
+    Check.equal(probe.renameFieldFont?.pointSize, env.themes.fontSize - 1.5, "rename: the chip's font")
+    if let f = probe.renameFieldFrame, let c = probe.folderTabFrame(key(ideas)) {
+        Check.expect(c.insetBy(dx: -0.5, dy: -0.5).contains(f), "rename: the field is inside the chip (\(f) in \(c))")
+        Check.expect(abs(c.width - chipBefore.width) <= 8, "rename: the chip keeps about its width (\(c.width) vs \(chipBefore.width))")
+    } else { Check.expect(false, "rename: frames") }
+    probe.typeInRenameField("Ideas and plans for later")
+    layout()
+    Check.expect((probe.folderTabFrame(key(ideas))?.width ?? 0) > chipBefore.width + 40, "rename: the chip grows while typing")
+    Check.expect((probe.folderTabFrame(key(ideas))?.width ?? 999) <= 160, "rename: up to the widest chip")
+    Check.expect(probe.isFolderTabInView(key(ideas)), "rename: the chip stays in view")
+    checkNoOverlap("rename")
+    render("45-header-rename-light")
+    probe.typeInRenameField("Plans")
+    probe.pressInRenameField(return: true)
+    layout()
+    Check.equal(store.folder(id: ideas.id)?.name, "Plans", "rename: Return commits")
+    Check.equal(probe.renamingFolderID, nil, "rename: ended")
+    Check.equal(probe.folderTabTitle(key(ideas)), "Plans", "rename: the chip has the new name")
+    Check.equal(probe.undoActionName, "Rename Folder", "rename: it is undoable")
+    spin()
+    probe.press(keyCode: 6, characters: "z", modifiers: [.command])
+    spin()
+    Check.equal(store.folder(id: ideas.id)?.name, "Ideas", "rename: ⌘Z brings the old name back")
+    probe.dismissToast()
+    probe.beginRename(ideas.id)
+    probe.typeInRenameField("Nope")
+    probe.pressInRenameField(return: false)
+    Check.expect(store.folder(id: ideas.id)?.name == "Ideas" && probe.renamingFolderID == nil, "rename: Escape cancels")
+    probe.beginRename(ideas.id)
+    probe.typeInRenameField("   ")
+    probe.pressInRenameField(return: true)
+    Check.expect(store.folder(id: ideas.id)?.name == "Ideas" && probe.renamingFolderID == nil, "rename: an empty name cancels")
+    probe.beginRename(ideas.id)
+    probe.typeInRenameField("Lost focus")
+    probe.focusList()
+    Check.expect(store.folder(id: ideas.id)?.name == "Lost focus" && probe.renamingFolderID == nil, "rename: a focus loss commits")
+    probe.beginRename(ideas.id)
+    probe.typeInRenameField("Ideas")
+    probe.clickFolderTab(key(work))
+    Check.expect(store.folder(id: ideas.id)?.name == "Ideas" && probe.renamingFolderID == nil, "rename: opening another folder commits")
+    // A chip that is not open is renamed in place too. From search, its folder opens first.
+    probe.beginRename(shopping.id)
+    Check.expect(probe.renamingFolderID == shopping.id && vc.currentFolderId == work.id, "rename: a chip that is not open, in place")
+    probe.pressInRenameField(return: false)
+    vc.beginSearch()
+    probe.beginRename(shopping.id)
+    Check.expect(!probe.isSearching && vc.currentFolderId == shopping.id && probe.renamingFolderID == shopping.id,
+                 "rename: from search, the folder opens and its chip is renamed")
+    vc.panelWillHide()
+    Check.equal(probe.renamingFolderID, nil, "rename: hiding the panel ends it")
+
+    // New Folder: the folder opens, its chip is in view and ready for a name.
+    vc.showFolder(notes.id)
+    probe.moreMenuRun("New Folder")
+    layout()
+    Check.equal(store.folders().count, 6, "new folder: created")
+    let travel = store.folders().last!
+    Check.equal(vc.currentFolderId, travel.id, "new folder: it opens")
+    Check.equal(probe.activeFolderTabKey, key(travel), "new folder: its chip is the open one")
+    Check.expect(probe.isFolderTabInView(key(travel)), "new folder: its chip is in view")
+    Check.expect(probe.renamingFolderID == travel.id && probe.renameFieldText == "New Folder", "new folder: the name is being edited")
+    probe.typeInRenameField("Travel")
+    probe.pressInRenameField(return: true)
+    Check.equal(store.folder(id: travel.id)?.name, "Travel", "new folder: the typed name")
+    Check.equal(probe.folderTabToolTip(key(travel)), "Travel · 0 notes", "new folder: an empty folder")
+    probe.folderMenuRun(work.id, "New Folder")
+    Check.expect(store.folders().count == 7 && probe.renamingFolderID == store.folders().last?.id, "new folder: also from a chip's menu")
+    probe.pressInRenameField(return: false)
+    let second = store.folders().last!
+    Check.equal(second.name, "New Folder", "new folder: Escape keeps the folder with its default name")
+    probe.focusList()
+    probe.press(keyCode: 45, characters: "n", modifiers: [.command, .shift])
+    Check.expect(store.folders().count == 8 && probe.renamingFolderID == vc.currentFolderId, "new folder: ⇧⌘N")
+    probe.endRename()
+    let third = store.folders().last!
+
+    // Deleting folders. The open one: the first folder shows (the last one open is gone).
+    probe.confirmDestructiveAlerts(true)
+    vc.showFolder(second.id)
+    spin()  // each action is its own event in the app (undo groups by event)
+    probe.folderMenuRun(third.id, "Delete Folder…")
+    Check.expect(store.folder(id: third.id) == nil && vc.currentFolderId == second.id, "delete: another folder, the open one stays")
+    spin()
+    probe.folderMenuRun(second.id, "Delete Folder…")
+    layout()
+    Check.equal(store.folder(id: second.id), nil, "delete: the open folder")
+    Check.equal(vc.currentFolderId, notes.id, "delete: the open folder is gone, the first folder shows")
+    Check.equal(probe.activeFolderTabKey, key(notes), "delete: and its chip is the open one")
+    Check.expect(!probe.folderTabKeys.contains(key(second)), "delete: the chip is gone")
+    Check.equal(probe.toastMessage, "Folder deleted", "delete: toast")
+    Check.equal(probe.moreMenuBadge("Recently Deleted"), 2, "delete: both are in Recently Deleted")
+    probe.undoDelete()
+    Check.expect(store.folder(id: second.id) != nil && probe.folderTabKeys.contains(key(second)), "delete: Undo brings the chip back")
+    Check.equal(vc.currentFolderId, notes.id, "delete: Undo does not switch folder")
+    probe.folderMenuRun(second.id, "Delete Folder…")
+    probe.confirmDestructiveAlerts(nil)
+    probe.dismissToast()
+    store.purgeTrash(deletedBefore: .distantFuture)
+    // Back from the archive: the folder that was open last.
+    vc.showFolder(shopping.id)
+    vc.showArchive()
+    Check.expect(!probe.folderTabsVisible && probe.isBackButtonVisible && !probe.isPlusButtonVisible, "archive: title, back arrow, no +")
+    probe.clickBackButton()
+    Check.equal(vc.currentFolderId, shopping.id, "archive: back shows the folder that was open last")
+
+    // Reorder: a chip dragged to a gap (the drop goes through the same call).
+    Check.equal(store.folders().map(\.id), [notes, work, ideas, shopping, reading, travel].map(\.id), "reorder: the order before")
+    if let w = probe.folderTabFrame(key(work)), let i = probe.folderTabFrame(key(ideas)) {
+        Check.equal(probe.folderTabGapIndex(atX: w.minX + 2), 1, "reorder: left half of a chip, the gap before it")
+        Check.equal(probe.folderTabGapIndex(atX: w.maxX - 2), 2, "reorder: right half, the gap after it")
+        Check.equal(probe.folderTabGapIndex(atX: i.minX + 2), 2, "reorder: the same gap from the next chip")
+    } else { Check.expect(false, "reorder: frames") }
+    probe.moveFolder(reading.id, toGap: 1)
+    layout()
+    Check.equal(store.folders().map(\.id), [notes, reading, work, ideas, shopping, travel].map(\.id), "reorder: dropped before Work")
+    Check.equal(probe.folderTabKeys, ["scratch"] + store.folders().map(key) + ["more"], "reorder: the chips follow")
+    Check.equal(probe.undoActionName, "Move Folder", "reorder: undoable")
+    probe.moveFolder(reading.id, toGap: 6)
+    Check.equal(store.folders().last?.id, reading.id, "reorder: dropped after the last chip")
+    probe.moveFolder(reading.id, toGap: 4)
+    Check.equal(store.folders().map(\.id), [notes, work, ideas, shopping, reading, travel].map(\.id), "reorder: back in place")
+    probe.moveFolder(work.id, toGap: 2)
+    Check.equal(store.folders()[1].id, work.id, "reorder: a drop beside itself changes nothing")
+    // Drops on a chip: a note moves, text makes a note.
+    let moved = store.notes(in: work.id)[0].id
+    probe.dropNote(moved, onFolder: travel.id)
+    Check.equal(store.note(id: moved)?.folderId, travel.id, "drop: a note on a chip moves to that folder")
+    probe.dropNote(moved, onFolder: work.id)
+    probe.dismissToast()
+    probe.dropText("Dropped on a chip", onFolder: travel.id)
+    layout()
+    Check.expect(store.notes(in: travel.id).contains { $0.body == "Dropped on a chip" }, "drop: text on a chip makes a note in that folder")
+    Check.equal(vc.currentFolderId, travel.id, "drop: and shows it")
+    probe.focusList()
+    Check.expect(NotesUIProbe.folderTabsAcceptedDragTypes.allSatisfy(probe.folderTabsRegisteredDragTypes.contains),
+                 "drop: the strip takes folder chips, notes, files, and text")
+    store.deleteFolder(id: travel.id)
+    layout()
+
+    // A long name: cut with an ellipsis at the widest chip. The tooltip has all of it.
+    let long = folder("A very long folder name that goes on and on", .cream)
+    vc.showFolder(long.id)
+    layout()
+    Check.expect((probe.folderTabFrame(key(long))?.width ?? 999) <= 160, "long name: the chip is at most 160 pt wide")
+    Check.expect((probe.folderTabFrame(key(long))?.width ?? 0) >= 120, "long name: and not tiny")
+    Check.equal(probe.folderTabToolTip(key(long)), "A very long folder name that goes on and on · 0 notes", "long name: the tooltip has all of it")
+    Check.expect(probe.isFolderTabInView(key(long)), "long name: the open chip is in view")
+    checkNoOverlap("long name")
+
+    // The minimum panel width: the chips never reach the buttons, with Scratch on, open, and off.
+    width = PanelWidth.minWidth
+    resize()
+    Check.equal(vc.view.bounds.width, 280, "minimum width: 280 pt")
+    checkNoOverlap("minimum width, long name")
+    Check.expect(probe.folderTabsCanScroll, "minimum width: the chips scroll")
+    Check.expect((probe.folderTabFrame(key(long))?.width ?? 999) <= probe.folderTabsFrame.width - 60, "minimum width: the long chip fits its room")
+    render("46-header-minimum-width-light")
+    vc.showFolder(work.id)
+    layout()
+    checkNoOverlap("minimum width")
+    Check.expect(probe.isFolderTabInView(key(work)), "minimum width: the open chip is in view")
+    probe.clickFolderTab("scratch")
+    layout()
+    checkNoOverlap("minimum width, Scratch open")
+    if let s = probe.folderTabFrame("scratch"), let more = probe.folderTabFrame("more") {
+        Check.expect(more.minX - s.maxX >= 56, "minimum width: the folder chips keep room beside the open Scratch chip (\(more.minX - s.maxX))")
+    }
+    Check.expect(probe.canStepToEarlierDay == false && probe.activeFolderTabKey == "scratch", "minimum width: Scratch is open")
+    probe.beginRename(work.id)
+    Check.equal(probe.renamingFolderID, work.id, "minimum width: rename a chip beside the open Scratch chip")
+    probe.typeInRenameField("Work and more work to do")
+    layout()
+    checkNoOverlap("minimum width, rename")
+    probe.pressInRenameField(return: false)
+    settings.scratchEnabled = false
+    layout()
+    checkNoOverlap("minimum width, Scratch off")
+    settings.scratchEnabled = true
+    for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }
+    store.deleteFolder(id: long.id)
+    width = 420
+    resize()
+
+    // Many folders: the chips scroll sideways and fade at an end that has more.
+    vc.showFolder(notes.id)
+    width = 600
+    resize()
+    Check.expect(!probe.folderTabsCanScroll, "scroll: five folders fit in a wide panel")
+    Check.expect(!probe.folderTabsFade.left && !probe.folderTabsFade.right, "scroll: no fade while all fit")
+    width = 420
+    resize()
+    Check.expect(probe.folderTabsCanScroll && probe.folderTabsFade.right, "scroll: at the default width the fifth chip is cut and fades")
+    let names = ["Archive Ideas", "Budget", "Code", "Design", "Errands", "Fitness", "Garden", "House", "Journal"]
+    let colors: [NoteColor] = [.none, .purple, .cream, .blue, .none, .green, .yellow, .none, .pink]
+    var many: [Folder] = []
+    for (n, c) in zip(names, colors) { many.append(folder(n, c)) }
+    layout()
+    Check.equal(probe.folderTabKeys.count, 16, "scroll: 14 folder chips, Scratch, and …")
+    Check.expect(probe.folderTabsCanScroll, "scroll: 14 folders scroll")
+    Check.equal(probe.folderTabScrollOffset, 0, "scroll: a new folder elsewhere does not scroll the chips")
+    Check.expect(!probe.folderTabsFade.left && probe.folderTabsFade.right, "scroll: at the start, only the right end fades")
+    Check.expect(!probe.isFolderTabInView(key(many.last!)), "scroll: the last chip is out of view")
+    checkNoOverlap("scroll")
+    // Opening a folder brings its chip into view, with a bit of each neighbor.
+    vc.showFolder(many[5].id)
+    layout()
+    Check.expect(probe.isFolderTabInView(key(many[5])), "scroll: the open chip is scrolled into view")
+    Check.expect(probe.folderTabScrollOffset > 0, "scroll: scrolled")
+    Check.expect(probe.folderTabsFade.left && probe.folderTabsFade.right, "scroll: in the middle, both ends fade")
+    if let c = probe.folderTabFrame(key(many[5])), let next = probe.folderTabFrame(key(many[6])), let more = probe.folderTabFrame("more") {
+        Check.expect(next.minX < more.minX - 4 && c.maxX < more.minX - 20, "scroll: a bit of the next chip shows (\(next.minX) vs \(more.minX))")
+    }
+    render("44-header-14-folders-light")
+    render("48-header-14-folders-dark", dark: true)
+    // A scroll by hand stays through a re-layout and a store change. It ends when another folder opens.
+    probe.scrollFolderTabs(by: -10_000)
+    Check.equal(probe.folderTabScrollOffset, 0, "scroll: by hand to the start")
+    Check.expect(!probe.isFolderTabInView(key(many[5])), "scroll: the open chip is out of view now")
+    layout()
+    var touched = store.folder(id: reading.id)!
+    touched.color = .purple
+    store.updateFolder(touched)
+    add(notes, "One more")
+    layout()
+    Check.equal(probe.folderTabScrollOffset, 0, "scroll: a re-layout and store changes keep the scroll by hand")
+    probe.scrollFolderTabs(by: 10_000)
+    Check.equal(probe.folderTabScrollOffset, probe.folderTabMaxScrollOffset, "scroll: by hand to the end, and no further")
+    Check.expect(probe.folderTabsFade.left && !probe.folderTabsFade.right, "scroll: at the end, only the left end fades")
+    Check.expect(probe.isFolderTabInView(key(many.last!)), "scroll: the last chip is in view")
+    probe.clickFolderTab(key(many.last!))
+    Check.equal(probe.folderTabScrollOffset, probe.folderTabMaxScrollOffset, "scroll: opening a chip in view does not move the chips")
+    vc.showFolder(notes.id)
+    layout()
+    Check.equal(probe.folderTabScrollOffset, 0, "scroll: opening the first folder scrolls back to it")
+    for f in many { store.deleteFolder(id: f.id) }
+    layout()
+    Check.equal(probe.folderTabScrollOffset, 0, "scroll: fewer folders, back at the start")
+    return written
+}
+
 /// Scratch entries in the panel: opening Scratch to type starts an entry, Save as Note, a long day.
 /// Uses the real markdown editor (the main checks use plain editors, which have no entries).
 @MainActor
@@ -843,7 +1388,6 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
     let env = AppEnvironment(store: store, backups: nil, settings: settings,
                              themes: ThemeManager(settings: settings, store: store), editorFactory: MarkdownEditorFactory())
     let vc = NotesRootViewController(env: env)
-    vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
     let backdrop = Backdrop(frame: NSRect(x: 0, y: 0, width: 450, height: 740))
@@ -872,7 +1416,7 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
 
     // Entries: opening Scratch to type starts a new entry at the end. The store hears of it with the
     // first text.
-    vc.showFolderList()
+    vc.showLastFolder()
     let e = scratch.todayNote(create: true)!
     probe.showScratch(edit: true)
     probe.layoutNow(); spin()
@@ -885,7 +1429,7 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
         let first = store.note(id: e.id)?.body ?? ""
         Check.expect(first.hasSuffix("---\nfirst thought") && ScratchEntries.markers(in: first).count == 1,
                      "entries: the first text saves its entry (\(first.debugDescription))")
-        vc.showFolderList()
+        vc.showLastFolder()
         probe.showScratch(edit: true)
         probe.layoutNow(); spin()
         let again = probe.editor(of: e.id) as? MarkdownNoteEditor
@@ -895,7 +1439,7 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
         Check.equal(store.note(id: e.id)?.body, first, "entries: not saved before text is typed")
         render("30-scratch-entries-light")
         // Leaving without typing drops it.
-        vc.showFolderList()
+        vc.showLastFolder()
         spin()
         Check.equal(store.note(id: e.id)?.body, first, "entries: an entry left empty is not kept")
         // Showing Scratch without the caret (the day stepper, reveal) starts nothing.
@@ -903,6 +1447,18 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
         probe.layoutNow(); spin()
         Check.equal(ScratchEntries.markers(in: (probe.editor(of: e.id) as? MarkdownNoteEditor)?.markdown ?? first).count, 1,
                     "entries: showing Scratch without typing starts no entry")
+        // + on the Scratch screen starts an entry, like the hotkey.
+        Check.equal(probe.plusButtonToolTip, "New Entry", "entries: + on Scratch is New Entry")
+        probe.clickPlusButton()
+        probe.layoutNow(); spin()
+        Check.equal(ScratchEntries.markers(in: (probe.editor(of: e.id) as? MarkdownNoteEditor)?.markdown ?? "").count, 2,
+                    "entries: + on Scratch starts an entry")
+        Check.equal(probe.focusedNoteID, e.id, "entries: with the caret in it")
+        vc.showLastFolder()
+        spin()
+        Check.equal(store.note(id: e.id)?.body, first, "entries: the entry from + is dropped when left empty")
+        probe.showScratch(edit: false)
+        probe.layoutNow(); spin()
 
         // Save as Note: the copy has no markers. Save Entry as Note: one entry's text.
         let target = store.folders()[0]
@@ -926,13 +1482,13 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
         let long = (0..<40).map { "--- \(String(format: "%02d", 8 + $0 / 4)):\(String(format: "%02d", ($0 % 4) * 15)) ---\nentry \($0)\nmore text" }
             .joined(separator: "\n")
         store.updateNoteBody(id: e.id, body: long)
-        vc.showFolderList()
+        vc.showLastFolder()
         probe.showScratch(edit: false)
         probe.layoutNow(); spin(); probe.layoutNow()
         Check.expect(probe.listScrollOffset > 100 && probe.listIsScrolledToEnd,
                      "entries: a long day opens scrolled to its end (\(probe.listScrollOffset))")
         // To type: the caret is in a new entry at the end, and the end shows.
-        vc.showFolderList()
+        vc.showLastFolder()
         probe.showScratch(edit: true)
         probe.layoutNow(); spin(); probe.layoutNow()
         Check.expect(probe.listIsScrolledToEnd, "entries: opening a long day to type shows its end")
@@ -948,7 +1504,7 @@ func scratchEntryChecks(out: URL, spin: () -> Void) -> [String] {
 /// ⌃D / ⌃U in a long note scroll the notes list.
 /// Uses the real markdown editor (the main checks use plain editors, which have no vim layer).
 @MainActor
-func vimScrollChecks(spin: () -> Void) {
+func vimScrollChecks(out: URL, spin: () -> Void) {
     let suite = "NoteBarUISnapshotVimScroll"
     UserDefaults().removePersistentDomain(forName: suite)
     let settings = AppSettings(defaults: UserDefaults(suiteName: suite)!)
@@ -960,7 +1516,6 @@ func vimScrollChecks(spin: () -> Void) {
     let env = AppEnvironment(store: store, backups: nil, settings: settings,
                              themes: ThemeManager(settings: settings, store: store), editorFactory: MarkdownEditorFactory())
     let vc = NotesRootViewController(env: env)
-    vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
     vc.view.frame = NSRect(x: 0, y: 0, width: 420, height: 720)
@@ -997,6 +1552,37 @@ func vimScrollChecks(spin: () -> Void) {
     Check.expect(abs(probe.listScrollOffset - down) < 2, "⌃U scrolls back by the same distance (\(probe.listScrollOffset) vs \(down))")
     Check.equal(probe.editor(of: note.id)?.vimMode, .normal, "still in Normal mode")
     Check.equal(store.note(id: note.id)?.body, body, "⌃D / ⌃U do not edit")
+
+    // The : line of a note sits in the card's bottom row, between Aa and the tray. The card does not grow.
+    let short = store.createFolder(name: "Short")
+    let sn = store.createNote(in: short.id, body: "Meeting notes\nRemember the agenda.\nAsk about the release date.", mode: .standard, position: .top)
+    vc.showFolder(short.id)
+    probe.layoutNow(); spin(); probe.layoutNow()
+    probe.focusList()
+    probe.select(sn.id)
+    probe.press(keyCode: 37, characters: "l")
+    probe.layoutNow(); spin(); probe.layoutNow()
+    let cardBefore = probe.cardFrame(of: sn.id)
+    for ch in [":", "f", "o", "l", "d", "e", "r", " ", "l", "o"] { key(ch, 0, ch == ":" ? [.shift] : []) }
+    spin(); probe.layoutNow()
+    if let ed = probe.editor(of: sn.id) as? MarkdownNoteEditor, let pf = ed.vimPromptFrameForTesting, let card = probe.cardFrame(of: sn.id) {
+        let inRoot = ed.convert(pf, to: vc.view)
+        Check.equal(ed.vimPromptTextForTesting, ":folder lo", "note command line: shows the typed command")
+        Check.equal(card.height, cardBefore?.height, "note command line: the card does not grow")
+        Check.expect(inRoot.maxY <= card.maxY && inRoot.minY > card.maxY - 50, "note command line: in the card's bottom row (\(inRoot) in \(card))")
+        Check.expect(pf.minY >= ed.bounds.maxY - 1, "note command line: below the text, not over it (\(pf))")
+        if let aa = probe.formatButtonFrame(of: sn.id) {
+            Check.expect(inRoot.minX >= aa.maxX, "note command line: right of Aa (\(inRoot.minX) vs \(aa.maxX))")
+        }
+        Check.expect(inRoot.maxX <= card.maxX - 60, "note command line: leaves room for the tray")
+        if let rep = vc.view.bitmapImageRepForCachingDisplay(in: vc.view.bounds) {
+            vc.view.cacheDisplay(in: vc.view.bounds, to: rep)
+            try? rep.representation(using: .png, properties: [:])?.write(to: out.appendingPathComponent("51-note-command-line-light.png"))
+        }
+    } else {
+        Check.expect(false, "note command line: the prompt of the edited note")
+    }
+    key("\u{1b}", 53)
 }
 
 @MainActor
@@ -1004,42 +1590,59 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
                folders: (notes: Folder, work: Folder, ideas: Folder, empty: Folder), spin: () -> Void) {
     func key(_ ch: String, _ code: UInt16 = 0, _ mods: NSEvent.ModifierFlags = []) { probe.press(keyCode: code, characters: ch, modifiers: mods) }
 
-    // Off (default): letters on the folder list type into search.
+    func tabKey(_ f: Folder) -> String { NotesUIProbe.folderTabKey(f.id) }
+    // Off (default): a letter in a folder does nothing. In the search results it types into the query.
     settings.vimKeybinds = false
-    vc.showFolderList()
+    vc.showFolder(folders.notes.id)
     probe.focusList()
     key("j", 38)
-    Check.expect(probe.isSearching, "vim off: a letter on the folder list starts search")
+    Check.expect(!probe.isSearching, "vim off: a letter in a folder does not start search")
+    probe.setSearchQuery("no")
+    probe.focusList()
+    key("t", 17)
+    Check.equal(probe.searchQuery, "not", "vim off: a letter on the search results types into the search field")
     probe.goBack()
     Check.expect(!probe.isSearching, "search closed")
+    key("g", 5); key("t", 17)
+    Check.equal(vc.currentFolderId, folders.notes.id, "vim off: gt does nothing")
 
     settings.vimKeybinds = true
-    vc.showFolderList()
+    vc.showFolder(folders.notes.id)
     probe.focusList()
-    let ids = probe.folderRowIDs
-    for _ in ids { key("k", 40) }
-    Check.expect(!probe.isSearching, "vim: j / k do not start search")
-    Check.equal(probe.selectedFolderID, ids.first, "vim: k moves the folder selection up to the top")
-    key("j", 38)
-    Check.equal(probe.selectedFolderID, ids[1], "vim: j moves the folder selection down")
-    key("k", 40)
-    Check.equal(probe.selectedFolderID, ids[0], "vim: k moves it back")
     key("x", 7)
-    Check.expect(!probe.isSearching, "vim: other letters do nothing on the folder list")
-    key("R", 15, [.shift])
-    Check.equal(probe.renamingFolderID, ids[0], "vim: R renames the selected folder")
-    probe.endRename()
-    Check.equal(probe.renamingFolderID, nil, "rename ended")
+    Check.expect(!probe.isSearching, "vim: other letters do nothing in a folder")
+    let before0 = store.folders().count
+    key("o", 31); key("R", 15, [.shift])
+    Check.expect(store.folders().count == before0 && probe.renamingFolderID == nil, "vim: o and R are not folder keys any more")
 
-    // l opens; ⌃[ goes up; ⌘/ searches all folders.
-    guard let notesIndex = ids.firstIndex(of: folders.notes.id) else { Check.expect(false, "folder rows"); return }
-    for _ in 0..<notesIndex { key("j", 38) }
-    Check.equal(probe.selectedFolderID, folders.notes.id, "selected the Notes folder")
-    key("l", 37)
-    Check.equal(probe.headerTitle, "Notes", "vim: l opens the folder")
+    // gt / gT: the next / previous folder, around the ends (not Scratch).
+    let strip = Array(probe.folderTabKeys.dropLast().dropFirst())
+    Check.equal(probe.folderTabKeys.first, "scratch", "vim: the strip starts with Scratch")
+    guard let at = strip.firstIndex(of: tabKey(folders.notes)) else { Check.expect(false, "vim: chip of Notes"); return }
+    key("g", 5); key("t", 17)
+    Check.equal(probe.activeFolderTabKey, strip[(at + 1) % strip.count], "vim: gt opens the next folder")
+    key("g", 5); key("T", 17, [.shift])
+    Check.equal(probe.activeFolderTabKey, tabKey(folders.notes), "vim: gT opens the previous folder")
+    vc.showFolder(store.folders().last!.id)
+    key("g", 5); key("t", 17)
+    Check.equal(vc.currentFolderId, store.folders().first!.id, "vim: gt on the last folder goes around to the first")
+    key("g", 5); key("T", 17, [.shift])
+    Check.equal(vc.currentFolderId, store.folders().last!.id, "vim: gT goes around the other way")
+    for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }
+
+    // ⌃[ in a folder goes nowhere. ⌘/ searches all folders.
+    vc.showFolder(folders.notes.id)
     probe.layoutNow(); spin(); probe.layoutNow()
     key("\u{1b}", 33, [.control])
-    Check.expect(probe.folderRowsVisible, "vim: ⌃[ goes up to the folder list")
+    Check.equal(vc.currentFolderId, folders.notes.id, "vim: ⌃[ in a folder does nothing")
+    vc.showArchive()
+    key("\u{1b}", 33, [.control])
+    Check.equal(vc.currentFolderId, folders.notes.id, "vim: ⌃[ in the archive goes back to the last folder")
+    vc.showArchive()
+    key("h", 4)
+    Check.equal(vc.currentFolderId, folders.notes.id, "vim: h in the archive goes back too")
+    key("h", 4)
+    Check.equal(vc.currentFolderId, folders.notes.id, "vim: h in a folder does nothing")
     key("/", 44, [.command])
     Check.expect(probe.isSearching, "⌘/ starts search")
     Check.equal(probe.searchAllFolders, true, "⌘/ searches all folders")
@@ -1102,45 +1705,27 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
     probe.undoDelete()
     probe.confirmDestructiveAlerts(nil)
     probe.vimCommand(.navigateUp, on: a.id)
-    Check.expect(probe.folderRowsVisible, "⌃[ in Normal mode goes up")
+    Check.equal(vc.currentFolderId, vf.id, "⌃[ in Normal mode stays in the folder")
 
-    // Card keys on the folder list.
+    // Folders have no keyboard selection: their commands are in the chip's menu.
     var menus: [NSMenu] = []
     probe.captureMenus { menus.append($0) }
     probe.focusList()
-    key("G")
-    if probe.trashRowCount != nil {
-        Check.equal(probe.selectedSpecialRow, "trash", "vim: G selects the last row (Recently Deleted)")
-        key("k")
-    }
-    if probe.archiveRowCount != nil { key("k") }
-    Check.equal(probe.selectedFolderID, probe.folderRowIDs.last, "vim: G, then k past the special rows: the last folder")
-    key("g"); key("g"); Check.equal(probe.selectedFolderID, probe.folderRowIDs.first, "vim: gg selects the first folder")
-    while probe.selectedFolderID != vf.id { key("j") }
-    key("g"); key("p"); Check.equal(store.folder(id: vf.id)?.isPinned, true, "vim: gp pins the folder")
-    key("g"); key("p"); Check.equal(store.folder(id: vf.id)?.isPinned, false, "vim: gp again unpins it")
-    key("g"); key("c")
-    Check.equal(menus.count, 1, "vim: gc pops up the folder color menu")
-    Check.equal(menus.last?.items.first?.title, "Color", "vim: gc menu is the color menu")
-    key("c"); key("w"); Check.equal(probe.renamingFolderID, vf.id, "vim: cw renames the folder")
+    probe.select(nil)
+    key("g"); key("p")
+    Check.equal(store.folder(id: vf.id)?.isPinned, false, "vim: gp without a selected note does not pin the folder")
+    probe.confirmDestructiveAlerts(true)
+    key("d"); key("d")
+    probe.confirmDestructiveAlerts(nil)
+    Check.expect(store.folder(id: vf.id) != nil, "vim: dd without a selected note does not delete the folder")
+    probe.folderMenuRun(vf.id, "Pin")
+    Check.equal(store.folder(id: vf.id)?.isPinned, true, "the chip's menu pins the folder")
+    probe.folderMenuRun(vf.id, "Unpin")
+    Check.equal(store.folder(id: vf.id)?.isPinned, false, "and unpins it")
+    probe.folderMenuRun(vf.id, "Rename")
+    Check.equal(probe.renamingFolderID, vf.id, "the chip's menu renames the folder")
     probe.endRename()
     probe.focusList()
-    let before = Set(probe.folderRowIDs)
-    key("o")
-    let added = Set(probe.folderRowIDs).subtracting(before)
-    Check.equal(added.count, 1, "vim: o adds a folder")
-    Check.equal(probe.renamingFolderID, added.first, "vim: o starts renaming the new folder")
-    probe.endRename()
-    probe.focusList()
-    if let nf = added.first {
-        key("g"); key("g")
-        for _ in 0..<(probe.folderRowIDs.firstIndex(of: nf) ?? 0) { key("j") }
-        Check.equal(probe.selectedFolderID, nf, "vim: selected the new folder")
-        probe.confirmDestructiveAlerts(true)
-        key("d"); key("d")
-        Check.expect(store.folder(id: nf) == nil, "vim: dd deletes the folder (after the alert)")
-        probe.confirmDestructiveAlerts(nil)
-    }
 
     // Card keys on a selected note (no editing).
     vc.showFolder(vf.id)
@@ -1186,6 +1771,125 @@ func vimChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemory
         Check.expect(false, "vim: gj / gk need a note with a same-zone note below (\(order))")
     }
     probe.captureMenus(nil)
+
+    // Folder commands from an editor (`:` commands and gt / gT send them).
+    vc.showFolder(folders.notes.id)
+    probe.layoutNow(); spin()
+    if let nid = probe.displayedNoteIDs.first {
+        func cmd(_ c: VimCardCommand) {
+            let on = probe.displayedNoteIDs.first ?? nid
+            probe.vimCommand(c, on: on)
+            probe.layoutNow(); spin()
+        }
+        cmd(.openFolder("wor"))
+        Check.equal(vc.currentFolderId, folders.work.id, "vim: :folder opens a folder by the start of its name")
+        cmd(.openFolder("no such folder"))
+        Check.equal(vc.currentFolderId, folders.work.id, "vim: :folder with an unknown name stays")
+        Check.expect(probe.toastMessage?.hasPrefix("No folder") == true, "vim: and says so")
+        probe.dismissToast()
+        let before = vc.currentFolderId
+        cmd(.stepFolder(1))
+        Check.expect(vc.currentFolderId != before, "vim: gt from an editor goes to the next folder")
+        cmd(.stepFolder(-1))
+        Check.equal(vc.currentFolderId, before, "vim: gT goes back")
+        let count = store.folders().count
+        cmd(.newFolder("Vim made"))
+        let made = store.folders().first { $0.name == "Vim made" }
+        Check.expect(made != nil && store.folders().count == count + 1, "vim: :newfolder name makes the folder")
+        Check.equal(vc.currentFolderId, made?.id, "vim: and opens it")
+        Check.equal(probe.renamingFolderID, nil, "vim: a named new folder needs no rename")
+        if let made {
+            let n = store.createNote(in: made.id, body: "x", mode: .standard, position: .top)
+            probe.layoutNow(); spin()
+            probe.vimCommand(.renameFolder("Vim renamed"), on: n.id)
+            Check.equal(store.folder(id: made.id)?.name, "Vim renamed", "vim: :rename name renames the open folder")
+            probe.vimCommand(.toggleFolderPin, on: n.id)
+            Check.equal(store.folder(id: made.id)?.isPinned, true, "vim: :pinfolder pins it")
+            probe.vimCommand(.toggleFolderPin, on: n.id)
+            probe.vimCommand(.renameFolder(""), on: n.id)
+            probe.layoutNow(); spin()
+            Check.equal(probe.renamingFolderID, made.id, "vim: bare :rename starts the rename on the chip")
+            vc.showFolder(made.id)
+            probe.layoutNow(); spin()
+            probe.confirmDestructiveAlerts(true)
+            probe.vimCommand(.deleteFolder, on: n.id)
+            probe.confirmDestructiveAlerts(nil)
+            probe.layoutNow(); spin()
+            Check.equal(store.folder(id: made.id), nil, "vim: :deletefolder deletes the open folder")
+            Check.expect(vc.currentFolderId != nil && vc.currentFolderId != made.id, "vim: and another folder opens")
+            probe.commitDelete()
+            probe.dismissToast()
+        }
+    } else {
+        Check.expect(false, "vim: a note for the folder commands")
+    }
+
+    // The `:` line of the notes list: no note needs to be open.
+    vc.showFolder(folders.ideas.id)
+    probe.layoutNow(); spin()
+    probe.select(nil)
+    probe.focusList()
+    spin()
+    let heightBefore = vc.contentHeight
+    key(":", 41, [.shift])
+    probe.layoutNow(); spin()
+    Check.expect(probe.isCommandLineOpen, "command line: : on the notes list opens it")
+    Check.expect(vc.contentHeight > heightBefore || heightBefore >= 700, "command line: the content grows by it (\(heightBefore) → \(vc.contentHeight))")
+    if let f = probe.commandLineFrame {
+        Check.expect(abs(f.minY - 59) <= 1 && f.maxY < 100, "command line: right under the header pill (\(f))")
+    }
+    probe.typeCommandLine("f")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "folder", "command line: Tab completes the command name")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "fold", "command line: Tab again cycles the commands")
+    probe.typeCommandLine("f wo")
+    probe.commandLineTab()
+    Check.equal(probe.commandLineText, "f Work", "command line: Tab completes a folder name")
+    renderHook?("50-command-line-light")
+    probe.submitCommandLine()
+    probe.layoutNow(); spin()
+    Check.expect(!probe.isCommandLineOpen, "command line: Return closes it")
+    Check.equal(vc.currentFolderId, folders.work.id, "command line: :f opens the folder")
+    Check.equal(vc.contentHeight, { probe.layoutNow(); return vc.contentHeight }(), "command line: the content is back")
+    key(":", 41, [.shift])
+    probe.cancelCommandLine()
+    Check.expect(!probe.isCommandLineOpen && vc.currentFolderId == folders.work.id, "command line: Escape closes it and runs nothing")
+    // A note command needs a selected note.
+    key(":", 41, [.shift])
+    probe.typeCommandLine("pin")
+    probe.submitCommandLine()
+    Check.equal(probe.toastMessage, "Select a note first", "command line: a note command without a selection says so")
+    probe.dismissToast()
+    if let nid = probe.displayedNoteIDs.last {
+        probe.select(nid)
+        let was = store.note(id: nid)?.isPinned
+        key(":", 41, [.shift])
+        probe.typeCommandLine("pin")
+        probe.submitCommandLine()
+        Check.equal(store.note(id: nid)?.isPinned, was.map { !$0 }, "command line: :pin acts on the selected note")
+        key(":", 41, [.shift])
+        probe.typeCommandLine("pin")
+        probe.submitCommandLine()
+    }
+    key(":", 41, [.shift])
+    probe.typeCommandLine("nonsense")
+    probe.submitCommandLine()
+    Check.expect(probe.toastMessage?.hasPrefix("Not a command") == true, "command line: an unknown command says so")
+    probe.dismissToast()
+    key(":", 41, [.shift])
+    probe.typeCommandLine("scratch")
+    probe.submitCommandLine()
+    probe.layoutNow(); spin()
+    Check.expect(probe.scratchDay != nil, "command line: :scratch opens Scratch")
+    vc.showFolder(folders.notes.id)
+    probe.layoutNow(); spin()
+    probe.focusList()
+    settings.vimKeybinds = false
+    key(":", 41, [.shift])
+    Check.expect(!probe.isCommandLineOpen, "command line: not with vim keys off")
+    if probe.isSearching { probe.goBack() }
+    settings.vimKeybinds = true
     settings.vimKeybinds = false
 }
 
@@ -1251,14 +1955,16 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     probe.renameFolder(uf.id, "Renamed")
     cmdZ()
     Check.equal(store.folder(id: uf.id)?.name, "Undo Test", "⌘Z undoes a folder rename")
-    vc.showFolderList()
     probe.focusList()
     probe.newFolder()
+    let made = vc.currentFolderId
+    Check.expect(made != nil && made != uf.id && probe.renamingFolderID == made, "New Folder opens the folder and renames it")
     probe.endRename()
     probe.focusList()
     Check.equal(store.folders().count, before + 1, "New Folder")
     cmdZ()
     Check.equal(store.folders().count, before, "⌘Z removes the new folder")
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "⌘Z of New Folder: the open folder is gone, the first folder shows")
     cmdZ(shift: true)
     Check.equal(store.folders().count, before + 1, "⇧⌘Z brings it back")
     cmdZ()
@@ -1310,11 +2016,12 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     cmdZ()
 
     // Folder delete: undoable, restores its notes.
-    vc.showFolderList()
+    vc.showFolder(uf.id)
     probe.focusList()
     probe.confirmDestructiveAlerts(true)
     probe.deleteFolder(uf.id)
     Check.equal(store.folder(id: uf.id), nil, "folder deleted (trash)")
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "the open folder is deleted: the first folder shows")
     Check.equal(store.note(id: n1.id), nil, "its notes are hidden")
     Check.expect(probe.isToastVisible, "folder delete toast")
     cmdZ()
@@ -1323,23 +2030,24 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     probe.undoDelete()
     Check.expect(store.folder(id: uf.id) != nil, "folder toast Undo restores")
 
-    // Recently Deleted row and menu: shown whenever the trash has items (any Keep deleted items).
+    // Recently Deleted in the … menu: open whenever the trash has items (any Keep deleted items).
     let settings = probe.settings
     store.purgeTrash(deletedBefore: .distantFuture)
-    vc.showFolderList()
-    Check.equal(probe.trashRowCount, nil, "no row while the trash is empty")
+    Check.expect(!probe.moreMenuItemIsEnabled("Recently Deleted"), "Recently Deleted is off while the trash is empty")
+    Check.equal(probe.moreMenuBadge("Recently Deleted"), nil, "and has no count")
     let gone = store.createNote(in: uf.id, body: "Gone note\nbody", mode: .standard, position: .top)
     vc.showFolder(uf.id)
     probe.deleteWithUndo(gone.id)
-    vc.showFolderList()
     probe.layoutNow(); spin()
-    Check.equal(probe.trashRowCount, 1, "Recently Deleted row shows the count")
+    Check.expect(probe.moreMenuItemIsEnabled("Recently Deleted"), "Recently Deleted is on with an item in the trash")
+    Check.equal(probe.moreMenuBadge("Recently Deleted"), 1, "Recently Deleted shows the count")
+    Check.expect(probe.moreMenuSubmenuTitles("Recently Deleted").contains("Gone note"), "its submenu is the trash menu")
     let titles = probe.trashMenuTitles
     Check.expect(titles.contains("Gone note"), "trash menu lists the note (\(titles))")
     Check.expect(titles.contains("Empty Recently Deleted…"), "trash menu has Empty")
     probe.trashMenuRun("Gone note", "Restore")
     Check.expect(store.note(id: gone.id) != nil, "Restore from the menu")
-    Check.equal(probe.trashRowCount, nil, "row hidden when the trash is empty again")
+    Check.expect(!probe.moreMenuItemIsEnabled("Recently Deleted"), "off again when the trash is empty again")
     probe.deleteWithUndo(gone.id)
     var foreverAlerts: [String] = []
     probe.onDestructiveAlert { foreverAlerts.append($0); return false }
@@ -1358,13 +2066,11 @@ func undoChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMemor
     let g3 = store.createNote(in: uf.id, body: "Shown in the row\nx", mode: .standard, position: .top)
     probe.deleteWithUndo(g3.id)
     probe.dismissToast()
-    vc.showFolderList()
     probe.layoutNow(); spin()
-    renderHook?("23-recently-deleted-light")
     settings.deletedItemsRetention = .recentlyDeleted
-    Check.equal(probe.trashRowCount, 1, "the row stays with 30 days")
+    Check.equal(probe.moreMenuBadge("Recently Deleted"), 1, "the item stays with 30 days")
     settings.deletedItemsRetention = .oneHour
-    Check.equal(probe.trashRowCount, 1, "the row stays with the default 1 hour")
+    Check.equal(probe.moreMenuBadge("Recently Deleted"), 1, "the item stays with the default 1 hour")
     Check.expect(store.trashedNotes().count == 1, "changing the setting deletes nothing at once")
     store.purgeTrash(deletedBefore: .distantFuture)
 }
@@ -1378,8 +2084,8 @@ func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     let b = store.createNote(in: af.id, body: "Old plan\nsecond", mode: .standard, position: .bottom)
     let c = store.createNote(in: af.id, body: "Old idea\nthird", mode: .standard, position: .bottom)
     for n in store.archivedNotes() { store.unarchiveNote(id: n.id) }
-    vc.showFolderList()
-    Check.equal(probe.archiveRowCount, nil, "no Archive row while nothing is archived")
+    Check.equal(probe.moreMenuBadge("Archive"), nil, "no count on Archive while nothing is archived")
+    Check.equal(probe.moreMenuSubmenuTitles("Archive"), ["Archived Notes"], "the Archive menu still opens the (empty) archive")
 
     // ⌥⌘A on the selected note.
     vc.showFolder(af.id)
@@ -1435,14 +2141,14 @@ func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     probe.vimCommand(.setArchived(false), on: a.id)
     Check.expect(store.note(id: a.id)?.isArchived == false, ":unarchive in the archive brings it back")
 
-    // The Archive row and screen.
-    vc.showFolderList()
+    // Archive in the … menu, and the archive screen.
+    vc.showFolder(af.id)
     probe.layoutNow(); spin()
-    Check.equal(probe.archiveRowCount, 2, "Archive row shows the count")
-    renderHook?("24-folders-archive-light")
-    probe.clickArchiveRow()
+    Check.equal(probe.moreMenuBadge("Archive"), 2, "Archive shows the count")
+    probe.archiveMenuRun("Archived Notes")
     probe.layoutNow(); spin()
-    Check.equal(probe.headerTitle, "Archive", "the Archive row opens the archive")
+    Check.equal(probe.headerTitle, "Archive", "Archived Notes opens the archive")
+    Check.expect(!probe.folderTabsVisible && probe.isBackButtonVisible, "the archive has a title and a back arrow, no chips")
     Check.equal(probe.displayedNoteIDs, [c.id, b.id], "archive lists the archived notes, most recent first")
     Check.equal(probe.cardFolderLabel(c.id), "Archive Test", "archived cards show their folder")
     Check.expect(!probe.isPlusButtonVisible, "no + button in the archive")
@@ -1465,36 +2171,20 @@ func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     Check.expect(store.note(id: b.id)?.isArchived == false, "⌥⌘A in the archive unarchives")
     Check.equal(probe.toastMessage, "Moved back to “Archive Test”", "unarchive toast names the folder")
     Check.equal(probe.displayedNoteIDs, [c.id], "the note leaves the archive")
-    probe.goBack()
-    Check.expect(probe.folderRowsVisible, "back from the archive goes to the folder list")
-    Check.equal(probe.selectedSpecialRow, "archive", "back from the archive selects the Archive row")
+    probe.clickBackButton()
+    Check.equal(vc.currentFolderId, af.id, "back from the archive shows the last folder")
+    Check.expect(probe.folderTabsVisible && !probe.isBackButtonVisible, "with the chips again, and no back arrow")
 
-    // Keyboard: ↓ past the last folder reaches Archive, then Recently Deleted; ↩ opens them.
-    let trashed = store.createNote(in: af.id, body: "Trashed for the row", mode: .standard, position: .top)
-    store.trashNote(id: trashed.id)
+    // Keyboard: ← and ⌘[ leave the archive. ⌃Tab does nothing there (no chips).
+    vc.showArchive()
     probe.focusList()
-    probe.press(keyCode: 115, characters: "\u{F729}")  // Home
-    Check.expect(probe.selectedFolderID != nil && probe.selectedSpecialRow == nil, "Home selects the first folder")
-    probe.press(keyCode: 119, characters: "\u{F72B}")  // End
-    Check.equal(probe.selectedSpecialRow, "trash", "End selects Recently Deleted")
-    Check.equal(probe.selectedFolderID, nil, "no folder selected with it")
-    probe.press(keyCode: 126, characters: "\u{F700}")  // ↑
-    Check.equal(probe.selectedSpecialRow, "archive", "↑ selects Archive")
-    probe.press(keyCode: 126, characters: "\u{F700}")
-    Check.expect(probe.selectedSpecialRow == nil && probe.selectedFolderID == probe.folderRowIDs.last, "↑ again: the last folder")
-    probe.press(keyCode: 125, characters: "\u{F701}")  // ↓
-    probe.press(keyCode: 36, characters: "\r")
-    Check.equal(probe.headerTitle, "Archive", "↩ on the Archive row opens the archive")
-    probe.goBack()
-    var trashMenus = 0
-    probe.captureMenus { _ in trashMenus += 1 }
-    probe.press(keyCode: 125, characters: "\u{F701}")
-    Check.equal(probe.selectedSpecialRow, "trash", "↓ from Archive: Recently Deleted")
-    probe.press(keyCode: 36, characters: "\r")
-    Check.equal(trashMenus, 1, "↩ on Recently Deleted opens its menu")
-    probe.captureMenus(nil)
-    store.purgeTrash(deletedBefore: .distantFuture)
-    Check.equal(probe.selectedSpecialRow, nil, "the selection goes when its row goes")
+    probe.press(keyCode: 48, characters: "\t", modifiers: [.control])
+    Check.equal(probe.headerTitle, "Archive", "⌃Tab in the archive does nothing")
+    probe.press(keyCode: 123, characters: "\u{F702}")
+    Check.equal(vc.currentFolderId, af.id, "← in the archive goes back")
+    vc.showArchive()
+    probe.press(keyCode: 33, characters: "[", modifiers: [.command])
+    Check.equal(vc.currentFolderId, af.id, "⌘[ in the archive goes back")
 
     // Search: archived notes only with the Archive chip; search from the archive finds only archived notes.
     vc.showFolder(af.id)
@@ -1512,8 +2202,8 @@ func archiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     probe.goBack()
     Check.equal(probe.headerTitle, "Archive", "Esc from search returns to the archive")
     for n in store.archivedNotes() { store.unarchiveNote(id: n.id) }
-    vc.showFolderList()
-    Check.equal(probe.archiveRowCount, nil, "row hidden when the archive is empty again")
+    vc.showLastFolder()
+    Check.equal(probe.moreMenuBadge("Archive"), nil, "no count when the archive is empty again")
     store.deleteFolder(id: af.id)
 }
 
@@ -1525,46 +2215,49 @@ func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store
     let shelf = store.createFolder(name: "Shelf")
     let s1 = store.createNote(in: shelf.id, body: "Quince jam\nfirst", mode: .standard, position: .bottom)
     let s2 = store.createNote(in: shelf.id, body: "Shelf two", mode: .standard, position: .bottom)
-    vc.showFolderList()
+    let shelfKey = NotesUIProbe.folderTabKey(shelf.id)
+    vc.showFolder(shelf.id)
     probe.layoutNow(); spin()
-    Check.equal(probe.archiveRowCount, nil, "folder archive: nothing archived yet")
+    Check.equal(probe.moreMenuBadge("Archive"), nil, "folder archive: nothing archived yet")
 
     // Folder menu.
     Check.expect(probe.folderMenuItems(for: shelf.id).contains("Archive Folder"), "the folder menu has Archive Folder")
     probe.folderMenuRun(shelf.id, "Archive Folder")
     Check.expect(store.archivedFolder(id: shelf.id) != nil, "Archive Folder archives the folder")
-    Check.expect(!probe.folderRowIDs.contains(shelf.id), "the archived folder leaves the folder list")
-    Check.equal(probe.archiveRowCount, 1, "the Archive row counts the folder")
+    Check.expect(!probe.folderTabKeys.contains(shelfKey), "the archived folder loses its chip")
+    Check.equal(vc.currentFolderId, store.folders()[0].id, "the open folder is archived: the first folder shows")
+    Check.equal(probe.moreMenuBadge("Archive"), 1, "Archive counts the folder")
     Check.equal(probe.toastMessage, "Folder archived", "folder archive toast")
     probe.tapToastAction()
     Check.expect(store.folder(id: shelf.id) != nil, "toast Undo unarchives the folder")
-    Check.expect(probe.folderRowIDs.contains(shelf.id), "and it is back in the list")
+    Check.expect(probe.folderTabKeys.contains(shelfKey), "and its chip is back")
 
-    // ⌥⌘A on the selected folder row, ⌘Z.
+    // Archive a folder that is not open, ⌘Z. ⌥⌘A never archives a folder (it is a note key).
+    let openBefore = vc.currentFolderId
     probe.focusList()
-    probe.selectFolder(shelf.id)
-    let ids = probe.folderRowIDs
-    let next = ids.firstIndex(of: shelf.id).map { $0 + 1 < ids.count ? ids[$0 + 1] : ids[$0 - 1] }
-    optCmdA()
-    Check.expect(store.archivedFolder(id: shelf.id) != nil, "⌥⌘A archives the selected folder")
-    Check.equal(probe.selectedFolderID, next, "the neighbor row gets the selection")
+    probe.folderMenuRun(shelf.id, "Archive Folder")
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "Archive Folder on a chip that is not open")
+    Check.equal(vc.currentFolderId, openBefore, "the open folder stays")
     cmdZ()
     Check.expect(store.folder(id: shelf.id) != nil, "⌘Z unarchives the folder")
-
-    // vim: ga on the selected folder.
-    probe.settings.vimKeybinds = true
+    vc.showFolder(shelf.id)
     probe.focusList()
-    probe.selectFolder(shelf.id)
-    probe.press(keyCode: 5, characters: "g"); probe.press(keyCode: 0, characters: "a")
-    Check.expect(store.archivedFolder(id: shelf.id) != nil, "vim: ga archives the selected folder")
-    probe.settings.vimKeybinds = false
+    probe.select(nil)
+    optCmdA()
+    Check.expect(store.folder(id: shelf.id) != nil, "⌥⌘A does not archive the open folder")
+    for n in store.archivedNotes() { store.unarchiveNote(id: n.id) }
+    probe.dismissToast()
+    probe.folderMenuRun(shelf.id, "Archive Folder")
+    Check.expect(store.archivedFolder(id: shelf.id) != nil, "archived again")
 
-    // The Archive row opens the Archive menu while folders are archived.
-    var menus = 0
-    probe.captureMenus { _ in menus += 1 }
-    probe.clickArchiveRow()
-    Check.equal(menus, 1, "the Archive row opens the Archive menu")
+    // The … button opens its menu. Archive lists the archived notes and folders.
+    var menus: [NSMenu] = []
+    probe.captureMenus { menus.append($0) }
+    probe.clickMoreButton()
+    Check.equal(menus.count, 1, "the … button opens a menu")
+    Check.equal(menus.first?.items.first?.title, "New Folder", "which starts with New Folder")
     probe.captureMenus(nil)
+    Check.equal(probe.moreMenuSubmenuTitles("Archive"), probe.archiveMenuTitles, "Archive in the … menu is the Archive menu")
     Check.expect(probe.archiveMenuTitles.contains("Archived Notes") && probe.archiveMenuTitles.contains("Shelf"),
                  "the Archive menu lists the archived notes and the folder")
 
@@ -1576,9 +2269,10 @@ func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store
     Check.expect(!probe.isPlusButtonVisible, "no + button in an archived folder")
     Check.expect(!probe.cardMenuItems(for: s1.id).contains("Move"), "no Move for notes of an archived folder")
     renderHook?("26-archived-folder-light")
+    Check.expect(!probe.folderTabsVisible && probe.isBackButtonVisible, "an archived folder has a title and a back arrow")
     probe.goBack()
-    Check.expect(probe.folderRowsVisible, "back from the archived folder goes to the folder list")
-    Check.equal(probe.selectedSpecialRow, "archive", "and selects the Archive row")
+    Check.expect(probe.folderTabsVisible && vc.currentFolderId == store.folders()[0].id,
+                 "back from the archived folder shows the last folder (here the first)")
 
     // Unarchive while it is open: it becomes a normal folder.
     probe.archiveMenuRun("Shelf", "Open")
@@ -1587,11 +2281,11 @@ func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store
     Check.expect(store.folder(id: shelf.id) != nil, "Unarchive puts the folder back")
     Check.equal(probe.headerTitle, "Shelf", "the open archived folder stays open as a normal folder")
     Check.expect(probe.isPlusButtonVisible, "with its + button")
-    Check.equal(probe.toastMessage, "“Shelf” is back in the folder list", "unarchive toast")
+    Check.equal(probe.toastMessage, "“Shelf” is back with the folders", "unarchive toast")
+    Check.equal(probe.activeFolderTabKey, shelfKey, "and its chip is the open one")
 
     // Search: notes of archived folders only with the Archive chip, and from the archive.
     store.archiveFolder(id: shelf.id)
-    vc.showFolderList()
     probe.setSearchQuery("quince", allFolders: true)
     Check.equal(probe.displayedNoteIDs, [], "search skips archived folders")
     probe.setSearchIncludesArchive(true)
@@ -1604,18 +2298,17 @@ func folderArchiveChecks(vc: NotesRootViewController, probe: NotesUIProbe, store
     probe.goBack()
 
     // Delete from the Archive menu: to the trash, restored it is archived again.
-    vc.showFolderList()
+    vc.showLastFolder()
     probe.confirmDestructiveAlerts(true)
     probe.archiveMenuRun("Shelf", "Delete Folder…")
     probe.confirmDestructiveAlerts(nil)
     Check.equal(store.trashedFolders().map(\.id), [shelf.id], "Delete Folder… moves the archived folder to the trash")
-    Check.equal(probe.archiveRowCount, nil, "the Archive row goes with it")
+    Check.equal(probe.moreMenuBadge("Archive"), nil, "the Archive count goes with it")
     store.restoreFolder(id: shelf.id)
     Check.expect(store.archivedFolder(id: shelf.id) != nil, "restored, it is archived again")
     probe.commitDelete()
     store.deleteFolder(id: shelf.id)
-    vc.showFolderList()
-    Check.equal(probe.archiveRowCount, nil, "folder archive: clean at the end")
+    Check.equal(probe.moreMenuBadge("Archive"), nil, "folder archive: clean at the end")
 }
 
 
@@ -1635,28 +2328,33 @@ func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     }
     let foldersBefore = store.folders().map(\.id)
 
-    // Header button at the top level only.
-    vc.showFolderList()
-    Check.expect(probe.isScratchButtonVisible, "scratch: header button on the folder list")
+    // The Scratch chip is the first one in the header.
+    vc.showLastFolder()
+    Check.expect(probe.isScratchChipVisible && probe.folderTabKeys.first == "scratch", "scratch: its chip is first in the header")
     settings.scratchEnabled = false
-    Check.expect(!probe.isScratchButtonVisible, "scratch: off hides the header button")
+    Check.expect(!probe.isScratchChipVisible && !probe.folderTabKeys.contains("scratch"), "scratch: off hides the chip")
     probe.showScratch(edit: false)
     Check.equal(probe.scratchDay, nil, "scratch: off, nothing opens")
     settings.scratchEnabled = true
-    Check.expect(probe.isScratchButtonVisible, "scratch: on shows the button again")
+    Check.expect(probe.isScratchChipVisible, "scratch: on shows the chip again")
 
     // Today.
-    probe.clickScratchButton()
+    probe.clickFolderTab("scratch")
     probe.layoutNow(); spin(); probe.layoutNow()
     let today = scratch.todayKey
-    Check.equal(probe.scratchDay, today, "scratch: the button opens today")
-    Check.equal(probe.headerTitle, "Scratch · Today", "scratch: header title")
-    Check.expect(probe.isDayStepperVisible, "scratch: day stepper shown")
-    Check.expect(!probe.isPlusButtonVisible, "scratch: no + button")
+    Check.equal(probe.scratchDay, today, "scratch: the chip opens today")
+    Check.equal(probe.headerTitle, "Scratch · Today", "scratch: the screen's name")
+    Check.equal(probe.activeFolderTabKey, "scratch", "scratch: its chip is the open one")
+    Check.equal(probe.scratchChipTitle, "Today", "scratch: the open chip shows the day")
+    Check.expect(probe.isPlusButtonVisible && probe.isSearchButtonVisible, "scratch: search and + stay")
     Check.expect(!probe.canStepToEarlierDay && !probe.canStepToLaterDay, "scratch: nothing to step to yet")
+    Check.expect(!probe.clickScratchChipStepper(-1) && probe.scratchDay == today, "scratch: ‹ is off without an earlier day")
     guard let todayNote = scratch.todayNote(create: false) else { Check.expect(false, "scratch: today's note"); return }
     Check.equal(probe.displayedNoteIDs, [todayNote.id], "scratch: one card, today's note")
-    Check.equal(probe.focusedNoteID, todayNote.id, "scratch: the button focuses the note")
+    Check.equal(probe.focusedNoteID, nil, "scratch: the chip does not start typing")
+    probe.clickPlusButton()
+    probe.layoutNow(); spin(); probe.layoutNow()
+    Check.equal(probe.focusedNoteID, todayNote.id, "scratch: + focuses the note")
     Check.equal(probe.isCardReadOnly(todayNote.id), false, "scratch: today is editable")
     Check.equal(probe.isEditorReadOnly(todayNote.id), false, "scratch: today's editor is editable")
     Check.equal(store.folders().map(\.id), foldersBefore, "scratch: its folder is not in the folder list")
@@ -1712,6 +2410,7 @@ func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     probe.layoutNow(); spin()
     Check.equal(probe.scratchDay, today, "scratch: ⇧⌘[ steps to yesterday")
     Check.equal(probe.headerTitle, "Scratch · Yesterday", "scratch: yesterday's title")
+    Check.equal(probe.scratchChipTitle, "Yesterday", "scratch: the chip shows Yesterday")
     Check.equal(probe.displayedNoteIDs, [todayNote.id], "scratch: yesterday's note")
     Check.equal(probe.isCardReadOnly(todayNote.id), true, "scratch: yesterday is read-only")
     probe.ensureEditor(of: todayNote.id)
@@ -1728,8 +2427,39 @@ func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     render("28-scratch-yesterday-light", false)
     render("29-scratch-yesterday-dark", true)
     probe.setHovered(todayNote.id, false)
+    Check.expect(probe.clickScratchChipStepper(1), "scratch: › in the chip is on")
+    Check.equal(probe.scratchDay, day2, "scratch: › goes back to today")
+    Check.expect(probe.clickScratchChipStepper(-1) && probe.scratchDay == today, "scratch: ‹ in the chip steps to yesterday")
     probe.stepScratchDay(1)
-    Check.equal(probe.scratchDay, day2, "scratch: ▶ goes back to today")
+
+    // Vim: h / l on the list step the days. From the note (⌃H / ⌃L) the caret goes along.
+    settings.vimKeybinds = true
+    probe.select(nil)
+    probe.focusList()
+    probe.press(keyCode: 4, characters: "h")
+    Check.equal(probe.scratchDay, today, "scratch, vim: h goes to the earlier day")
+    Check.equal(probe.focusedNoteID, nil, "scratch, vim: h does not start editing")
+    probe.press(keyCode: 37, characters: "l")
+    Check.equal(probe.scratchDay, day2, "scratch, vim: l goes to the later day")
+    probe.press(keyCode: 37, characters: "l")
+    Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == nil, "scratch, vim: l on today stays (nothing later)")
+    if let d2 = day2Note {
+        probe.showScratch(edit: true)
+        probe.layoutNow(); spin()
+        probe.vimCommand(.stepScratchDay(-1), on: d2.id)
+        probe.layoutNow(); spin()
+        Check.equal(probe.scratchDay, today, "scratch, vim: ⌃H in the note goes to the earlier day")
+        Check.equal(probe.focusedNoteID, todayNote.id, "scratch, vim: the caret is in that day's note")
+        probe.vimCommand(.stepScratchDay(1), on: todayNote.id)
+        probe.layoutNow(); spin()
+        Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == d2.id, "scratch, vim: ⌃L goes back, caret in today")
+        probe.vimCommand(.stepScratchDay(1), on: d2.id)
+        Check.expect(probe.scratchDay == day2 && probe.focusedNoteID == d2.id, "scratch, vim: ⌃L on today stays in the note")
+        probe.select(nil)
+        probe.focusList()
+        spin()
+    }
+    settings.vimKeybinds = false
 
     // An empty earlier day is dropped; days beyond the window go to the trash as normal notes.
     settings.scratchKeepDays = 2
@@ -1766,13 +2496,14 @@ func scratchChecks(vc: NotesRootViewController, probe: NotesUIProbe, store: InMe
     probe.commitDelete()
 
     // reveal(noteId:) of a Scratch note opens its day.
-    vc.showFolderList()
+    vc.showLastFolder()
     vc.reveal(noteId: t.id, edit: false)
     Check.equal(probe.scratchDay, t.scratchDay, "scratch: reveal opens the note's day")
 
-    // Turning Scratch off while it shows: back to the folder list.
+    // Turning Scratch off while it shows: the last folder.
     settings.scratchEnabled = false
-    Check.expect(probe.folderRowsVisible && probe.scratchDay == nil, "scratch: off goes back to the folder list")
+    Check.expect(probe.scratchDay == nil && vc.currentFolderId == (settings.lastFolderId ?? -1),
+                 "scratch: off shows the last folder")
     settings.scratchEnabled = true
     settings.scratchKeepDays = 7
     for n in store.scratchNotes(includingTrashed: true) { store.deleteNote(id: n.id) }

@@ -6,7 +6,7 @@ Taken from the code.
 Contexts:
 - **Global**: system-wide Carbon hotkeys. You can change them in Settings → Shortcuts.
 - **Panel**: the panel is key (any state inside it).
-- **List**: the root view has focus and no text is being edited. This covers the folder list, the notes list, and search results.
+- **List**: the root view has focus and no text is being edited. This covers the notes list and search results. (There is no folder list: the folders are chips in the header.)
 - **Editor**: a note's text view has focus. Without vim this is plain editing; with vim it is Insert mode.
 - **Vim Normal / Visual / Prompt**: the editor with Settings → Vim keybinds on.
 
@@ -29,14 +29,14 @@ Contexts:
 | ⇧⌘N | Panel | New folder | ″ |
 | ⌘F | Panel | Search in the folder | ″ |
 | ⌘/ | Panel | Search all folders | ″ |
-| ⌘[ | Panel | Back (folder → folder list) | ″ |
+| ⌘[ | Panel | Back: close search, leave the archive for the last folder. In a folder or Scratch: nothing (beep) | ″ |
+| ⌃Tab / ⌃⇧Tab | Panel (also while editing), not in search or the archive | Next / previous folder, around the ends. Scratch is not part of the round: on Scratch they go back to the folder open last | `RootKeyboard.handleFolderTabKey` |
 | ⇧⌘[ / ⇧⌘] | Scratch screen (also while editing) | Earlier / later Scratch day | ″ |
 | ⇧⌘E | Panel (also while editing) | Expand / collapse the active note | ″ |
 | ⇧⌘M | Panel | Move menu for the active note | ″ |
 | ⌥⌘M | Panel | Move the active note to a new folder | ″ |
 | ⌥⌘← / ⌥⌘→ | Panel, notes visible | Fold / unfold the active note | ″ |
 | ⌥⌘A | Panel, notes visible (also while editing) | Archive / unarchive the active note | ″ |
-| ⌥⌘A | Folder list | Archive the selected folder | ″ |
 | ⌥⇧⌘↑ / ↓ | Panel, not in search | Move the active note up / down | ″ |
 | ⌘⌫ | List | Delete the selected note (alert) | ″ |
 | ⌘↩ | Editor | Stop editing, keep the card selected | ″, `MarkdownTextView.keyDown` |
@@ -51,41 +51,49 @@ Contexts:
 
 ## 3. List (root view, not editing)
 
-| Key | Folder list | Notes list / search results | Source |
-|---|---|---|---|
-| ↑ / ↓ | Select row (folders, then Archive and Recently Deleted) | Select card | `RootKeyboard.handleKeyDown` |
-| Home / End | First / last row | First / last card | ″ |
-| ↩ / Enter | Open folder / the archive (the Archive menu when folders are archived) / the Recently Deleted menu | Edit the card (unfolds it first) | ″ |
-| → | Open folder | — | ″ |
-| ← | — | Back to the folder list (not in search) | ″ |
-| ⌫ / ⌦ | — | Delete the selected card (alert) | ″ |
-| Tab / ⇧Tab | — | Search: next / previous result | ″ |
-| Esc | Hide panel | Collapse expanded card → close search → clear selection → hide panel | `handleEscape` |
-| Letters / punctuation (vim off) | Start a search with that letter | Search results: add to the query | ″ |
+| Key | Notes list / search results | Source |
+|---|---|---|
+| ↑ / ↓ | Select card | `RootKeyboard.handleKeyDown` |
+| Home / End | First / last card | ″ |
+| ↩ / Enter | Edit the card (unfolds it first) | ″ |
+| ← | Archive screens: back to the last folder. In a folder: nothing | ″ |
+| ⌫ / ⌦ | Delete the selected card (alert) | ″ |
+| Tab / ⇧Tab | Search: next / previous result | ″ |
+| ⌃Tab / ⌃⇧Tab | Next / previous chip of the header | `handleFolderTabKey` |
+| Esc | Collapse expanded card → close search → clear selection → hide panel | `handleEscape` |
+| Letters / punctuation (vim off) | Search results: add to the query. In a folder: nothing | ″ |
+
+Folders have no keyboard selection. Rename, pin, color, archive, and delete are in the menu of a
+folder chip (right click). In the rename field on a chip: ↩ commits, Esc cancels.
 
 ## 4. List, vim keys on (`RootVim.handleVimRootKey`)
 
-| Key | Folder list | Notes list / search results |
-|---|---|---|
-| j / k | Select next / previous | Select next / previous |
-| l | Open folder | Edit the card |
-| h | — | Back (not in search) |
-| gg / G | First / last | First / last |
-| / | Search | Search |
-| ⌃[ | Back | Back |
-| ⌃W J / ⌃W K | — | Edit the next / previous card |
-| r, R, cw | Rename folder | — |
-| o, O | New folder | — |
-| gp | Pin folder | Pin note |
-| gc | Folder color menu | Color / Mode menu |
-| gx, dd | Delete folder (alert) | Delete note (alert, undoable) |
-| gm | — | Move menu |
-| gj / gk | — | Move note down / up in its folder (not in search) |
-| gy | — | Copy the note text |
-| ge | — | Expand / collapse |
-| ga | Archive the selected folder | Archive / unarchive |
-| za / zc / zo | — | Toggle / fold / unfold |
-| Other letters | Swallowed (do nothing) | Swallowed |
+| Key | Notes list / search results |
+|---|---|
+| j / k | Select next / previous |
+| l | Edit the card |
+| h | Back from the archive (not in search). In a folder: nothing |
+| gg / G | First / last |
+| gt / gT | Next / previous folder (like ⌃Tab / ⌃⇧Tab) |
+| h / l (Scratch) | Earlier / later Scratch day (↩ edits the note). In the note: ⌃H / ⌃L, in Normal and Insert mode, and the caret goes to that day |
+| : | Command line under the header pill, above the notes. The folder commands of section 8 run as they are (`:folder`, `:newfolder`, `:rename`, `:scratch`, ...), the note commands on the selected note, `:q` hides the panel. ↩ runs, Esc or ⌫ on the empty line closes, Tab / ⇧Tab complete the command name (`:f` gives `:folder`), then a folder name |
+| / | Search |
+| ⌃[ | Back (like ⌘[) |
+| ⌃W J / ⌃W K | Edit the next / previous card |
+| gp | Pin note |
+| gc | Color / Mode menu |
+| gx, dd | Delete note (alert, undoable) |
+| gm | Move menu |
+| gj / gk | Move note down / up in its folder (not in search) |
+| gy | Copy the note text |
+| ge | Expand / collapse |
+| ga | Archive / unarchive |
+| za / zc / zo | Toggle / fold / unfold |
+| Other letters | Swallowed (do nothing) |
+
+The folder keys of the old folder list (r, R, cw, o, O, and gp gc ga gx dd on a folder) are gone with
+it. `gt` / `gT` also work in an editor's Normal mode, and the `:` commands of section 8 open and
+change folders.
 
 ## 5. Editor, all modes (plain editing, or vim Insert mode)
 
@@ -185,6 +193,14 @@ Contexts:
 | :color [name] | Color menu, or set the color |
 | :mode [standard\|code\|plain] | Mode menu, or set the mode |
 | :move [folder] :m :mv | Move menu, or move to the folder. Tab / ⇧Tab complete and cycle the folder name |
+| :folder name :f :b | Open the folder (exact name, else the first that starts with or contains the text). Tab / ⇧Tab complete |
+| :tabn :bn / :tabp :bp | Next / previous chip of the header (like gt / gT) |
+| :scratch :sc | Today's Scratch note, ready to type |
+| :newfolder [name] :nf :mkdir | New folder, opened. Without a name its chip is ready for one |
+| :rename [name] :ren | Rename the open folder. Without a name its chip becomes the name field |
+| :pinfolder :pf | Pin / unpin the open folder |
+| :archivefolder :af | Archive the open folder (not the last one) |
+| :deletefolder :df :rmdir | Delete the open folder, after the alert (not the last one) |
 
 ## 9. Text fields
 
@@ -209,7 +225,8 @@ Contexts:
 | Checklist | ⇧⌘L and ⇧⌘9 | Two keys for one action. |
 | Leave / back | Esc (leave card) · ⌃[ (go back a level) · ⌘[ · ← · h | In vim, Esc and ⌃[ differ. In Vim Insert mode, ⌃[ = Esc. |
 | Next / previous card while editing | ↑ / ↓ at the text edges · ⌃W J / K | |
-| Search | ⌘F · ⌘/ · / (vim) · typing on the folder list (vim off) · ⌃⌥⌘F global | |
+| Search | ⌘F · ⌘/ · / (vim) · ⌃⌥⌘F global | |
+| Next / previous folder | ⌃Tab / ⌃⇧Tab · gt / gT (vim, list only) | |
 | Move note | ⇧⌘M · gm · :move · ⌥⌘M (new folder) · ⌥⇧⌘↑ / ↓ · gj / gk | |
 | Float panel | ⌥⇧⌘N global and in the panel | Handled in 2 places (global hotkey + key equivalent). |
 | Undo | ⌘Z = panel undo in the list, text undo in the editor | Same key, two histories. |

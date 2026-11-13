@@ -221,7 +221,7 @@ enum MenuBuilder {
         return m
     }
 
-    /// Recently Deleted row: every trashed folder and note with Restore / Delete Now, then Empty.
+    /// Recently Deleted in the "…" menu of the header: every trashed folder and note with Restore / Delete Now, then Empty.
     static func trashMenu(actions: NoteActions) -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
@@ -372,15 +372,13 @@ enum MenuBuilder {
         return m
     }
 
-    /// Right click on a folder row (or the folder list background when `folder == nil`).
-    static func folderContextMenu(for folder: Folder?, actions: NoteActions) -> NSMenu {
+    /// Right click on a folder chip in the header. (A click opens the folder, so there is no Open.)
+    static func folderContextMenu(for folder: Folder, actions: NoteActions) -> NSMenu {
         let m = NSMenu()
         m.autoenablesItems = false
         let env = actions.env
         m.addItem(ClosureMenuItem("New Folder", key: "", symbol: "folder.badge.plus") { actions.newFolder() })
-        guard let folder else { return m }
         m.addItem(.separator())
-        m.addItem(ClosureMenuItem("Open", key: "", symbol: "folder") { actions.root?.showFolder(folder.id) })
         m.addItem(ClosureMenuItem("New Note in Folder", key: "", symbol: "square.and.pencil") {
             actions.root?.showFolder(folder.id)
             actions.root?.createNewNote()
@@ -394,7 +392,7 @@ enum MenuBuilder {
         colorItem.submenu = colorSubmenu(current: folder.color, env: env) { actions.setFolderColor($0, folder.id) }
         m.addItem(colorItem)
         m.addItem(.separator())
-        m.addItem(ClosureMenuItem("Archive Folder", key: "a", modifiers: [.option, .command], symbol: "archivebox",
+        m.addItem(ClosureMenuItem("Archive Folder", key: "", symbol: "archivebox",
                                   enabled: env.store.folders().count > 1) {
             actions.toggleArchiveFolder(folder.id)
         })
@@ -404,7 +402,7 @@ enum MenuBuilder {
         return m
     }
 
-    /// Archive row when folders are archived: the archived notes, then every archived folder with
+    /// Archive in the "…" menu of the header: the archived notes, then every archived folder with
     /// Open / Unarchive / Delete.
     static func archiveMenu(actions: NoteActions) -> NSMenu {
         let m = NSMenu()
@@ -416,8 +414,9 @@ enum MenuBuilder {
         let notes = ClosureMenuItem("Archived Notes", key: "", symbol: "doc.text") { actions.root?.showArchive() }
         notes.subtitle = count(store.archivedNotes().count)
         m.addItem(notes)
-        m.addItem(.sectionHeader(title: "Folders"))
-        for f in store.archivedFolders() {
+        let folders = store.archivedFolders()
+        if !folders.isEmpty { m.addItem(.sectionHeader(title: "Folders")) }
+        for f in folders {
             let it = NSMenuItem(title: f.name, action: nil, keyEquivalent: "")
             it.image = Symbols.image("folder", size: 13)
             it.subtitle = count(store.noteCount(in: f.id))

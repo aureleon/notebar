@@ -56,7 +56,6 @@ func runMotionChecks() -> Never {
     let env = AppEnvironment(store: store, backups: nil, settings: settings, themes: themes,
                              editorFactory: PlainNoteEditorFactory())
     let vc = NotesRootViewController(env: env)
-    vc.stateDefaults = UserDefaults(suiteName: suite)!
     env.presenter = vc
     let probe = vc.probe
 

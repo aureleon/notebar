@@ -51,7 +51,7 @@ frameworks.
 | `NoteBarStore` | The GRDB store, backups, Markdown export |
 | `NoteBarPanel` | The panel window, Hot Side (swipe to edge), auto-hide, hotkeys, the menu bar icon |
 | `NoteBarEditor` | The Markdown editor, attachments, the formatting toolbar |
-| `NoteBarUI` | The panel content: header, folder list, note cards, search |
+| `NoteBarUI` | The panel content: header with the folder chips, note cards, search |
 | `NoteBarIntegrations` | The URL scheme, Services, AppleScript |
 | `NoteBarSettings` | The Settings window |
 | `NoteBar` | The app: `AppDelegate`, the main menu, the single-instance lock, snapshot modes |

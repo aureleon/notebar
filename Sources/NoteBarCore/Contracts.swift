@@ -62,6 +62,20 @@ public enum VimCardCommand: Equatable, Sendable {
     case focusNextCard, focusPreviousCard
     /// ⌃[ in Normal mode: go up (like ⌘[).
     case navigateUp
+    /// `gt` / `gT`, `:tabn` / `:tabp`: the next (+1) / previous (-1) chip of the header.
+    case stepFolder(Int)
+    /// ⌃H / ⌃L in a Scratch note: the earlier (-1) / later (+1) Scratch day.
+    case stepScratchDay(Int)
+    /// `:folder <name>`: open the folder (the host finds it by name).
+    case openFolder(String)
+    /// `:scratch`: today's Scratch note, ready to type.
+    case openScratch
+    /// `:newfolder [name]`: a new folder, opened. Without a name its chip is ready for one.
+    case newFolder(String)
+    /// `:rename [name]`: rename the open folder. Without a name its chip becomes the name field.
+    case renameFolder(String)
+    /// `:pinfolder`, `:archivefolder`, `:deletefolder`: on the open folder (delete asks first).
+    case toggleFolderPin, archiveFolder, deleteFolder
     /// The editor could not run a command (unknown `:` command, no match): the host shows `message`.
     case message(String)
 }
@@ -106,6 +120,10 @@ public protocol NoteEditing: NSView {
     /// Scratch notes: the host's items for the menu of the entry under the pointer (it gets the
     /// entry's text). The editor adds its own (Copy, Mark Done, Delete).
     var entryMenuItems: ((String) -> [NSMenuItem])? { get set }
+    /// Where the editor's command line (vim `:` and `/`) goes, in the editor's coordinates: the host
+    /// has room for it outside the text (the card's bottom row). nil, or a nil result: the editor
+    /// shows the line below its text and grows by it.
+    var commandLineFrame: (() -> NSRect?)? { get set }
 }
 
 public extension NoteEditing {
@@ -113,6 +131,7 @@ public extension NoteEditing {
     var vimMode: VimMode? { nil }
     func beginEntry(at date: Date) {}
     var entryMenuItems: ((String) -> [NSMenuItem])? { get { nil } set {} }
+    var commandLineFrame: (() -> NSRect?)? { get { nil } set {} }
 }
 
 @MainActor
@@ -149,11 +168,10 @@ public extension AppController {
 /// Implemented by the notes UI (NoteBarUI.NotesRootViewController).
 @MainActor
 public protocol NotesPresenting: AnyObject {
-    /// nil = folder list.
+    /// The open folder. nil: Scratch or the archive shows.
     var currentFolderId: FolderID? { get }
     /// Height of the visible content elements from the top down (header to last item).
     var contentHeight: CGFloat { get }
-    func showFolderList()
     func showFolder(_ id: FolderID)
     /// Scrolls to the note (switching folder if needed). `edit` focuses its editor.
     func reveal(noteId: NoteID, edit: Bool)

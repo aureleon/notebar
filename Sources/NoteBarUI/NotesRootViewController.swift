@@ -1,7 +1,8 @@
 import AppKit
 import NoteBarCore
 
-/// The whole content of the floating panel: header pill, folder list, notes list, search, toasts.
+/// The whole content of the floating panel: header pill (with the folder chips), notes list, search,
+/// toasts. There is no folder list screen: a folder, Scratch, or the archive always shows.
 ///
 /// Wiring (app delegate):
 /// ```
@@ -11,10 +12,11 @@ import NoteBarCore
 /// ```
 @MainActor
 public final class NotesRootViewController: NSViewController, NotesPresenting {
-    /// `archive`: the archived notes of every folder (the Archive row of the folder list).
+    /// `folder`: the notes of a folder (its chip in the header is the open one).
+    /// `archive`: the archived notes of every folder (Archive in the "…" menu).
     /// `archivedFolder`: the notes of an archived folder (Open in the Archive menu).
     /// `scratch`: the Scratch note of one day (`ScratchDay` key); today's is editable.
-    enum Screen: Equatable { case folders, folder(FolderID), archive, archivedFolder(FolderID), scratch(String) }
+    enum Screen: Equatable { case folder(FolderID), archive, archivedFolder(FolderID), scratch(String) }
 
     struct SearchState {
         var query: String
@@ -36,7 +38,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }()
     var store: NoteStore { env.store }
 
-    var screen: Screen = .folders
+    var screen: Screen
     var search: SearchState?
     enum TrashItem: Equatable { case note(NoteID), folder(FolderID) }
     /// The item the "deleted" toast can bring back (it is in the store's trash).
@@ -72,26 +74,21 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// The Scratch screen shows today and follows the day when it changes (rollover, wake).
     var scratchFollowsToday = false
 
-    /// Where the UI keeps its own state (the screen to restore at launch).
-    /// `env.settings.lastFolderId` always means "last opened folder"; it stays set while the
-    /// folder list shows, so new notes from hotkeys / URLs / scripts go to that folder.
-    public var stateDefaults: UserDefaults = .standard
-    static let showsFolderListKey = "NoteBarUI.showsFolderList"
-    private var showsFolderListAtLaunch: Bool {
-        get { stateDefaults.bool(forKey: Self.showsFolderListKey) }
-        set { if newValue != showsFolderListAtLaunch { stateDefaults.set(newValue, forKey: Self.showsFolderListKey) } }
-    }
-
     var rootView: NotesRootView!
     var header: HeaderView!
-    var folderList: FolderListView!
     var notesList: NotesListView!
     var scopeBar: SearchScopeBar!
     var toast: ToastView!
+    /// The `:` line of the notes list (vim keys). Made when first used.
+    var commandLine: CommandLineView?
+    /// The folder chips in the header pill.
+    var folderTabs: FolderTabsView { header.tabs }
 
     public init(env: AppEnvironment) {
         self.env = env
         self.actions = NoteActions(env: env)
+        // Replaced by `restoreInitialScreen` when the view loads.
+        screen = .folder(env.store.folders().first?.id ?? 0)
         super.init(nibName: nil, bundle: nil)
         actions.root = self
     }
@@ -108,9 +105,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
         notesList = NotesListView(env: env)
         notesList.delegate = self
-        folderList = FolderListView(env: env)
-        folderList.delegate = self
-        folderList.actions = actions
         header = HeaderView(env: env)
         scopeBar = SearchScopeBar(env: env)
         scopeBar.onToggle = { [weak self] all in self?.setSearchAllFolders(all) }
@@ -118,22 +112,19 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         toast = ToastView(frame: .zero)
         toast.fontSize = env.themes.fontSize
         toast.onVisibilityChange = { [weak self] in self?.updateBackdrop() }
-        for sub in [backdrop, notesList!, folderList!, header!, toast!] as [NSView] { v.addSubview(sub) }
+        for sub in [backdrop, notesList!, header!, toast!] as [NSView] { v.addSubview(sub) }
         notesList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
-        folderList.onContentExtentChange = { [weak self] in self?.updateBackdrop() }
         installClickMonitor()
         wireHeader()
+        wireFolderTabs()
         observeChanges()
         restoreInitialScreen()
     }
 
     private func wireHeader() {
         header.onBack = { [weak self] in self?.goBack() }
-        header.onSettings = { [weak self] in self?.env.controller?.openSettings() }
         header.onSearch = { [weak self] in self?.beginSearch() }
         header.onPlus = { [weak self] in self?.plusPressed() }
-        header.onScratch = { [weak self] in self?.showScratch(edit: true) }
-        header.onStepDay = { [weak self] delta in self?.stepScratchDay(delta) }
         header.onQueryChange = { [weak self] q in self?.searchQueryChanged(q) }
         header.onSearchEscape = { [weak self] in self?.searchFieldEscape() }
         header.onCloseSearch = { [weak self] in self?.endSearch(restore: true, focusRoot: true) }
@@ -145,34 +136,24 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             self.goBack()
             return true
         }
-        header.onSpringBack = { [weak self] in
-            guard let self, self.search == nil, self.screen != .folders else { return }
-            self.showFolderList()
-        }
     }
 
     private func restoreInitialScreen() {
-        if !showsFolderListAtLaunch, let id = env.settings.lastFolderId, store.folder(id: id) != nil {
-            showFolder(id)
-        } else {
-            showFolderList()
-        }
+        showLastFolder()
     }
 
     func layoutViews() {
-        guard let v = rootView else { return }
-        let b = v.bounds
+        guard rootView != nil else { return }
+        let b = rootView.bounds
         let m = Metrics.outerMargin
         let pad = HeaderView.shadowPad
         let hh = Metrics.headerHeight
-        header.frame = NSRect(x: m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
+        header.frame = NSRect(x: b.minX + m - pad, y: m - pad, width: max(0, b.width - 2 * m + 2 * pad), height: hh + 2 * pad)
         // The lists start at the bottom of the header pill; cards fade out in the gap below it.
-        let listTop = m + hh
-        let listFrame = NSRect(x: 0, y: listTop, width: b.width, height: max(0, b.height - listTop))
-        let inset = Metrics.gap
-        for list in [notesList!, folderList!] as [NSView] { list.frame = listFrame }
-        if notesList.topInset != inset { notesList.topInset = inset }
-        if folderList.topInset != inset { folderList.topInset = inset }
+        // The open `:` line hangs below the pill, and the notes move down by it.
+        let listTop = m + hh + (isCommandLineOpen ? CommandLineView.height : 0)
+        notesList.frame = NSRect(x: b.minX, y: listTop, width: b.width, height: max(0, b.height - listTop))
+        if notesList.topInset != Metrics.gap { notesList.topInset = Metrics.gap }
         updateBackdrop()
     }
 
@@ -194,7 +175,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         })
         observers.append(nc.addObserver(forName: .appSettingsDidChange, object: nil, queue: nil) { [weak self] n in
             let key = n.userInfo?["key"] as? String
-            if key == "deletedItemsRetention" { MainActor.assumeIsolated { self?.reloadFolderList() }; return }
             if key == "scratchEnabled" || key == "scratchKeepDays" || key == "hotkeys" {
                 MainActor.assumeIsolated { self?.scratchSettingsChanged() }
                 return
@@ -217,17 +197,17 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     func handle(_ change: StoreChange) {
         switch change {
         case .folders:
-            if case .folder(let id) = screen, store.folder(id: id) == nil {
-                if search != nil { search?.origin = .folders }
-                showFolderList()
+            // The open folder is gone (deleted, archived): the last folder shows, which ends a search
+            // that started in it.
+            if case .folder(let id) = search?.origin ?? screen, store.folder(id: id) == nil {
+                showLastFolder()
                 return
             }
-            if case .archivedFolder(let id) = screen, store.archivedFolder(id: id) == nil {
-                // Unarchived: show it as a normal folder. Trashed / deleted: back to the folder list.
-                if store.folder(id: id) != nil { showFolder(id) } else { showFolderList() }
+            if case .archivedFolder(let id) = search?.origin ?? screen, store.archivedFolder(id: id) == nil {
+                // Unarchived: show it as a normal folder. Trashed / deleted: the last folder.
+                if store.folder(id: id) != nil { showFolder(id) } else { showLastFolder() }
                 return
             }
-            reloadFolderList()
             updateHeader()
             if search?.allFolders == true || search?.origin == .archive || isScratchOrigin { runSearch(animated: false) }
             if search == nil, screen == .archive { reloadNotes(animated: true) }
@@ -241,7 +221,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             } else if isScratchScreen {
                 reloadNotes(animated: false)
             }
-            if screen == .folders { reloadFolderList() }
         case .note(let id):
             if let n = store.note(id: id) { notesList.noteChanged(n) }
         case .noteBody(let id):
@@ -257,21 +236,17 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             if case .archivedFolder(let id) = screen, store.archivedFolder(id: id) == nil { gone = true }
             if case .scratch = screen, !env.settings.scratchEnabled { gone = true }
             if gone {
-                search = nil
-                header.setSearching(false)
-                showFolderList()
+                showLastFolder()
                 return
             }
-            reloadFolderList()
             updateHeader()
-            if search != nil { runSearch(animated: false) } else if screen != .folders { reloadNotes(animated: false) }
+            if search != nil { runSearch(animated: false) } else { reloadNotes(animated: false) }
         }
     }
 
     func restyleAll() {
         guard header != nil else { return }
         header.restyle()
-        folderList.restyle()
         notesList.restyleAll()
         scopeBar.restyle()
         rootView.needsDisplay = true
@@ -287,15 +262,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         var counts: [FolderID: Int] = [:]
         for f in store.folders() { counts[f.id] = store.noteCount(in: f.id) }
         return counts
-    }
-
-    func reloadFolderList() {
-        folderList.reload(folders: store.folders(), counts: folderCounts())
-        let trash = store.trashedNotes().count + store.trashedFolders().count
-        // Shown whenever the trash has items, whatever Keep deleted items says (it only sets how long).
-        folderList.trashCount = trash > 0 ? trash : nil
-        let archived = store.archivedNotes().count + store.archivedFolders().count
-        folderList.archiveCount = archived > 0 ? archived : nil
     }
 
     /// Folder names for cards that show their folder (archive, search across folders).
@@ -350,60 +316,39 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         }
     }
 
+    /// The header of the current screen. Folder and Scratch screens show the folder chips, the archive
+    /// screens a back arrow and a title.
     func updateHeader() {
         switch screen {
-        case .folders:
-            header.setTitle("NoteBar", accent: false, showsBack: false, showsSettings: true, plusToolTip: "New Folder",
-                            showsScratch: env.settings.scratchEnabled, scratchToolTip: scratchToolTip)
-        case .scratch(let day):
-            let s = env.scratch
-            let days = s.days()
-            let canBack = days.contains { $0 < day }
-            let canForward = day < s.todayKey
-            header.setTitle("Scratch · \(s.title(for: day))", accent: true, showsBack: true, showsSettings: false,
-                            plusToolTip: "", stepper: (canBack, canForward))
-        case .folder(let id):
-            header.setTitle(store.folder(id: id)?.name ?? "Notes", accent: true, showsBack: true, showsSettings: false, plusToolTip: "New Note (⌘N)")
+        case .scratch:
+            header.show(.tabs(plusToolTip: "New Entry"))
+        case .folder:
+            header.show(.tabs(plusToolTip: "New Note (⌘N)"))
         case .archive:
-            header.setTitle("Archive", accent: true, showsBack: true, showsSettings: false, showsPlus: false, plusToolTip: "")
+            header.show(.title("Archive"))
         case .archivedFolder(let id):
-            header.setTitle(store.archivedFolder(id: id)?.name ?? "Archive", accent: true, showsBack: true, showsSettings: false,
-                            showsPlus: false, plusToolTip: "")
+            header.show(.title(store.archivedFolder(id: id)?.name ?? "Archive"))
         }
-    }
-
-    private func setListVisibility() {
-        let showNotes = search != nil || screen != .folders
-        notesList.isHidden = !showNotes
-        folderList.isHidden = showNotes
+        updateFolderTabs()
     }
 
     // MARK: NotesPresenting
 
     public var currentFolderId: FolderID? {
         switch search?.origin ?? screen {
-        case .folders, .archive, .archivedFolder, .scratch: return nil
+        case .archive, .archivedFolder, .scratch: return nil
         case .folder(let id): return id
         }
     }
 
-    public func showFolderList() {
+    /// The folder that was open last (`settings.lastFolderId`), else the first folder. This is where
+    /// the panel starts, where the back arrow of the archive leads, and what shows when the open
+    /// folder or Scratch goes away.
+    public func showLastFolder() {
         _ = view
-        if search != nil { endSearch(restore: false, focusRoot: false) }
-        let previous: FolderID? = { if case .folder(let id) = screen { return id }; return nil }()
-        let fromArchive: Bool = { if case .archivedFolder = screen { return true }; return screen == .archive }()
-        let hadEditorFocus = focusedNoteID != nil
-        screen = .folders
-        showsFolderListAtLaunch = true
-        clearNotesList()
-        focusedNoteID = nil
-        reloadFolderList()
-        updateHeader()
-        setListVisibility()
-        folderList.selectedFolderID = previous ?? folderList.selectedFolderID
-        if let previous, let row = folderList.row(for: previous) { folderList.scrollToVisible(row) }
-        if fromArchive, folderList.archiveRow != nil { folderList.selectedSpecial = .archive }
-        if hadEditorFocus || isFocusInsideNotes { focusRoot() }
+        let last = env.settings.lastFolderId.flatMap { store.folder(id: $0)?.id }
+        guard let id = last ?? store.folders().first?.id else { return }
+        showFolder(id)
     }
 
     public func showFolder(_ id: FolderID) {
@@ -420,10 +365,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             if hadFocus { focusRoot() }
         }
         if env.settings.lastFolderId != id { env.settings.lastFolderId = id }
-        showsFolderListAtLaunch = false
-        folderList.endRename()
+        folderTabs.endRename()
         updateHeader()
-        setListVisibility()
         rootView.needsLayout = true
     }
 
@@ -440,9 +383,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             notesList.scrollToTop()
             if hadFocus { focusRoot() }
         }
-        folderList.endRename()
+        folderTabs.endRename()
         updateHeader()
-        setListVisibility()
         rootView.needsLayout = true
     }
 
@@ -460,9 +402,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
             notesList.scrollToTop()
             if hadFocus { focusRoot() }
         }
-        folderList.endRename()
+        folderTabs.endRename()
         updateHeader()
-        setListVisibility()
         rootView.needsLayout = true
     }
 
@@ -512,7 +453,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     func toggleExpand(_ id: NoteID) {
-        guard notesVisible else { return }
         notesList.toggleExpand(noteID: id)
     }
 
@@ -525,15 +465,14 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     public func beginSearch() {
         _ = view
         if search == nil {
-            folderList.endRename()
-            search = SearchState(query: "", allFolders: screen == .folders, includeArchived: screen == .archive,
-                                 origin: screen)
+            folderTabs.endRename()
+            search = SearchState(query: "", allFolders: false, includeArchived: screen == .archive, origin: screen)
             clearNotesList()
             focusedNoteID = nil
             header.setSearching(true)
             notesList.topAccessory = scopeBar
             notesList.allowsReorder = false
-            setListVisibility()
+            updateFolderTabs()
             runSearch(animated: false)
         }
         header.focusSearchField()
@@ -570,8 +509,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         } else {
             rootFocusChanged(false)
         }
-        // Dates and counts may be stale if the store changed while hidden.
-        if screen == .folders && search == nil { reloadFolderList() }
         followTodayIfNeeded()
     }
 
@@ -581,16 +518,25 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     public func panelWillHide() {
-        folderList?.endRename()
+        header?.tabs.endRename()
         dismissTrashToast()
         toast?.dismiss(expired: true)
     }
 
     // MARK: Navigation
 
+    var isArchiveScreen: Bool {
+        switch screen {
+        case .archive, .archivedFolder: return true
+        case .folder, .scratch: return false
+        }
+    }
+
+    /// The back arrow, ⌘[, and ⌃[: closes search, and leaves the archive for the last folder. A folder
+    /// and Scratch have nothing above them.
     func goBack() {
         if search != nil { endSearch(restore: true, focusRoot: true); return }
-        if screen != .folders { showFolderList() }
+        if isArchiveScreen { showLastFolder() } else { NSSound.beep() }
     }
 
     var isFocusInsideNotes: Bool {
@@ -603,11 +549,10 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if w.firstResponder !== rootView { w.makeFirstResponder(rootView) }
     }
 
-    /// Keyboard navigation (arrows, j / k, ⌃W J / K) hides the hover of the card or folder under a
-    /// still pointer, so only the selection is highlighted. Moving the mouse or a click shows it again.
+    /// Keyboard navigation (arrows, j / k, ⌃W J / K) hides the hover of the card under a still
+    /// pointer, so only the selection is highlighted. Moving the mouse or a click shows it again.
     func setMouseHoverSuppressed(_ on: Bool) {
         if notesList?.hoverSuppressed != on { notesList?.hoverSuppressed = on }
-        if folderList?.hoverSuppressed != on { folderList?.hoverSuppressed = on }
     }
 
     func select(_ id: NoteID?) {
@@ -616,24 +561,18 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         focusRoot()
     }
 
-    func beginRenameFolder(_ id: FolderID) {
-        if screen != .folders || search != nil { showFolderList() }
-        reloadFolderList()
-        folderList.beginRename(id)
-    }
-
     // MARK: Creating
 
-    /// Folder for new notes: the open folder, else the selected / last / first folder.
+    /// Folder for new notes: the open folder, else the last / first folder.
     func targetFolderForNewNote() -> FolderID {
         if let id = currentFolderId, store.folder(id: id) != nil { return id }
-        if screen == .folders, let sel = folderList.selectedFolderID, store.folder(id: sel) != nil { return sel }
         if let id = env.settings.lastFolderId, store.folder(id: id) != nil { return id }
         return store.folders()[0].id
     }
 
     func plusPressed() {
-        if search == nil, screen == .folders { actions.newFolder() } else { createNewNote() }
+        // + on Scratch starts a new entry.
+        if search == nil, isScratchScreen { showScratch(edit: true) } else { createNewNote() }
     }
 
     func createNewNote() {
@@ -746,14 +685,8 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         notesList.setEmptyState(title: nil, subtitle: nil)
         focusedNoteID = nil
         screen = s.origin
-        if restore {
-            switch s.origin {
-            case .folders: reloadFolderList()
-            case .folder, .archive, .archivedFolder, .scratch: reloadNotes(animated: false)
-            }
-        }
+        if restore { reloadNotes(animated: false) }
         updateHeader()
-        setListVisibility()
         if shouldFocus { focusRoot() }
     }
 
@@ -858,23 +791,16 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         })
     }
 
-    /// Folder archive / unarchive from the UI (folder menu, ⌥⌘A / `ga` on the folder list, the Archive
-    /// menu): the selection moves to the neighbor row and a toast offers Undo.
+    /// Folder archive / unarchive from the UI (the chip's menu, the Archive menu): a toast offers Undo.
+    /// When the open folder is archived, the last folder shows (`handle(.folders)`).
     func setFolderArchived(_ archived: Bool, id: FolderID) {
         guard let f = archived ? store.folder(id: id) : store.archivedFolder(id: id) else { return }
         if archived, store.folders().count <= 1 { showToast("The last folder cannot be archived"); return }
-        let ids = folderList.folderIDs
-        var neighbor: FolderID?
-        if let i = ids.firstIndex(of: id) {
-            neighbor = i + 1 < ids.count ? ids[i + 1] : (i > 0 ? ids[i - 1] : nil)
-        }
-        let wasSelected = folderList.selectedFolderID == id
         actions.setFolderArchived(archived, id: id)
         let mark = actions.undoRegistrations
-        if archived, wasSelected { folderList.selectedFolderID = neighbor }
         dismissTrashToast()
         let name = store.folder(id: id)?.name ?? f.name
-        showToast(archived ? "Folder archived" : "“\(name)” is back in the folder list", actionTitle: "Undo", action: { [weak self] in
+        showToast(archived ? "Folder archived" : "“\(name)” is back with the folders", actionTitle: "Undo", action: { [weak self] in
             guard let self else { return }
             if self.actions.undoRegistrations == mark, self.panelUndo.canUndo {
                 self.panelUndo.undo()
@@ -930,11 +856,6 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     /// Kept for checks: ends the toast of the last delete.
     func commitPendingDeletion() { dismissTrashToast() }
 
-    private func refreshAfterPendingChange(animated: Bool) {
-        if search != nil { runSearch(animated: animated) } else if screen != .folders { reloadNotes(animated: animated) }
-        reloadFolderList()
-    }
-
     // MARK: Undo
 
     /// ⌘Z / ⇧⌘Z on the list (not while text is edited: the text keeps its own undo).
@@ -983,7 +904,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
         if let exp = notesList?.expandedNoteID, notesList?.card(for: exp) != nil { return exp }
         if let f = focusedNoteID, notesList?.card(for: f) != nil { return f }
         if let s = notesList?.selectedNoteID, notesList?.card(for: s) != nil, !notesList.isHidden { return s }
-        if notesVisible, let cards = notesList?.cards, !cards.isEmpty {
+        if let cards = notesList?.cards, !cards.isEmpty {
             return cards.first?.note.id
         }
         return nil
@@ -997,14 +918,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     var listContentHeight: CGFloat {
         guard let v = rootView else { return 0 }
         let m = Metrics.outerMargin
-        let bottom: CGFloat
-        if notesList != nil, !notesList.isHidden {
-            bottom = notesList.frame.minY + notesList.contentBottom
-        } else if folderList != nil, !folderList.isHidden {
-            bottom = folderList.frame.minY + folderList.contentBottom
-        } else {
-            bottom = m + Metrics.headerHeight
-        }
+        let bottom = notesList.map { $0.frame.minY + $0.contentBottom } ?? m + Metrics.headerHeight
         return min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m)
     }
 
@@ -1019,13 +933,14 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
 
     /// The toast sits just below the last element (at the bottom when the list fills the panel).
     private func layoutToast() {
-        guard let v = rootView, toast != nil else { return }
-        let b = v.bounds
+        defer { layoutCommandLine() }
+        guard rootView != nil, toast != nil else { return }
+        let b = rootView.bounds
         let m = Metrics.outerMargin
         let ts = toast.preferredSize(maxWidth: b.width - 4 * m)
         let lowest = b.height - m - ts.height - 8
         let y = min(listContentHeight - m + Metrics.gap, lowest)
-        let f = NSRect(x: (b.width - ts.width) / 2, y: max(y, 0), width: ts.width, height: ts.height)
+        let f = NSRect(x: b.minX + (b.width - ts.width) / 2, y: max(y, 0), width: ts.width, height: ts.height)
         if toast.frame != f { toast.frame = f }
     }
 
@@ -1041,19 +956,11 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     private func fitBackdrop() {
         guard let v = rootView, header != nil else { return }
         backdrop.isHidden = !CardGlass.isEnabled(env)
-        // The lists end at the panel bottom, where the backdrop does when it takes the full height.
+        // The list ends at the panel bottom, where the backdrop does when it takes the full height.
         notesList.clipsToBackdrop = !backdrop.isHidden
-        folderList.clipsToBackdrop = !backdrop.isHidden
         guard !backdrop.isHidden else { return }
         let m = Metrics.outerMargin
-        let bottom: CGFloat
-        if !notesList.isHidden {
-            bottom = notesList.frame.minY + notesList.contentBottom
-        } else if !folderList.isHidden {
-            bottom = folderList.frame.minY + folderList.contentBottom
-        } else {
-            bottom = m + Metrics.headerHeight
-        }
+        let bottom = notesList.frame.minY + notesList.contentBottom
         let f = NSRect(x: 0, y: 0, width: v.bounds.width, height: min(v.bounds.height, max(bottom, m + Metrics.headerHeight) + m))
         // The backdrop is where the cards are, in every frame. The list reports each frame of its
         // animations (cards, scroll), so the backdrop needs no animation of its own; one would only go
@@ -1110,7 +1017,7 @@ public final class NotesRootViewController: NSViewController, NotesPresenting {
     }
 
     private func handleClickOff(_ event: NSEvent) {
-        guard notesVisible, let hit = hitView(event) else { return }
+        guard let hit = hitView(event) else { return }
         if notesList.cards.contains(where: { $0.containsDescendant(hit) }) { return }
         guard focusedNoteID != nil || notesList.selectedNoteID != nil else { return }
         notesList.selectedNoteID = nil

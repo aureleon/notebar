@@ -30,14 +30,16 @@ Settings › General.
 | New note | `+`, ⌘N, or ⌃⌥⌘N from any app |
 | New note from the clipboard | ⌃⌥⌘V from any app |
 | Search | ⌘F (⌘/ searches all folders), or ⌃⌥⌘F from any app |
-| Scratch note | ⌃⌥⌘S from any app, or the Scratch button on the folder list |
-| Earlier or later Scratch day | ⇧⌘[ and ⇧⌘], or ◀ and ▶ in the header |
+| Open a folder | Click its name in the header, or ⌃Tab and ⌃⇧Tab for the next and the previous one |
+| New folder | ⇧⌘N, or **New Folder** in the **…** menu of the header |
+| Scratch note | ⌃⌥⌘S from any app, or the Scratch button (the pencil) in the header |
+| Earlier or later Scratch day | ⇧⌘[ and ⇧⌘], or ‹ and › beside the day in the header |
 | Go through the search results | Tab and ⇧Tab (from the search field, through the results, back to the field) |
 | Leave a note, then hide the panel | Esc |
-| Go back to the folder list | ⌘[ or the back button |
+| Go back from the Archive | ⌘[ or the back button |
 | Fold or unfold a note | ⌥⌘← and ⌥⌘→ (also while you type), or the fold button |
 | Archive or unarchive a note | ⌥⌘A (also while you type), or the archive button on the card |
-| Archive a folder | ⌥⌘A on the selected folder, or Archive Folder in its menu |
+| Archive a folder | Right-click its name in the header, then Archive Folder |
 | Move a note to a different folder | ⌘⇧M |
 | Settings | ⌘, |
 
@@ -85,8 +87,20 @@ The bottom-left corner of an unfolded card always shows two buttons:
 
 ## Folders
 
-- Folders hold your notes. You can give a folder a color, and pin it to the top of the list.
-- Drag notes and folders to change their order.
+- Folders hold your notes. The header shows the name of each folder. Click a name to open that
+  folder. The open folder is the filled one. NoteBar opens with the folder you used last.
+- When the names do not all fit, scroll them sideways. They fade at an end that has more.
+- ⌃Tab opens the next folder and ⌃⇧Tab the previous one (`gt` and `gT` with vim keys).
+- For a new folder, push ⇧⌘N, or click **…** in the header and choose **New Folder**. The new folder
+  opens, and you type its name in place. Return keeps the name, Esc keeps "New Folder".
+- Right-click a folder name for **New Note in Folder**, **Rename**, **Pin**, **Color**,
+  **Archive Folder**, and **Delete Folder…**. Rename edits the name in place. A pinned folder comes
+  first. A folder with a color shows a dot in that color.
+- Drag a folder name sideways to change the order. Drag notes to change their order in a folder.
+- Drop a note on a folder name to move it there. Drop a file, a picture, or text on a folder name
+  to make a note in that folder.
+- Hold the pointer on a folder name to see how many notes it has.
+- **…** in the header also has the **Archive**, **Recently Deleted**, and **Settings…**.
 - Search finds notes in the open folder. Click **All Folders** above the results to search all
   folders.
 
@@ -100,16 +114,16 @@ The bottom-left corner of an unfolded card always shows two buttons:
   and for menus. A deleted note or folder goes to the trash. To get it back, click Undo on the
   message, or push ⌘Z.
 - Settings › Data › Keep deleted items sets how long deleted items stay: until NoteBar quits, for
-  1 hour (the default), or for 30 days. Until then, you can find them in **Recently Deleted**, a row
-  at the end of the folder list. Click it to restore an item, to delete it now, or to empty the list.
+  1 hour (the default), or for 30 days. Until then, you can find them in **Recently Deleted**, in the
+  **…** menu of the header. There you can restore an item, delete it now, or empty the list.
   Delete Now also asks you first.
 
 ## Archive
 
 - To move a note to the archive, push ⌥⌘A or click the archive button. To get it back, click Undo
   on the message, or push ⌘Z.
-- The **Archive** row at the end of the folder list shows the archived notes of all folders. The
-  most recently archived note is first. Each card shows its folder. To put a note back in its folder,
+- **Archive › Archived Notes** in the **…** menu of the header shows the archived notes of all
+  folders. The back button (⌘[) leaves the Archive. The most recently archived note is first. Each card shows its folder. To put a note back in its folder,
   at its old position, push ⌥⌘A or click the button again.
 - Search does not show archived notes. To find them too, turn on the **Archive** chip above the
   results. A search in the Archive finds only archived notes.
@@ -117,14 +131,14 @@ The bottom-left corner of an unfolded card always shows two buttons:
 
 ### Archived folders
 
-- To archive a folder, right-click it and choose **Archive Folder**, or select it and push ⌥⌘A
-  (`ga` with vim keys). The folder and its notes leave the folder list. Undo on the message, or ⌘Z,
-  brings it back. You cannot archive the last folder.
-- While a folder is archived, a click on the **Archive** row opens a menu: **Archived Notes** opens
-  the archived notes, and each archived folder has **Open**, **Unarchive**, and **Delete Folder…**.
+- To archive a folder, right-click its name in the header and choose **Archive Folder**. The folder
+  and its notes leave the header. Undo on the message, or ⌘Z, brings it back. You cannot archive the
+  last folder.
+- **Archive** in the **…** menu lists each archived folder with **Open**, **Unarchive**, and
+  **Delete Folder…**.
 - An open archived folder shows its notes. You can edit them, but you cannot add notes or move them
   to a different folder.
-- Unarchive puts the folder back in the folder list with its notes. If another folder has the same
+- Unarchive puts the folder back in the header with its notes. If another folder has the same
   name now, the folder gets a number ("Work 2"). Notes that you archived on their own stay archived.
 - Search finds the notes of archived folders only with the **Archive** chip, or in the Archive.
 - A deleted archived folder goes to Recently Deleted. If you restore it, it goes back to the archive.
@@ -134,8 +148,9 @@ The bottom-left corner of an unfolded card always shows two buttons:
 The Scratch note is a throwaway note for the day: quick notes, a phone number, a to-do for this
 afternoon. Every day it starts empty. To keep something, save it as a note.
 
-- To open it, push ⌃⌥⌘S from any app, click the Scratch button (the pencil) on the folder list, or
-  choose **Scratch Note** in the menu bar icon's menu. NoteBar opens today's note, ready to type.
+- To open it, push ⌃⌥⌘S from any app, or choose **Scratch Note** in the menu bar icon's menu.
+  NoteBar opens today's note, ready to type. The Scratch button (the pencil) in the header shows
+  today's note without a new entry. The + button starts one.
 - The note is a log of entries, newest at the end. Each time you open it to type, a new entry starts
   below a thin line. The line shows the time when 30 minutes or more passed since the last time
   shown. If your last edit is less than 2 minutes old, you continue the last entry instead. An entry
@@ -145,7 +160,7 @@ afternoon. Every day it starts empty. To keep something, save it as a note.
 - Older entries are dimmer, so the newest one stands out. The entry you edit shows in full.
 - Right-click in an entry for **Save Entry as Note**, **Copy Entry**, **Mark Entry Done** (the entry
   is struck through) and **Delete Entry**.
-- ◀ and ▶ in the header (⇧⌘[ and ⇧⌘]) go to the earlier days that still have text. You can read and
+- While Scratch is open, its button shows the day. ‹ and › beside the day (⇧⌘[ and ⇧⌘]) go to the earlier days that still have text. You can read and
   copy earlier days, but you cannot change them.
 - **Save as Note** (the button on the card, or right-click) puts a copy in a folder you choose.
   The Scratch note keeps its text. In the copy, a rule (`---`) stands for each line between
@@ -195,9 +210,11 @@ NoteBar adds these keys:
 | Archive or unarchive the note | `ga`, `:archive`, `:unarchive` |
 | Delete the note (with the usual alert, undoable) | `gx`, `:delete` (`dd` on a selected note) |
 | Stop editing | `:q` |
-| Go up to the folder list | ⌃[ (in Insert mode, ⌃[ is Esc) |
-| Folder list | `j` `k` select, `gg` `G` first and last, `l` or Return opens, `o` new folder |
-| Selected folder | `R` or `cw` rename, `gp` pin, `gc` color, `gx` or `dd` delete (with the usual alert) |
+| Next or previous folder | `gt` and `gT`, on the notes list and in a note (like ⌃Tab and ⌃⇧Tab) |
+| Earlier or later Scratch day | `h` and `l` on Scratch, ⌃H and ⌃L while in the note |
+| Open a folder by name | `:folder name` (Tab completes), `:scratch` for Scratch. `:` works on the notes list too: a command line drops out of the header, above the notes |
+| Change the open folder | `:newfolder [name]`, `:rename [name]`, `:pinfolder`, `:archivefolder`, `:deletefolder` |
+| Go back from the Archive | ⌃[ (in Insert mode, ⌃[ is Esc) |
 
 ## Your data
 

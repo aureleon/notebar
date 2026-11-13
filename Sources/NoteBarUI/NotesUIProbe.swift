@@ -17,9 +17,6 @@ public final class NotesUIProbe {
     public var displayedNoteIDs: [NoteID] { list.noteIDs }
     public var liveEditorCount: Int { list.cards.filter(\.hasEditor).count }
     public var cardCount: Int { list.cards.count }
-    public var folderRowIDs: [FolderID] { root.folderList.folderIDs }
-    public var folderRowsVisible: Bool { !root.folderList.isHidden }
-    public var notesVisible: Bool { !list.isHidden }
     public var isSearching: Bool { root.search != nil }
     public var isToastVisible: Bool { root.toast.isShowing }
     /// Toast frame in the root view (flipped: y = 0 is the top).
@@ -30,17 +27,128 @@ public final class NotesUIProbe {
     public var focusedNoteID: NoteID? { root.focusedNoteID }
     public var pendingDeletion: NoteID? { root.pendingDeletion }
     public var headerTitle: String { root.header.isSearching ? "<search>" : root.currentHeaderTitle }
-    public var isSettingsButtonVisible: Bool { !root.header.settingsButton.isHidden }
+    // The header pill. Frames are in root view coordinates.
+    public var isBackButtonVisible: Bool { !root.header.backButton.isHidden }
+    public var isSearchButtonVisible: Bool { !root.header.searchButton.isHidden }
+    public var plusButtonToolTip: String? { root.header.plusButton.toolTip }
+    public var searchButtonFrame: NSRect { root.header.searchButton.convert(root.header.searchButton.bounds, to: root.view) }
+    public var plusButtonFrame: NSRect { root.header.plusButton.convert(root.header.plusButton.bounds, to: root.view) }
+    public var headerPillFrame: NSRect { root.header.convert(root.header.pillRect, to: root.view) }
+    public func clickBackButton() { root.header.backButton.onClick?(root.header.backButton) }
+    public func clickPlusButton() { root.header.plusButton.onClick?(root.header.plusButton) }
+
+    // Folder chips in the header. Keys: "scratch", "folder:<id>", "more".
+    private var tabs: FolderTabsView { root.folderTabs }
+    /// False in search and on the archive screens (title and back arrow instead).
+    public var folderTabsVisible: Bool { root.header.showsTabs }
+    /// The chips from left to right.
+    public var folderTabKeys: [String] { folderTabsVisible ? tabs.allChips.map { Self.tabKey($0.kind) } : [] }
+    public static func folderTabKey(_ id: FolderID) -> String { "folder:\(id)" }
+    public var activeFolderTabKey: String? { tabs.allChips.first(where: \.isActive).map { Self.tabKey($0.kind) } }
+    public func folderTabTitle(_ key: String) -> String? { tab(key)?.title }
+    public func folderTabToolTip(_ key: String) -> String? { tab(key)?.toolTip }
+    public func folderTabAccessibilityLabel(_ key: String) -> String? { tab(key)?.accessibilityLabel() }
+    public var folderTabsAccessibilityRole: NSAccessibility.Role? { tabs.accessibilityRole() }
+    /// Fill and text color of the chip when it is the open one.
+    public func folderTabFill(_ key: String) -> NSColor? { tab(key)?.fill }
+    public func folderTabInk(_ key: String) -> NSColor? { tab(key)?.ink }
+    public func folderTabShowsDot(_ key: String) -> Bool { tab(key)?.showsDot ?? false }
+    public func folderTabFrame(_ key: String) -> NSRect? { tab(key).map { $0.convert($0.bounds, to: root.view) } }
+    /// The strip (Scratch to "…") and the part the folder chips scroll in.
+    public var folderTabsFrame: NSRect { tabs.convert(tabs.bounds, to: root.view) }
+    public func clickFolderTab(_ key: String) { _ = tab(key)?.accessibilityPerformPress() }
+    public func setFolderTabHovered(_ key: String, _ on: Bool) { tab(key)?.setHoveredForSnapshot(on) }
+    public var folderTabsCanScroll: Bool { tabs.canScroll }
+    public var folderTabScrollOffset: CGFloat { tabs.scrollOffset }
+    public var folderTabMaxScrollOffset: CGFloat { tabs.maxScrollOffset }
+    public func scrollFolderTabs(by dx: CGFloat) { tabs.scroll(by: dx) }
+    /// Which ends of the chips fade out (more chips that way).
+    public var folderTabsFade: (left: Bool, right: Bool) { (tabs.fadesLeft, tabs.fadesRight) }
+    /// Whether the whole chip is inside the visible part of the strip (a scrolled-out chip is not).
+    public func isFolderTabInView(_ key: String) -> Bool { tab(key).map { tabs.isInView($0) } ?? false }
+    /// The menu of a right click on the chip, and running one of its items.
+    public func folderMenuItems(for id: FolderID) -> [String] {
+        tabs.chip(for: id)?.menuProvider?()?.items.filter { !$0.isSeparatorItem }.map(\.title) ?? []
+    }
+    /// `folderMenuRun(id, "Pin")`, `folderMenuRun(id, "Color", "Green")`.
+    public func folderMenuRun(_ id: FolderID, _ title: String, _ sub: String? = nil) {
+        guard var m = tabs.chip(for: id)?.menuProvider?(), var i = m.items.firstIndex(where: { $0.title == title }),
+              m.items[i].isEnabled else { return }
+        if let sub {
+            guard let s = m.items[i].submenu, let j = s.items.firstIndex(where: { $0.title == sub }) else { return }
+            (m, i) = (s, j)
+        }
+        m.performActionForItem(at: i)
+    }
+    /// The "…" menu: its titles ("-" for a separator), whether an item is enabled, and running one:
+    /// `moreMenuRun("New Folder")`.
+    public var moreMenuItems: [String] { root.moreMenu().items.map { $0.isSeparatorItem ? "-" : $0.title } }
+    public func moreMenuItemIsEnabled(_ title: String) -> Bool { root.moreMenu().items.first { $0.title == title }?.isEnabled ?? false }
+    public func moreMenuBadge(_ title: String) -> Int? { root.moreMenu().items.first { $0.title == title }?.badge?.itemCount }
+    public func moreMenuSubmenuTitles(_ title: String) -> [String] {
+        root.moreMenu().items.first { $0.title == title }?.submenu?.items.map(\.title) ?? []
+    }
+    public func moreMenuRun(_ title: String) {
+        let m = root.moreMenu()
+        guard let i = m.items.firstIndex(where: { $0.title == title }), m.items[i].isEnabled else { return }
+        m.performActionForItem(at: i)
+    }
+    /// A click on the "…" button (the menu goes to `captureMenus`).
+    public func clickMoreButton() { _ = tabs.moreButton.accessibilityPerformPress() }
+    // Inline rename on a chip.
+    public func beginRename(_ folderId: FolderID) { root.beginRenameFolder(folderId) }
+    public var renamingFolderID: FolderID? { tabs.renamingFolderID }
+    public var renameFieldText: String? { tabs.renameField?.stringValue }
+    public var renameFieldFrame: NSRect? { tabs.renameField.map { $0.convert($0.bounds, to: root.view) } }
+    public var renameFieldFont: NSFont? { tabs.renameField?.font }
+    public var isRenameFieldFocused: Bool { tabs.renameField?.currentEditor() != nil }
+    /// Types into the rename field (replaces its text), as the field editor does.
+    public func typeInRenameField(_ text: String) {
+        guard let f = tabs.renameField else { return }
+        f.stringValue = text
+        f.currentEditor()?.selectedRange = NSRange(location: (text as NSString).length, length: 0)
+        tabs.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: f))
+    }
+    /// Return (true) or Escape (false) in the rename field.
+    public func pressInRenameField(return commit: Bool) {
+        guard let f = tabs.renameField else { return }
+        _ = tabs.control(f, textView: NSTextView(), doCommandBy: commit ? #selector(NSResponder.insertNewline(_:))
+                                                                         : #selector(NSResponder.cancelOperation(_:)))
+    }
+    /// Commits a rename in progress, as a focus loss or hiding the panel does.
+    public func endRename() { tabs.endRename() }
+    /// A chip dropped in the gap before chip `gap`, and drops on a chip.
+    public func moveFolder(_ id: FolderID, toGap gap: Int) { tabs.onMoveFolder?(id, gap) }
+    public func folderTabGapIndex(atX x: CGFloat) -> Int { tabs.gapIndex(at: tabs.convert(NSPoint(x: x, y: 0), from: root.view)) }
+    public func dropNote(_ id: NoteID, onFolder fid: FolderID) { tabs.onDropNote?(id, fid) }
+    public func dropText(_ text: String, onFolder fid: FolderID) { tabs.onDropPayload?(.text(text), fid) }
+    public static var folderTabsAcceptedDragTypes: [NSPasteboard.PasteboardType] {
+        [.noteBarFolderID, .noteBarNoteID] + PasteboardImport.externalTypes
+    }
+    public var folderTabsRegisteredDragTypes: [NSPasteboard.PasteboardType] { tabs.registeredDraggedTypes }
+    private func tab(_ key: String) -> FolderChipView? {
+        tabs.allChips.first { Self.tabKey($0.kind) == key }
+    }
+    private static func tabKey(_ kind: FolderTabsView.Kind) -> String {
+        switch kind {
+        case .scratch: "scratch"
+        case .folder(let id): "folder:\(id)"
+        case .more: "more"
+        }
+    }
     // Scratch
-    public var isScratchButtonVisible: Bool { !root.header.scratchButton.isHidden }
-    public var isDayStepperVisible: Bool { !root.header.previousDayButton.isHidden }
-    public var canStepToEarlierDay: Bool { root.header.previousDayButton.isEnabled }
-    public var canStepToLaterDay: Bool { root.header.nextDayButton.isEnabled }
+    public var isScratchChipVisible: Bool { folderTabsVisible && tabs.scratchChip != nil }
+    /// The day on the open Scratch chip (nil: not open, or too narrow for it).
+    public var scratchChipTitle: String? { tabs.scratchChip.flatMap { $0.hidesTitle ? nil : $0.title } }
+    /// The ‹ › of the open Scratch chip (false: not open, or nothing that way).
+    public var canStepToEarlierDay: Bool { tabs.scratchChip?.stepper?.back ?? false }
+    public var canStepToLaterDay: Bool { tabs.scratchChip?.stepper?.forward ?? false }
+    /// A click on ‹ (-1) or › (+1) in the open Scratch chip. False: that way is off.
+    public func clickScratchChipStepper(_ delta: Int) -> Bool { tabs.scratchChip?.stepForChecks(delta) ?? false }
     /// The day the Scratch screen shows (nil: another screen).
     public var scratchDay: String? { if case .scratch(let d) = root.screen { return d }; return nil }
     public func showScratch(edit: Bool) { root.showScratch(edit: edit) }
     public func stepScratchDay(_ delta: Int) { root.stepScratchDay(delta) }
-    public func clickScratchButton() { root.header.scratchButton.onClick?(root.header.scratchButton) }
     public func isCardReadOnly(_ id: NoteID) -> Bool? { list.card(for: id)?.isReadOnly }
     public func isEditorReadOnly(_ id: NoteID) -> Bool? { list.card(for: id)?.editor?.isReadOnly }
     public func isPinButtonHidden(_ id: NoteID) -> Bool? { list.card(for: id).map { $0.pinButtonHiddenForChecks } }
@@ -85,8 +193,6 @@ public final class NotesUIProbe {
         list.card(for: id)?.foldedRowFramesForTesting
     }
     public func cardShowsHover(_ id: NoteID) -> Bool { list.card(for: id)?.isShowingHoverForTesting ?? false }
-    public func folderRowShowsHover(_ id: FolderID) -> Bool { root.folderList.row(for: id)?.isShowingHoverForTesting ?? false }
-    public func setFolderRowHovered(_ id: FolderID, _ on: Bool) { root.folderList.row(for: id)?.setHoveredForSnapshot(on) }
     /// A real mouse move (what the panel's event monitor sees).
     /// Menus the root would pop up go here instead (nil: pop up as usual).
     public func captureMenus(_ f: ((NSMenu) -> Void)?) { root.menuPopUpHook = f }
@@ -157,6 +263,16 @@ public final class NotesUIProbe {
         return root.handleKeyDown(ev)
     }
 
+    /// Synthesizes a key-down and sends it as a key equivalent (how ⌃ and ⌘ keys reach the root view).
+    @discardableResult
+    public func pressKeyEquivalent(keyCode: UInt16, characters: String, modifiers: NSEvent.ModifierFlags) -> Bool {
+        guard let ev = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                                        windowNumber: root.view.window?.windowNumber ?? 0, context: nil,
+                                        characters: characters, charactersIgnoringModifiers: characters,
+                                        isARepeat: false, keyCode: keyCode) else { return false }
+        return root.view.performKeyEquivalent(with: ev)
+    }
+
     /// Synthesizes a key-down straight to the first responder (a focused editor's text view).
     @discardableResult
     public func pressInFirstResponder(keyCode: UInt16, characters: String, modifiers: NSEvent.ModifierFlags = []) -> Bool {
@@ -188,15 +304,12 @@ public final class NotesUIProbe {
                                           windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 0) else { return }
         root.notesList(list, clicked: card, event: ev)
     }
-    public func beginRename(_ folderId: FolderID) { root.beginRenameFolder(folderId) }
     // Vim
     /// Runs a card command as if the card's editor sent it (`EditorEvent.vim`).
     public func vimCommand(_ cmd: VimCardCommand, on id: NoteID) {
         guard let card = list.card(for: id) else { return }
         root.notesList(list, card: card, editorEvent: .vim(cmd))
     }
-    public var selectedFolderID: FolderID? { root.folderList.selectedFolderID }
-    public var renamingFolderID: FolderID? { root.folderList.renamingFolderID }
     public var searchAllFolders: Bool? { root.search?.allFolders }
     public func isEditorFocused(_ id: NoteID) -> Bool { list.card(for: id)?.isEditorFocused ?? false }
     /// Whether the pointer at `p` (root view coordinates) gets the arrow cursor (else the text I-beam).
@@ -204,7 +317,6 @@ public final class NotesUIProbe {
         guard let sup = root.view.superview, let hit = root.view.hitTest(root.view.convert(p, to: sup)) else { return nil }
         return NotesRootViewController.wantsArrowCursor(over: hit)
     }
-    public func endRename() { root.folderList.endRename() }
     public func showMoveMenuItems(for id: NoteID) -> [String] {
         guard let n = root.store.note(id: id) else { return [] }
         return MenuBuilder.moveMenu(for: n, actions: root.actions).items.map { $0.isSeparatorItem ? "-" : $0.title }
@@ -232,22 +344,6 @@ public final class NotesUIProbe {
     public var canRedo: Bool { root.panelUndo.canRedo }
     public var undoActionName: String { root.panelUndo.undoActionName }
     public func deleteFolder(_ id: FolderID) { root.actions.deleteFolder(id) }
-    /// The Recently Deleted row's count (nil = hidden).
-    public var selectedSpecialRow: String? {
-        root.folderList.selectedSpecial.map { $0 == .archive ? "archive" : "trash" }
-    }
-    public var archiveRowCount: Int? { root.folderList.archiveRow == nil ? nil : root.folderList.archiveCount }
-    public func clickArchiveRow() { _ = root.folderList.archiveRow?.accessibilityPerformPress() }
-    public func selectFolder(_ id: FolderID?) { root.folderList.selectedFolderID = id }
-    /// Titles of a folder row's context menu, and running one of its items.
-    public func folderMenuItems(for id: FolderID) -> [String] {
-        MenuBuilder.folderContextMenu(for: root.store.folder(id: id), actions: root.actions).items.map(\.title)
-    }
-    public func folderMenuRun(_ id: FolderID, _ title: String) {
-        let m = MenuBuilder.folderContextMenu(for: root.store.folder(id: id), actions: root.actions)
-        guard let i = m.items.firstIndex(where: { $0.title == title }), m.items[i].isEnabled else { return }
-        m.performActionForItem(at: i)
-    }
     /// Titles of the Archive menu (top level), and running one of its items:
     /// `archiveMenuRun("Old Project", "Unarchive")`, `archiveMenuRun("Archived Notes")`.
     public var archiveMenuTitles: [String] { MenuBuilder.archiveMenu(actions: root.actions).items.map(\.title) }
@@ -279,7 +375,6 @@ public final class NotesUIProbe {
     public func setSearchIncludesArchive(_ on: Bool) { root.scopeBar.archiveChip.isOn = on; root.setSearchIncludesArchive(on) }
     public var isArchiveChipVisible: Bool { root.search != nil && !root.scopeBar.archiveChip.isHidden }
     public func cardFolderLabel(_ id: NoteID) -> String? { list.card(for: id)?.folderName }
-    public var trashRowCount: Int? { root.folderList.trashRow == nil ? nil : root.folderList.trashCount }
     /// Titles of the trash menu (top level), and running one of its item actions:
     /// `trashMenuRun("Shopping", "Restore")`, `trashMenuRun("Empty Recently Deleted…")`.
     public var trashMenuTitles: [String] { MenuBuilder.trashMenu(actions: root.actions).items.map(\.title) }
@@ -290,7 +385,6 @@ public final class NotesUIProbe {
         guard let menu = item.menu, let i = menu.items.firstIndex(of: item) else { return }
         menu.performActionForItem(at: i)
     }
-    /// Answers the folder delete alert (nil = show it).
     /// Answers destructive alerts with `f(messageText)` instead of showing them (nil: show them).
     public func onDestructiveAlert(_ f: ((String) -> Bool)?) { root.actions.confirmDestructiveAlert = f.map { f in { f($0.messageText) } } }
     /// Answers destructive alerts with `answer`. nil: an alert is a failed check and is cancelled; the
@@ -307,7 +401,6 @@ public final class NotesUIProbe {
     }
     public func moveToTop(_ id: NoteID) { root.actions.move(id, .top) }
     public func moveToBottom(_ id: NoteID) { root.actions.move(id, .bottom) }
-    public func moveFolder(_ id: FolderID, toGap gap: Int) { root.folderList.performFolderMove(id: id, gap: gap) }
     public var searchQuery: String? { root.search?.query }
 
     /// Pin button frame in the root view (nil if no card).
@@ -393,6 +486,14 @@ public final class NotesUIProbe {
         PasteboardImport.externalTypes.contains(type) && PasteboardImport.attachmentTypes.contains(type)
     }
     public var settings: AppSettings { root.env.settings }
+    // The `:` line of the notes list.
+    public var isCommandLineOpen: Bool { root.isCommandLineOpen }
+    public var commandLineFrame: NSRect? { root.isCommandLineOpen ? root.commandLine?.frame : nil }
+    public var commandLineText: String? { root.isCommandLineOpen ? root.commandLine?.text : nil }
+    public func typeCommandLine(_ text: String) { root.commandLine?.field.stringValue = text }
+    public func commandLineTab(_ delta: Int = 1) { root.commandLine?.complete(delta) }
+    public func submitCommandLine() { root.endCommandLine(run: root.commandLine?.text ?? "") }
+    public func cancelCommandLine() { root.endCommandLine(run: nil) }
     public func dismissToast() { root.dismissTrashToast(); root.toast.dismiss(expired: false) }
     public func showToast(_ text: String, action: String?) { root.showToast(text, actionTitle: action, action: action == nil ? nil : {}) }
 }
@@ -401,9 +502,9 @@ extension NotesRootViewController {
     /// Hooks for snapshots / checks.
     public var probe: NotesUIProbe { NotesUIProbe(root: self) }
 
+    /// The name of the screen (the archive screens show it in the header, the others have the chips).
     var currentHeaderTitle: String {
         switch screen {
-        case .folders: return "NoteBar"
         case .folder(let id): return store.folder(id: id)?.name ?? "Notes"
         case .archive: return "Archive"
         case .archivedFolder(let id): return store.archivedFolder(id: id)?.name ?? "Archive"

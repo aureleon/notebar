@@ -319,6 +319,10 @@ extension MarkdownNoteEditor {
         case .ctrl("w"):
             textView.deleteWordBackward(nil)
             return true
+        case .ctrl("h") where note.isScratch, .ctrl("l") where note.isScratch:
+            // Also while typing: Scratch opens in Insert mode.
+            send(.stepScratchDay(key == .ctrl("h") ? -1 : 1))
+            return true
         default:
             return false
         }
@@ -387,7 +391,10 @@ extension MarkdownNoteEditor {
                 let cmds: [Character: VimCardCommand] = ["p": .togglePin, "c": .showColorMenu, "m": .showMoveMenu,
                                                          "y": .copyNote, "f": .showFormatMenu, "x": .delete,
                                                          "e": .toggleExpand, "a": .toggleArchive]
-                if vim.pendingOperator == nil, let cmd = cmds[c] {
+                if vim.pendingOperator == nil, c == "t" || c == "T" {
+                    // gt / gT: the next / previous folder chip, as on the notes list.
+                    send(.stepFolder(c == "t" ? 1 : -1))
+                } else if vim.pendingOperator == nil, let cmd = cmds[c] {
                     send(cmd)
                 } else if vim.pendingOperator == nil, c == "j" || c == "k" {
                     // gj / gk: visual lines, the same as j / k here.
@@ -421,6 +428,11 @@ extension MarkdownNoteEditor {
         case .ctrl("w"):
             vim.resetPending()
             vim.windowArmedAt = Date()
+            return true
+        case .ctrl("h") where note.isScratch, .ctrl("l") where note.isScratch:
+            // Scratch: the earlier / later day (h / l do it on the notes list).
+            vim.resetPending()
+            send(.stepScratchDay(key == .ctrl("h") ? -1 : 1))
             return true
         case .ctrl("d"), .ctrl("u"):
             if vim.pendingOperator != nil || vim.pendingG || vim.pendingZ || vim.pendingReplace {
@@ -773,7 +785,25 @@ extension MarkdownNoteEditor {
 
     // MARK: Prompt (: / ?)
 
-    var promptHeight: CGFloat { vimPrompt == nil ? 0 : VimPromptView.height(font: style.bodyFont) }
+    /// The `:` / `/` line looks like the command line of the notes list: the code font, in a rounded field.
+    var promptFont: NSFont { style.font(size: style.fontSize - 1, mono: true) }
+    /// The room the host has for the line (`commandLineFrame`), if any.
+    var hostedPromptFrame: NSRect? { commandLineFrame?() }
+    /// Height the line adds to the editor: none when the host has room for it.
+    var promptHeight: CGFloat { vimPrompt == nil || hostedPromptFrame != nil ? 0 : VimPromptView.height(font: promptFont) }
+
+    /// In the host's room, else at the bottom of the editor (of the card when it is expanded).
+    func placeVimPrompt(measured: CGFloat, width w: CGFloat) {
+        guard let v = vimPrompt else { return }
+        if let f = hostedPromptFrame {
+            v.gapAbove = 0
+            v.frame = f
+        } else {
+            v.gapAbove = VimPromptView.gapAbove
+            let ph = VimPromptView.height(font: promptFont)
+            v.frame = NSRect(x: 0, y: max(measured, bounds.height - ph), width: w, height: ph)
+        }
+    }
 
     private func openPrompt(_ kind: VimState.PromptKind) {
         vim.resetPending()
@@ -802,7 +832,7 @@ extension MarkdownNoteEditor {
         guard let p = vim.prompt, let v = vimPrompt else { return }
         // While completing: which match this is ("2/5").
         let hint = p.completion.flatMap { $0.matches.count > 1 ? "\($0.index + 1)/\($0.matches.count)" : nil }
-        v.configure(prefix: String(p.kind.rawValue), text: p.text, hint: hint, font: mode == .code ? style.monoFont : style.bodyFont,
+        v.configure(prefix: String(p.kind.rawValue), text: p.text, hint: hint, font: promptFont,
                     color: style.text, secondary: style.text.withAlphaComponent(0.55))
     }
 
@@ -1167,7 +1197,11 @@ final class VimPromptView: NSView {
     private let label = NSTextField(labelWithString: "")
     private var lineColor: NSColor = .separatorColor
 
-    static func height(font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) + 10 }
+    /// Room above the field, and the field: the text line with some padding.
+    static let gapAbove: CGFloat = 8
+    static func height(font: NSFont) -> CGFloat { ceil(font.ascender - font.descender + font.leading) + 10 + gapAbove }
+    var gapAbove: CGFloat = VimPromptView.gapAbove { didSet { if oldValue != gapAbove { needsLayout = true; needsDisplay = true } } }
+    private var fieldRect: NSRect { NSRect(x: 0, y: gapAbove, width: bounds.width, height: bounds.height - gapAbove) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -1189,7 +1223,7 @@ final class VimPromptView: NSView {
         if let hint { s.append(NSAttributedString(string: "  " + hint, attributes: [.font: font, .foregroundColor: secondary])) }
         hintLength = hint.map { 2 + $0.count } ?? 0
         label.attributedStringValue = s
-        lineColor = secondary.withAlphaComponent(0.3)
+        lineColor = color
         needsLayout = true
         needsDisplay = true
     }
@@ -1205,11 +1239,17 @@ final class VimPromptView: NSView {
     override func layout() {
         super.layout()
         let h = ceil(label.intrinsicContentSize.height)
-        label.frame = NSRect(x: 0, y: 6 + max(0, (bounds.height - 6 - h) / 2), width: bounds.width, height: h)
+        let f = fieldRect
+        label.frame = NSRect(x: f.minX + 8, y: f.minY + max(0, (f.height - h) / 2), width: max(0, f.width - 16), height: h)
     }
 
+    /// A rounded field in a shade of the note's text color, so it fits every card color.
     override func draw(_ dirtyRect: NSRect) {
-        lineColor.setFill()
-        NSRect(x: 0, y: 2, width: bounds.width, height: 1).fill()
+        let path = NSBezierPath(roundedRect: fieldRect.insetBy(dx: 0.5, dy: 0.5), xRadius: 8, yRadius: 8)
+        lineColor.withAlphaComponent(0.06).setFill()
+        path.fill()
+        lineColor.withAlphaComponent(0.14).setStroke()
+        path.lineWidth = 1
+        path.stroke()
     }
 }

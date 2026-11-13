@@ -79,9 +79,9 @@ enum SnapshotMode {
         let panelSize = NSSize(width: panelWidth, height: 760)
         setSize(panelSize)
 
-        root.showFolderList()
-        render("01-folders-light", dark: false)
-        render("02-folders-dark", dark: true)
+        root.showFolder(seeded.work)
+        render("01-folder-light", dark: false)
+        render("02-folder-dark", dark: true)
 
         root.showFolder(seeded.notes)
         probe.createAllEditors()
